@@ -2,11 +2,17 @@
 node_modules/
 npm-debug.log
 yarn-error.log
+yarn-debug.*
 
 # Expo
 .expo/
 .expo-shared/
 dist/
+web-build/
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
 
 # Firebase
 .firebase/
@@ -21,6 +27,20 @@ functions/lib/
 # Credentials folder - NEVER commit these!
 creds/
 
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Generated native folders (Expo will create these)
+/ios
+/android
+
 # OS
 .DS_Store
 Thumbs.db
@@ -32,6 +52,10 @@ Thumbs.db
 *.swo
 *~
 
+# TypeScript
+*.tsbuildinfo
+
 # Env
 .env
 .env.local
+.env*.local
