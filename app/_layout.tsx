@@ -66,6 +66,9 @@ function AppContent() {
       <Stack.Screen name="index" />
       <Stack.Screen name="auth/login" />
       <Stack.Screen name="auth/register" />
+      <Stack.Screen name="auth/phone-login" />
+      <Stack.Screen name="auth/verify-otp" />
+      <Stack.Screen name="auth/setup-profile" />
       <Stack.Screen name="auth/edit-profile" />
       <Stack.Screen name="auth/complete-profile" />
       <Stack.Screen name="(tabs)" />

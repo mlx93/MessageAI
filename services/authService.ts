@@ -10,8 +10,11 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   User as FirebaseUser,
+  PhoneAuthProvider,
+  signInWithCredential,
+  RecaptchaVerifier,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, getDoc, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { User } from '../types';
 
@@ -339,3 +342,134 @@ export const signInWithApple = async (
   return user;
 };
 
+
+/**
+ * Phone Authentication Functions
+ */
+
+/**
+ * Send phone verification code via SMS
+ * 
+ * @param phoneNumber - Phone number in E.164 format (+1XXXXXXXXXX)
+ * @returns Verification ID to use in verifyPhoneCode
+ */
+export const sendPhoneVerificationCode = async (phoneNumber: string): Promise<string> => {
+  try {
+    const phoneProvider = new PhoneAuthProvider(auth);
+    
+    // For development/testing: use invisible reCAPTCHA
+    // Note: This works automatically on iOS/Android
+    // For web, you'd need to setup reCAPTCHA manually
+    
+    const verificationId = await phoneProvider.verifyPhoneNumber(
+      phoneNumber,
+      // @ts-ignore - reCAPTCHA not needed for React Native
+      null
+    );
+    
+    return verificationId;
+  } catch (error: any) {
+    console.error('Send phone verification error:', error);
+    throw new Error(error.message || 'Failed to send verification code');
+  }
+};
+
+/**
+ * Verify phone code and sign in user
+ * 
+ * @param verificationId - ID received from sendPhoneVerificationCode
+ * @param code - 6-digit code entered by user
+ * @returns User ID
+ */
+export const verifyPhoneCode = async (
+  verificationId: string,
+  code: string
+): Promise<string> => {
+  try {
+    const credential = PhoneAuthProvider.credential(verificationId, code);
+    const userCredential = await signInWithCredential(auth, credential);
+    return userCredential.user.uid;
+  } catch (error: any) {
+    console.error('Verify phone code error:', error);
+    throw new Error('Invalid verification code');
+  }
+};
+
+/**
+ * Check if user profile exists in Firestore
+ * 
+ * @param userId - Firebase Auth user ID
+ * @returns true if profile exists, false if new user
+ */
+export const checkIfUserExists = async (userId: string): Promise<boolean> => {
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    return userDoc.exists();
+  } catch (error) {
+    console.error('Check user exists error:', error);
+    return false;
+  }
+};
+
+/**
+ * Create user profile for phone-authenticated user
+ * 
+ * @param userId - Firebase Auth user ID
+ * @param phoneNumber - Phone number in E.164 format
+ * @param displayName - User's display name
+ * @param email - Optional email for account recovery
+ */
+export const createUserProfileWithPhone = async (
+  userId: string,
+  phoneNumber: string,
+  displayName: string,
+  email?: string
+): Promise<void> => {
+  try {
+    // Generate initials from display name
+    const nameParts = displayName.trim().split(' ');
+    const initials = nameParts.length >= 2
+      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+      : displayName.substring(0, 2).toUpperCase();
+
+    // Create user profile
+    const userProfile: User = {
+      uid: userId,
+      email: email || '',
+      displayName,
+      phoneNumber,
+      photoURL: null,
+      initials,
+      online: true,
+      lastSeen: new Date(),
+      createdAt: new Date(),
+      firstName: nameParts[0] || '',
+      lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
+    };
+
+    // Use batch write for atomicity
+    const batch = writeBatch(db);
+
+    // Write user profile
+    batch.set(doc(db, 'users', userId), userProfile);
+
+    // Create phone number index for uniqueness
+    batch.set(doc(db, 'usersByPhone', phoneNumber), {
+      uid: userId,
+      createdAt: new Date(),
+    });
+
+    // Create email index if email provided
+    if (email) {
+      batch.set(doc(db, 'usersByEmail', email.toLowerCase()), {
+        uid: userId,
+        createdAt: new Date(),
+      });
+    }
+
+    await batch.commit();
+  } catch (error: any) {
+    console.error('Create user profile error:', error);
+    throw new Error(error.message || 'Failed to create user profile');
+  }
+};
