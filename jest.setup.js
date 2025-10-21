@@ -25,6 +25,11 @@ jest.mock('firebase/firestore', () => ({
   where: jest.fn(),
   orderBy: jest.fn(),
   onSnapshot: jest.fn(),
+  writeBatch: jest.fn(() => ({
+    set: jest.fn(),
+    commit: jest.fn(),
+  })),
+  enableIndexedDbPersistence: jest.fn(() => Promise.reject(new Error('Mock'))),
   Timestamp: {
     now: jest.fn(() => ({ toDate: () => new Date() })),
   },
@@ -35,6 +40,10 @@ jest.mock('firebase/storage', () => ({
   ref: jest.fn(),
   uploadBytes: jest.fn(),
   getDownloadURL: jest.fn(),
+}));
+
+jest.mock('firebase/functions', () => ({
+  getFunctions: jest.fn(),
 }));
 
 // Mock Expo modules
@@ -59,5 +68,26 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: jest.fn(),
   removeItem: jest.fn(),
   clear: jest.fn(),
+}));
+
+// Mock expo modules
+jest.mock('expo', () => ({
+  __esModule: true,
+  default: {},
+}));
+
+jest.mock('expo-router', () => ({
+  router: {
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  },
+  useLocalSearchParams: jest.fn(() => ({})),
+  Stack: {
+    Screen: jest.fn(),
+  },
+  Tabs: {
+    Screen: jest.fn(),
+  },
 }));
 
