@@ -92,8 +92,12 @@ export default function ImportContactsScreen() {
         new Map(contactsList.map(c => [c.phoneNumber, c])).values()
       );
 
-      setDeviceContacts(uniqueContacts);
-      setFilteredContacts(uniqueContacts);
+      // Auto-select all contacts by default
+      const contactsWithSelection = uniqueContacts.map(c => ({ ...c, selected: true }));
+      
+      setDeviceContacts(contactsWithSelection);
+      setFilteredContacts(contactsWithSelection);
+      setSelectAll(true);
     } catch (error: any) {
       Alert.alert('Error', 'Failed to load contacts: ' + error.message);
     } finally {

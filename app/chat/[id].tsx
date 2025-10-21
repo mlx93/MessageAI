@@ -414,8 +414,8 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView 
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
     >
       {/* Add Participant Mode */}
       {isAddMode && (
@@ -735,6 +735,7 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
     padding: 12,
     borderTopWidth: 1,
     borderTopColor: '#E8E8E8',
@@ -743,6 +744,10 @@ const styles = StyleSheet.create({
   imageButton: {
     padding: 8,
     marginRight: 4,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   input: {
     flex: 1,
@@ -750,16 +755,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginRight: 8,
+    marginHorizontal: 8,
     maxHeight: 100,
+    minHeight: 40,
     fontSize: 16,
   },
   sendButton: {
     backgroundColor: '#007AFF',
     borderRadius: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 70,
   },
   sendButtonDisabled: {
     backgroundColor: '#C0C0C0',

@@ -77,7 +77,7 @@ export default function ContactsScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Contacts on App</Text>
+      <Text style={styles.title}>Your Contacts</Text>
       
       {/* Search by phone section */}
       <View style={styles.searchSection}>
