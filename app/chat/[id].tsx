@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
+import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { useAuth } from '../../store/AuthContext';
 import { subscribeToMessages, sendMessage, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
 import { updateConversationLastMessage, addParticipantToConversation } from '../../services/conversationService';
@@ -317,6 +318,31 @@ export default function ChatScreen() {
     }
   }, [inputText, conversationId, user, isOnline]);
 
+  // Format read receipt like iMessage
+  const formatReadReceipt = (message: Message): string | null => {
+    if (!message.readBy || message.readBy.length <= 1) return null;
+    
+    // Get the latest read timestamp (excluding sender)
+    const otherReaders = message.readBy.filter(uid => uid !== user?.uid);
+    if (otherReaders.length === 0) return null;
+    
+    const readTime = message.timestamp; // In production, you'd track actual read time
+    const now = new Date();
+    
+    if (isToday(readTime)) {
+      return `Read ${format(readTime, 'h:mm a')}`;
+    } else if (isYesterday(readTime)) {
+      return 'Read Yesterday';
+    } else {
+      const daysDiff = Math.floor((now.getTime() - readTime.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysDiff < 7) {
+        return `Read ${format(readTime, 'EEEE')}`;  // "Read Monday"
+      } else {
+        return `Read ${format(readTime, 'M/d/yy')}`;
+      }
+    }
+  };
+
   const handlePickImage = async () => {
     if (!user) return;
 
@@ -486,55 +512,71 @@ export default function ChatScreen() {
         {messages.map((message, index) => {
           const isOwnMessage = message.senderId === user.uid;
           const isImageMessage = message.type === 'image' && message.mediaURL;
+          const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
+          const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
           
           return (
-            <View 
-              key={`${message.id}-${index}`} 
-              style={[
-                styles.messageBubble,
-                isOwnMessage ? styles.ownMessage : styles.otherMessage,
-                isImageMessage && styles.imageMessageBubble
-              ]}
-            >
-              {!isOwnMessage && (
-                <Text style={styles.senderName}>
-                  {message.senderId === user.uid ? 'You' : 'User'}
-                </Text>
-              )}
-              
-              {isImageMessage ? (
-                <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
-                  <Image 
-                    source={{ uri: message.mediaURL }} 
-                    style={styles.messageImage}
-                    resizeMode="cover"
-                  />
-                </TouchableOpacity>
-              ) : (
-                <Text style={[styles.messageText, { color: isOwnMessage ? '#fff' : '#000' }]}>
-                  {message.text}
-                </Text>
-              )}
-              
-              <View style={styles.messageFooter}>
-                <Text style={[styles.messageTime, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : '#999' }]}>
-                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-                {isOwnMessage && (
-                  <Text style={styles.messageStatus}>
-                    {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : '✓'}
+            <View key={`${message.id}-${index}`} style={styles.messageContainer}>
+              <View 
+                style={[
+                  styles.messageBubble,
+                  isOwnMessage ? styles.ownMessage : styles.otherMessage,
+                  isImageMessage && styles.imageMessageBubble
+                ]}
+              >
+                {!isOwnMessage && (
+                  <Text style={styles.senderName}>
+                    {message.senderId === user.uid ? 'You' : 'User'}
                   </Text>
                 )}
+                
+                {isImageMessage ? (
+                  <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                    <Image 
+                      source={{ uri: message.mediaURL }} 
+                      style={styles.messageImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.messageText, { color: isOwnMessage ? '#fff' : '#000' }]}>
+                    {message.text}
+                  </Text>
+                )}
+                
+                <View style={styles.messageFooter}>
+                  <Text style={[styles.messageTime, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : '#999' }]}>
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                  {isOwnMessage && (
+                    <Text style={styles.messageStatus}>
+                      {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : '✓'}
+                    </Text>
+                  )}
+                </View>
               </View>
+              
+              {/* iMessage-style read receipt below bubble */}
+              {readReceipt && isLastInGroup && (
+                <Text style={[styles.readReceipt, isOwnMessage && styles.readReceiptOwn]}>
+                  {readReceipt}
+                </Text>
+              )}
             </View>
           );
         })}
       </ScrollView>
 
-      {/* Typing Indicator */}
+      {/* Typing Indicator - iMessage style */}
       {typingText && (
-        <View style={styles.typingIndicator}>
-          <Text style={styles.typingText}>{typingText}</Text>
+        <View style={styles.typingIndicatorContainer}>
+          <View style={styles.typingBubble}>
+            <View style={styles.typingDotsContainer}>
+              <View style={[styles.typingDot, styles.typingDot1]} />
+              <View style={[styles.typingDot, styles.typingDot2]} />
+              <View style={[styles.typingDot, styles.typingDot3]} />
+            </View>
+          </View>
         </View>
       )}
 
@@ -660,17 +702,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  typingIndicator: {
-    backgroundColor: '#F8F8F8',
+  typingIndicatorContainer: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E8E8',
   },
-  typingText: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+  typingBubble: {
+    backgroundColor: '#E8E8E8',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignSelf: 'flex-start',
+    maxWidth: '80%',
+  },
+  typingDotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#999',
+  },
+  typingDot1: {
+    opacity: 0.4,
+  },
+  typingDot2: {
+    opacity: 0.7,
+  },
+  typingDot3: {
+    opacity: 1,
   },
   offlineBanner: {
     backgroundColor: '#ff9800',
@@ -687,11 +750,14 @@ const styles = StyleSheet.create({
   messagesContent: {
     padding: 16,
   },
+  messageContainer: {
+    marginBottom: 4,
+  },
   messageBubble: {
     maxWidth: '80%',
     padding: 12,
     borderRadius: 16,
-    marginBottom: 8,
+    marginBottom: 2,
   },
   imageMessageBubble: {
     padding: 4,
@@ -733,41 +799,61 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255,255,255,0.9)',
   },
+  readReceipt: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  readReceiptOwn: {
+    textAlign: 'right',
+    alignSelf: 'flex-end',
+  },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E8E8',
-    backgroundColor: '#fff',
+    alignItems: 'flex-end',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingBottom: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: '#D1D1D6',
+    backgroundColor: '#F8F8F8',
   },
   imageButton: {
     padding: 8,
     marginRight: 4,
-    width: 44,
-    height: 44,
+    marginBottom: 4,
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
   },
   input: {
     flex: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#fff',
     borderRadius: 20,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    marginHorizontal: 8,
+    paddingTop: 9,
+    marginHorizontal: 6,
     maxHeight: 100,
-    minHeight: 40,
-    fontSize: 16,
+    minHeight: 36,
+    fontSize: 17,
+    lineHeight: 20,
   },
   sendButton: {
     backgroundColor: '#007AFF',
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 70,
+    minWidth: 60,
+    height: 36,
+    marginBottom: 4,
   },
   sendButtonDisabled: {
     backgroundColor: '#C0C0C0',

@@ -16,6 +16,7 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: '#8E8E93',
         headerShown: true,
         headerBackTitleVisible: false,
+        headerBackTitle: '',
         headerTintColor: '#007AFF',
       }}
     >
