@@ -45,6 +45,15 @@ export default function RootLayout() {
         <Stack.Screen name="auth/complete-profile" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen 
+          name="contacts/import" 
+          options={{ 
+            headerShown: true,
+            title: 'Import Contacts',
+            headerBackTitleVisible: false,
+            presentation: 'card',
+          }} 
+        />
+        <Stack.Screen 
           name="chat/[id]" 
           options={{ 
             headerShown: true,

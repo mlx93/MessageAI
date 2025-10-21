@@ -1,7 +1,7 @@
 import { View, FlatList, Text, TouchableOpacity, TextInput, Button, Alert, StyleSheet } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
-import { getUserContacts, importContacts, searchUserByPhone } from '../../services/contactService';
+import { getUserContacts, searchUserByPhone } from '../../services/contactService';
 import { router } from 'expo-router';
 
 interface Contact {
@@ -18,34 +18,28 @@ export default function ContactsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchPhone, setSearchPhone] = useState('');
   const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    loadContacts();
-  }, []);
+    if (user) {
+      loadContacts();
+    }
+  }, [user]);
 
   const loadContacts = async () => {
     if (!user) return;
     
     try {
-      setImporting(true);
-      // Try to import contacts if first time
-      await importContacts(user.uid);
-    } catch (error: any) {
-      console.log('Import contacts error:', error);
-      if (error.message !== 'Contacts permission denied') {
-        Alert.alert('Error', 'Failed to import contacts: ' + error.message);
-      }
-    } finally {
-      setImporting(false);
-    }
-    
-    try {
       const userContacts = await getUserContacts(user.uid);
-      setContacts(userContacts.filter(c => c.isAppUser) as Contact[]);
+      // Show ALL contacts, not just app users
+      setContacts(userContacts as Contact[]);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to load contacts: ' + error.message);
+      console.log('Failed to load contacts:', error);
+      // Silently fail - user can manually import
     }
+  };
+
+  const handleImportContacts = () => {
+    router.push('/contacts/import');
   };
 
   const startConversation = async (contactUserId: string) => {
@@ -101,20 +95,19 @@ export default function ContactsScreen() {
         />
       </View>
       
-      {/* Refresh contacts button */}
+      {/* Import contacts button */}
       <TouchableOpacity 
         style={styles.refreshButton}
-        onPress={loadContacts}
-        disabled={importing}
+        onPress={handleImportContacts}
       >
         <Text style={styles.refreshText}>
-          {importing ? 'Importing Contacts...' : '🔄 Import Contacts'}
+          📱 Import Contacts
         </Text>
       </TouchableOpacity>
       
-      {importing && (
-        <Text style={styles.importingSubtext}>
-          Scanning your contacts for app users...
+      {contacts.length === 0 && (
+        <Text style={styles.helpText}>
+          Tap the button above to select contacts to import
         </Text>
       )}
       
@@ -124,27 +117,39 @@ export default function ContactsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity 
-            onPress={() => item.appUserId && startConversation(item.appUserId)}
-            style={styles.contactItem}
+            onPress={() => item.isAppUser && item.appUserId && startConversation(item.appUserId)}
+            style={[styles.contactItem, !item.isAppUser && styles.contactItemDisabled]}
+            disabled={!item.isAppUser}
           >
-            <View style={styles.contactAvatar}>
+            <View style={[styles.contactAvatar, !item.isAppUser && styles.contactAvatarDisabled]}>
               <Text style={styles.contactInitials}>
                 {item.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
               </Text>
             </View>
             <View style={styles.contactInfo}>
-              <Text style={styles.contactName}>{item.name}</Text>
+              <Text style={[styles.contactName, !item.isAppUser && styles.contactNameDisabled]}>
+                {item.name}
+              </Text>
               <Text style={styles.contactPhone}>{item.phoneNumber}</Text>
+              {!item.isAppUser && (
+                <Text style={styles.notOnAppText}>Not on MessageAI</Text>
+              )}
             </View>
-            <View style={styles.chatButton}>
-              <Text style={styles.chatButtonText}>Chat</Text>
-            </View>
+            {item.isAppUser ? (
+              <View style={styles.chatButton}>
+                <Text style={styles.chatButtonText}>Chat</Text>
+              </View>
+            ) : (
+              <View style={styles.inviteButton}>
+                <Text style={styles.inviteButtonText}>Invite</Text>
+              </View>
+            )}
           </TouchableOpacity>
         )}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No contacts found on the app</Text>
-            <Text style={styles.emptySubtext}>Invite friends to join or search by phone number above</Text>
+            <Text style={styles.emptyText}>No contacts imported yet</Text>
+            <Text style={styles.emptySubtext}>Tap "Import Contacts" above to get started</Text>
           </View>
         }
       />
@@ -186,12 +191,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  importingSubtext: {
-    fontSize: 14,
-    color: '#666',
+  helpText: {
+    fontSize: 15,
+    color: '#999',
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    paddingHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 15,
   },
   contactItem: {
     flexDirection: 'row',
@@ -199,6 +205,9 @@ const styles = StyleSheet.create({
     padding: 15,
     borderBottomWidth: 1,
     borderColor: '#eee',
+  },
+  contactItemDisabled: {
+    opacity: 0.6,
   },
   contactAvatar: {
     width: 50,
@@ -208,6 +217,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 15,
+  },
+  contactAvatarDisabled: {
+    backgroundColor: '#C0C0C0',
   },
   contactInitials: {
     color: 'white',
@@ -221,10 +233,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
+    color: '#000',
+  },
+  contactNameDisabled: {
+    color: '#999',
   },
   contactPhone: {
     fontSize: 14,
     color: '#666',
+  },
+  notOnAppText: {
+    fontSize: 12,
+    color: '#FF9500',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   chatButton: {
     backgroundColor: '#007AFF',
@@ -234,6 +256,18 @@ const styles = StyleSheet.create({
   },
   chatButtonText: {
     color: '#fff',
+    fontWeight: '600',
+  },
+  inviteButton: {
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#C0C0C0',
+  },
+  inviteButtonText: {
+    color: '#666',
     fontWeight: '600',
   },
   emptyState: {

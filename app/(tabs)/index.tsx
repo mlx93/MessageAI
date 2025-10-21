@@ -23,7 +23,10 @@ export default function ConversationsScreen() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setConversations([]); // Clear conversations when user signs out
+      return;
+    }
     
     const unsubscribe = getUserConversations(user.uid, (convos) => {
       setConversations(convos);
@@ -33,12 +36,13 @@ export default function ConversationsScreen() {
   }, [user]);
 
   const getConversationTitle = (conversation: Conversation) => {
+    if (!user) return 'Chat';
     if (conversation.type === 'direct') {
-      const otherUserId = conversation.participants.find(id => id !== user!.uid);
+      const otherUserId = conversation.participants.find(id => id !== user.uid);
       return conversation.participantDetails[otherUserId!]?.displayName || 'Unknown';
     } else {
       const names = conversation.participants
-        .filter(id => id !== user!.uid)
+        .filter(id => id !== user.uid)
         .map(id => conversation.participantDetails[id]?.displayName.split(' ')[0])
         .slice(0, 3)
         .join(', ');
@@ -47,8 +51,9 @@ export default function ConversationsScreen() {
   };
 
   const getInitials = (conversation: Conversation) => {
+    if (!user) return '?';
     if (conversation.type === 'direct') {
-      const otherUserId = conversation.participants.find(id => id !== user!.uid);
+      const otherUserId = conversation.participants.find(id => id !== user.uid);
       return conversation.participantDetails[otherUserId!]?.initials || '?';
     }
     return '👥';  // Group icon
@@ -77,7 +82,8 @@ export default function ConversationsScreen() {
   };
 
   const renderItem = ({ item }: { item: Conversation }) => {
-    const unreadCount = item.participantDetails[user!.uid]?.unreadCount || 0;
+    if (!user) return null; // Safety check
+    const unreadCount = item.participantDetails[user.uid]?.unreadCount || 0;
     
     return (
       <TouchableOpacity 
