@@ -89,10 +89,6 @@ export const getUserConversations = (userId: string, callback: (conversations: C
       .filter(conversation => {
         const deletedBy = conversation.deletedBy || [];
         return !deletedBy.includes(userId);
-      })
-      // Filter out archived conversations (from conversation splitting)
-      .filter(conversation => {
-        return !conversation.archivedAt;
       });
     callback(conversations);
   });
@@ -212,14 +208,21 @@ export const deleteConversation = async (conversationId: string, userId: string)
  * Split conversation when participants change
  * 
  * When participants are added or removed from a conversation, this function:
- * 1. Archives the old conversation (sets archivedAt timestamp)
+ * 1. Keeps the old conversation active for original participants
  * 2. Creates a new conversation with the new participant set
  * 3. Returns the new conversation ID
  * 
  * This ensures:
- * - People who leave can't see new messages
- * - New people can't see old messages
+ * - Original participants can still access old conversation and history
+ * - New people can't see old messages (they're not in old conversation)
+ * - People who leave can still see old messages but not new ones
  * - Message history is preserved per participant set
+ * 
+ * Example:
+ * - User A and B have conversation with 100 messages
+ * - User A adds User C
+ * - Old conversation (A+B) remains visible to both A and B with all history
+ * - New conversation (A+B+C) starts fresh for all 3 users
  * 
  * @param oldConversationId - ID of the existing conversation
  * @param newParticipantIds - Array of participant IDs for the new conversation
@@ -252,11 +255,9 @@ export const splitConversation = async (
 
     console.log(`🔀 Splitting conversation: ${oldParticipants.length} → ${newParticipants.length} participants`);
 
-    // Archive the old conversation
+    // DON'T archive the old conversation - keep it active for original participants
+    // Just update the timestamp so it doesn't interfere with sorting
     await updateDoc(doc(db, 'conversations', oldConversationId), {
-      archivedAt: Timestamp.now(),
-      archivedBy: initiatorId,
-      archivedReason: 'participants_changed',
       updatedAt: Timestamp.now(),
     });
 
@@ -264,8 +265,8 @@ export const splitConversation = async (
     const newConversationId = await createOrGetConversation(newParticipantIds);
 
     console.log(`✅ Conversation split: ${oldConversationId} → ${newConversationId}`);
-    console.log(`   Old: [${oldParticipants.join(', ')}]`);
-    console.log(`   New: [${newParticipants.join(', ')}]`);
+    console.log(`   Old conversation kept active: [${oldParticipants.join(', ')}]`);
+    console.log(`   New conversation created: [${newParticipants.join(', ')}]`);
 
     return newConversationId;
   } catch (error) {

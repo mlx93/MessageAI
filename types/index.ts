@@ -40,9 +40,6 @@ export interface Conversation {
   type: 'direct' | 'group';
   participants: string[]; // Array of user IDs
   deletedBy?: string[]; // Array of user IDs who deleted this conversation (per-user deletion)
-  archivedAt?: Date; // When conversation was archived (for conversation splitting)
-  archivedBy?: string; // User ID who triggered the archive
-  archivedReason?: string; // Reason for archiving (e.g., 'participants_changed')
   lastMessage: {
     text: string;
     timestamp: Date;
