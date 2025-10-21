@@ -12,6 +12,10 @@ import { v4 as uuidv4 } from 'uuid';
  * @param currentUserId - ID of the current user (required for querying existing groups)
  */
 export const createOrGetConversation = async (participantIds: string[], currentUserId: string): Promise<string> => {
+  if (!currentUserId) {
+    throw new Error('currentUserId is required');
+  }
+  
   const sorted = [...participantIds].sort();
   
   // For direct messages, check if conversation exists by deterministic ID
@@ -33,30 +37,35 @@ export const createOrGetConversation = async (participantIds: string[], currentU
   
   // For groups, check if conversation with same participants already exists
   if (participantIds.length >= 3) {
-    try {
-      // Query conversations where CURRENT USER is a participant (avoids permission errors)
-      const q = query(
-        collection(db, 'conversations'),
-        where('participants', 'array-contains', currentUserId)
-      );
-      const snapshot = await getDocs(q);
-      
-      // Filter locally for exact participant match
-      for (const docSnap of snapshot.docs) {
-        const conv = docSnap.data() as Conversation;
-        const convParticipants = [...conv.participants].sort();
+    // Ensure current user is in the participant list
+    if (!participantIds.includes(currentUserId)) {
+      console.warn(`⚠️ Current user ${currentUserId} is not in participant list, cannot query existing groups`);
+    } else {
+      try {
+        // Query conversations where CURRENT USER is a participant (avoids permission errors)
+        const q = query(
+          collection(db, 'conversations'),
+          where('participants', 'array-contains', currentUserId)
+        );
+        const snapshot = await getDocs(q);
         
-        // Check if participants arrays are identical
-        if (convParticipants.length === sorted.length && 
-            convParticipants.every((val, index) => val === sorted[index])) {
-          console.log(`✅ Found existing group conversation: ${docSnap.id}`);
-          return docSnap.id;
+        // Filter locally for exact participant match
+        for (const docSnap of snapshot.docs) {
+          const conv = docSnap.data() as Conversation;
+          const convParticipants = [...conv.participants].sort();
+          
+          // Check if participants arrays are identical
+          if (convParticipants.length === sorted.length && 
+              convParticipants.every((val, index) => val === sorted[index])) {
+            console.log(`✅ Found existing group conversation: ${docSnap.id}`);
+            return docSnap.id;
+          }
         }
+        console.log(`🔍 No existing group found with ${sorted.length} participants, creating new one`);
+      } catch (queryError) {
+        console.error('Error querying for existing group:', queryError);
+        // Continue to create new conversation if query fails
       }
-      console.log(`🔍 No existing group found with ${sorted.length} participants, creating new one`);
-    } catch (queryError) {
-      console.error('Error querying for existing group:', queryError);
-      // Continue to create new conversation if query fails
     }
   }
   
@@ -308,6 +317,7 @@ export const splitConversation = async (
     }
 
     console.log(`🔀 Splitting conversation: ${oldParticipants.length} → ${newParticipants.length} participants`);
+    console.log(`   Initiator ID: ${initiatorId}`);
 
     // Check if target conversation already exists
     let existingNewConversationId: string;
