@@ -11,6 +11,37 @@ import { Platform } from 'react-native';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
+// Suppress console warnings for Android Expo Go limitations
+const originalWarn = console.warn;
+const originalError = console.error;
+
+// Filter out known Expo Go Android notification warnings
+console.warn = (...args) => {
+  const message = args[0]?.toString() || '';
+  if (
+    message.includes('expo-notifications') &&
+    message.includes('Expo Go') &&
+    Platform.OS === 'android'
+  ) {
+    // Suppress Expo Go Android notification warnings
+    return;
+  }
+  originalWarn.apply(console, args);
+};
+
+console.error = (...args) => {
+  const message = args[0]?.toString() || '';
+  if (
+    message.includes('expo-notifications') &&
+    (message.includes('Expo Go') || message.includes('development build')) &&
+    Platform.OS === 'android'
+  ) {
+    // Suppress Expo Go Android notification errors - these are expected
+    return;
+  }
+  originalError.apply(console, args);
+};
+
 /**
  * Configure notification handler
  * Determines how notifications are displayed when app is in foreground
@@ -37,13 +68,21 @@ export const registerForPushNotifications = async (userId: string): Promise<stri
   try {
     // Check if device (not web)
     if (!Device.isDevice && Platform.OS !== 'ios' && Platform.OS !== 'android') {
-      console.log('📱 Push notifications not available on web');
+      if (__DEV__) {
+        console.log('📱 Push notifications not available on web');
+      }
       return null;
     }
 
-    // Expo Go limitation: Android doesn't support push notifications
-    if (Platform.OS === 'android' && !Device.isDevice) {
-      console.log('📱 Push notifications not supported in Android Expo Go - use development build');
+    // Expo Go limitation: Android doesn't support push notifications (SDK 53+)
+    if (Platform.OS === 'android') {
+      if (__DEV__) {
+        console.log(
+          '📱 [Android] Push notifications disabled in Expo Go.\n' +
+          '   ℹ️  To enable: create a development build with `npx expo run:android`\n' +
+          '   ℹ️  App works perfectly without notifications in development!'
+        );
+      }
       return null;
     }
 

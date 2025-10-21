@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, query, where, getDocs, orderBy, onSnapshot, Timestamp, Unsubscribe } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -38,7 +38,7 @@ export const createOrGetConversation = async (participantIds: string[]): Promise
       const userData = userSnap.data() as User;
       participantDetails[uid] = {
         displayName: userData.displayName,
-        photoURL: userData.photoURL,
+        ...(userData.photoURL && { photoURL: userData.photoURL }), // Only include if not null/undefined
         initials: userData.initials,
         unreadCount: 0
       };
@@ -123,7 +123,7 @@ export const addParticipantToConversation = async (conversationId: string, userI
     const userData = userSnap.data() as User;
     conversation.participantDetails[userId] = {
       displayName: userData.displayName,
-      photoURL: userData.photoURL,
+      ...(userData.photoURL && { photoURL: userData.photoURL }), // Only include if not null/undefined
       initials: userData.initials,
       unreadCount: 0
     };
@@ -159,5 +159,39 @@ export const getConversation = async (conversationId: string): Promise<Conversat
       timestamp: data.lastMessage?.timestamp?.toDate() || new Date()
     }
   } as Conversation;
+};
+
+/**
+ * Delete a conversation
+ * Only deletes the conversation document, not the messages
+ * For full deletion, messages would need to be deleted separately
+ */
+export const deleteConversation = async (conversationId: string, userId: string): Promise<void> => {
+  try {
+    // Verify user is a participant
+    const conversationSnap = await getDoc(doc(db, 'conversations', conversationId));
+    if (!conversationSnap.exists()) {
+      throw new Error('Conversation not found');
+    }
+    
+    const conversation = conversationSnap.data() as Conversation;
+    if (!conversation.participants.includes(userId)) {
+      throw new Error('Not authorized to delete this conversation');
+    }
+    
+    // Delete the conversation document
+    await deleteDoc(doc(db, 'conversations', conversationId));
+    
+    // Note: Messages are left in place but won't be accessible without the conversation
+    // In a production app, you might want to either:
+    // 1. Keep messages for archival/legal purposes
+    // 2. Delete them in a batch or Cloud Function
+    // 3. Mark conversation as "deleted" instead of actually deleting
+    
+    console.log(`✅ Conversation ${conversationId} deleted`);
+  } catch (error) {
+    console.error('Delete conversation error:', error);
+    throw error;
+  }
 };
 

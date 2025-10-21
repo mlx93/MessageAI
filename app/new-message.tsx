@@ -3,6 +3,7 @@ import { View, TextInput, FlatList, Text, TouchableOpacity, StyleSheet, ScrollVi
 import { router, useNavigation } from 'expo-router';
 import { useAuth } from '../store/AuthContext';
 import { searchUserByPhone, getUserContacts } from '../services/contactService';
+import { formatPhoneNumber } from '../utils/phoneFormat';
 import { createOrGetConversation, updateConversationLastMessage } from '../services/conversationService';
 import { sendMessage } from '../services/messageService';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,6 +28,8 @@ export default function NewMessageScreen() {
     navigation.setOptions({
       title: 'New Message',
       headerBackTitleVisible: false,
+      headerBackTitle: '', // Remove back button text
+      headerShown: true,
     });
   }, []);
 
@@ -172,7 +175,7 @@ export default function NewMessageScreen() {
                 </View>
                 <View style={styles.resultInfo}>
                   <Text style={styles.resultName}>{item.displayName}</Text>
-                  <Text style={styles.resultPhone}>{item.phoneNumber}</Text>
+                  <Text style={styles.resultPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
                 </View>
               </TouchableOpacity>
             )}

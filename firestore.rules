@@ -21,13 +21,13 @@ service cloud.firestore {
     // Users by email index (for uniqueness)
     match /usersByEmail/{email} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
     
     // Users by phone index (for uniqueness)
     match /usersByPhone/{phone} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
     
     // Conversations
@@ -36,6 +36,8 @@ service cloud.firestore {
         request.auth.uid in resource.data.participants;
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      allow delete: if isAuthenticated() && 
         request.auth.uid in resource.data.participants;
       
       // Messages subcollection
@@ -64,6 +66,12 @@ service cloud.firestore {
     // User contacts subcollection
     match /users/{userId}/contacts/{contactId} {
       allow read, write: if isOwner(userId);
+    }
+    
+    // Phone verification codes (Cloud Functions only)
+    // Clients should not access this directly - use Cloud Functions
+    match /verifications/{verificationId} {
+      allow read, write: if false;
     }
   }
 }

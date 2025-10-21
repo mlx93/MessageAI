@@ -10,12 +10,10 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   User as FirebaseUser,
-  PhoneAuthProvider,
-  signInWithCredential,
-  RecaptchaVerifier,
 } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import { doc, setDoc, getDoc, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, functions } from './firebase';
 import { User } from '../types';
 
 /**
@@ -168,17 +166,29 @@ export const getUserProfile = async (uid: string): Promise<User | null> => {
   const docSnap = await getDoc(doc(db, 'users', uid));
   
   if (!docSnap.exists()) {
+    console.log('❌ No user profile found for:', uid);
     return null;
   }
   
   const data = docSnap.data();
   
   // Convert Firestore timestamps to Date objects
-  return {
+  const profile = {
     ...data,
     lastSeen: data.lastSeen?.toDate() || new Date(),
     createdAt: data.createdAt?.toDate() || new Date(),
   } as User;
+  
+  console.log('📱 Loaded user profile:', {
+    uid: profile.uid,
+    displayName: profile.displayName,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    email: profile.email,
+    phoneNumber: profile.phoneNumber
+  });
+  
+  return profile;
 };
 
 /**
@@ -196,7 +206,7 @@ export const updateUserProfile = async (
 
 /**
  * Check if user profile is complete
- * Required fields: firstName, lastName, phoneNumber
+ * Required fields: displayName and phoneNumber
  * 
  * @param profile - User profile to check
  * @returns true if profile has all required fields
@@ -205,11 +215,9 @@ export const isProfileComplete = (profile: User | null): boolean => {
   if (!profile) return false;
   
   return !!(
-    profile.firstName &&
-    profile.lastName &&
+    profile.displayName &&
     profile.phoneNumber &&
-    profile.firstName.trim().length > 0 &&
-    profile.lastName.trim().length > 0 &&
+    profile.displayName.trim().length > 0 &&
     profile.phoneNumber.trim().length > 0
   );
 };
@@ -350,24 +358,27 @@ export const signInWithApple = async (
 /**
  * Send phone verification code via SMS
  * 
+ * Uses Cloud Function to generate and store OTP code
+ * For test numbers (650-555-xxxx): Always uses code 123456
+ * For real numbers: Generates code and can integrate Twilio for SMS
+ * 
  * @param phoneNumber - Phone number in E.164 format (+1XXXXXXXXXX)
  * @returns Verification ID to use in verifyPhoneCode
  */
 export const sendPhoneVerificationCode = async (phoneNumber: string): Promise<string> => {
   try {
-    const phoneProvider = new PhoneAuthProvider(auth);
+    // Call Cloud Function to send verification code
+    const sendCodeFunction = httpsCallable(functions, 'sendPhoneVerificationCode');
+    const result = await sendCodeFunction({ phoneNumber });
     
-    // For development/testing: use invisible reCAPTCHA
-    // Note: This works automatically on iOS/Android
-    // For web, you'd need to setup reCAPTCHA manually
+    const data = result.data as { verificationId: string; testCode?: string };
     
-    const verificationId = await phoneProvider.verifyPhoneNumber(
-      phoneNumber,
-      // @ts-ignore - reCAPTCHA not needed for React Native
-      null
-    );
+    // Log test code if provided (for development)
+    if (data.testCode) {
+      console.log(`📱 Test phone number - Use code: ${data.testCode}`);
+    }
     
-    return verificationId;
+    return data.verificationId;
   } catch (error: any) {
     console.error('Send phone verification error:', error);
     throw new Error(error.message || 'Failed to send verification code');
@@ -376,6 +387,8 @@ export const sendPhoneVerificationCode = async (phoneNumber: string): Promise<st
 
 /**
  * Verify phone code and sign in user
+ * 
+ * Uses Cloud Function to verify code and create/sign in user
  * 
  * @param verificationId - ID received from sendPhoneVerificationCode
  * @param code - 6-digit code entered by user
@@ -386,12 +399,61 @@ export const verifyPhoneCode = async (
   code: string
 ): Promise<string> => {
   try {
-    const credential = PhoneAuthProvider.credential(verificationId, code);
-    const userCredential = await signInWithCredential(auth, credential);
-    return userCredential.user.uid;
+    // Call Cloud Function to verify code
+    const verifyCodeFunction = httpsCallable(functions, 'verifyPhoneCode');
+    const result = await verifyCodeFunction({ verificationId, code });
+    
+    const data = result.data as { 
+      success: boolean; 
+      userId: string; 
+      phoneNumber: string;
+      email: string;
+      password: string;
+      isNewUser: boolean;
+    };
+    
+    if (!data.success) {
+      throw new Error('Verification failed');
+    }
+    
+    // Sign in with temp email and password (created by Cloud Function)
+    console.log(`🔐 Attempting sign-in with email: ${data.email}`);
+    
+    // Try signing in with retry for Android (password might need time to sync)
+    let signInAttempts = 0;
+    const maxAttempts = 3;
+    
+    while (signInAttempts < maxAttempts) {
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
+        console.log(`✅ Phone verified and user signed in: ${data.userId}`);
+        return userCredential.user.uid;
+      } catch (signInError: any) {
+        signInAttempts++;
+        console.log(`⚠️ Sign-in attempt ${signInAttempts}/${maxAttempts} failed:`, signInError.code);
+        
+        if (signInAttempts < maxAttempts) {
+          // Wait a bit before retrying (password might need time to propagate)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+          // Last attempt failed, throw error
+          throw signInError;
+        }
+      }
+    }
+    
+    throw new Error('Failed to sign in after multiple attempts');
   } catch (error: any) {
     console.error('Verify phone code error:', error);
-    throw new Error('Invalid verification code');
+    
+    // Handle specific error messages from Cloud Function
+    if (error.message?.includes('expired')) {
+      throw new Error('Verification code expired. Please request a new code.');
+    } else if (error.message?.includes('Invalid')) {
+      throw new Error('Invalid verification code. Please try again.');
+    }
+    
+    throw new Error(error.message || 'Failed to verify code');
   }
 };
 
@@ -423,14 +485,27 @@ export const createUserProfileWithPhone = async (
   userId: string,
   phoneNumber: string,
   displayName: string,
-  email?: string
+  email?: string,
+  firstName?: string,
+  lastName?: string
 ): Promise<void> => {
   try {
-    // Generate initials from display name
-    const nameParts = displayName.trim().split(' ');
-    const initials = nameParts.length >= 2
-      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+    // If firstName/lastName not provided, derive from displayName
+    let first = firstName;
+    let last = lastName;
+    
+    if (!first || !last) {
+      const nameParts = displayName.trim().split(' ');
+      first = first || nameParts[0] || '';
+      last = last || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : '');
+    }
+
+    // Generate initials
+    const initials = (first && last)
+      ? `${first[0]}${last[0]}`.toUpperCase()
       : displayName.substring(0, 2).toUpperCase();
+
+    console.log('📝 Creating profile:', { userId, phoneNumber, displayName, email, firstName: first, lastName: last, initials });
 
     // Create user profile
     const userProfile: User = {
@@ -443,8 +518,8 @@ export const createUserProfileWithPhone = async (
       online: true,
       lastSeen: new Date(),
       createdAt: new Date(),
-      firstName: nameParts[0] || '',
-      lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
+      firstName: first,
+      lastName: last,
     };
 
     // Use batch write for atomicity
@@ -468,6 +543,8 @@ export const createUserProfileWithPhone = async (
     }
 
     await batch.commit();
+    
+    console.log(`✅ User profile created successfully:`, userProfile);
   } catch (error: any) {
     console.error('Create user profile error:', error);
     throw new Error(error.message || 'Failed to create user profile');

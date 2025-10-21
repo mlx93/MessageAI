@@ -31,7 +31,7 @@ export default function IndexScreen() {
           router.replace('/auth/complete-profile');
         }
       } else {
-        // User is not authenticated, go to phone login
+        // User is not authenticated, go to phone login (primary auth method)
         router.replace('/auth/phone-login');
       }
       hasRedirectedRef.current = true;

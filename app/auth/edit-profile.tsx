@@ -43,8 +43,8 @@ export default function EditProfileScreen() {
       return;
     }
 
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
-      Alert.alert('Error', 'Please fill in all fields.');
+    if (!firstName.trim() || !lastName.trim()) {
+      Alert.alert('Error', 'Please fill in first and last name.');
       return;
     }
 
@@ -93,6 +93,7 @@ export default function EditProfileScreen() {
               onChangeText={setFirstName}
               autoCapitalize="words"
               editable={!loading}
+              autoFocus={true}
             />
 
             <TextInput
@@ -106,12 +107,13 @@ export default function EditProfileScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Email"
+              placeholder="Email (optional)"
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
               editable={!loading}
+              autoFocus={false}
             />
 
             <TouchableOpacity

@@ -2,6 +2,7 @@ import { View, FlatList, Text, TouchableOpacity, TextInput, Button, Alert, Style
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserContacts, searchUserByPhone, normalizePhoneNumber } from '../../services/contactService';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { router } from 'expo-router';
 import * as Contacts from 'expo-contacts';
 import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -91,7 +92,21 @@ export default function ContactsScreen() {
       }
 
       const normalizedPhone = normalizePhoneNumber(phoneNumber);
-      const contactName = contact.name || 'Unknown';
+      
+      // Extract name from various possible fields
+      let contactName = 'Unknown';
+      if (contact.name) {
+        contactName = contact.name;
+      } else if (contact.firstName || contact.lastName) {
+        contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+      } else if (contact.displayName) {
+        contactName = contact.displayName;
+      }
+      
+      // Fallback to phone number if still no name
+      if (contactName === 'Unknown' || !contactName.trim()) {
+        contactName = phoneNumber;
+      }
 
       // Check if contact is an app user
       const q = query(collection(db, 'users'), where('phoneNumber', '==', normalizedPhone));
@@ -124,9 +139,12 @@ export default function ContactsScreen() {
     }
   };
 
+  const [isNavigating, setIsNavigating] = useState(false);
+
   const startConversation = async (contactUserId: string) => {
-    if (!user) return;
+    if (!user || isNavigating) return;
     
+    setIsNavigating(true);
     try {
       // Import conversation service dynamically to avoid circular deps
       const { createOrGetConversation } = await import('../../services/conversationService');
@@ -134,13 +152,15 @@ export default function ContactsScreen() {
       router.push(`/chat/${conversationId}`);
     } catch (error: any) {
       Alert.alert('Error', 'Failed to create conversation: ' + error.message);
+      setIsNavigating(false);
     }
   };
 
   const searchAndStartChat = async () => {
-    if (!searchPhone || !user) return;
+    if (!searchPhone || !user || isNavigating) return;
     
     setLoading(true);
+    setIsNavigating(true);
     try {
       const foundUser = await searchUserByPhone(searchPhone);
       if (foundUser) {
@@ -149,9 +169,11 @@ export default function ContactsScreen() {
         router.push(`/chat/${conversationId}`);
       } else {
         Alert.alert('Not Found', 'No user found with that phone number');
+        setIsNavigating(false);
       }
     } catch (error: any) {
       Alert.alert('Error', error.message);
+      setIsNavigating(false);
     } finally {
       setLoading(false);
     }
@@ -242,7 +264,7 @@ export default function ContactsScreen() {
               <Text style={[styles.contactName, !item.isAppUser && styles.contactNameDisabled]}>
                 {item.name}
               </Text>
-              <Text style={styles.contactPhone}>{item.phoneNumber}</Text>
+              <Text style={styles.contactPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
               {!item.isAppUser && (
                 <Text style={styles.notOnAppText}>Not on aiMessage</Text>
               )}

@@ -18,7 +18,9 @@ import {
   Alert
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { verifyPhoneCode, checkIfUserExists } from '../../services/authService';
+import { verifyPhoneCode, getUserProfile } from '../../services/authService';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
+import { showDevHelper } from '../../services/devOtpHelper';
 
 export default function VerifyOTPScreen() {
   const { verificationId, phoneNumber } = useLocalSearchParams<{
@@ -42,7 +44,16 @@ export default function VerifyOTPScreen() {
   }, [countdown]);
 
   const handleCodeChange = (text: string, index: number) => {
-    // Only allow numbers
+    // Handle paste of full 6-digit code
+    if (text.length === 6 && /^\d{6}$/.test(text)) {
+      const newCode = text.split('');
+      setCode(newCode);
+      // Auto-verify pasted code
+      handleVerify(text);
+      return;
+    }
+
+    // Only allow numbers for single digit
     if (text && !/^\d$/.test(text)) return;
 
     const newCode = [...code];
@@ -79,14 +90,19 @@ export default function VerifyOTPScreen() {
       // Verify the OTP code
       const userId = await verifyPhoneCode(verificationId, codeToVerify);
       
-      // Check if this is a new user or existing user
-      const isExistingUser = await checkIfUserExists(userId);
+      // Get user profile to check if it's complete
+      const userProfile = await getUserProfile(userId);
       
-      if (isExistingUser) {
-        // Existing user - go straight to app
+      // Check if profile is complete (has displayName)
+      const isProfileComplete = userProfile && 
+        userProfile.displayName && 
+        userProfile.displayName.trim().length > 0;
+      
+      if (isProfileComplete) {
+        // Existing user with complete profile - go to app
         router.replace('/(tabs)');
       } else {
-        // New user - need to setup profile
+        // New user or incomplete profile - need to setup profile
         router.replace({
           pathname: '/auth/setup-profile',
           params: { 
@@ -134,7 +150,7 @@ export default function VerifyOTPScreen() {
         <Text style={styles.title}>Enter Code</Text>
         <Text style={styles.subtitle}>
           We sent a code to{'\n'}
-          {phoneNumber}
+          {formatPhoneNumber(phoneNumber)}
         </Text>
 
         <View style={styles.codeContainer}>
@@ -150,8 +166,9 @@ export default function VerifyOTPScreen() {
               onChangeText={(text) => handleCodeChange(text, index)}
               onKeyPress={(e) => handleKeyPress(e, index)}
               keyboardType="number-pad"
-              maxLength={1}
+              maxLength={6}
               selectTextOnFocus
+              contextMenuHidden={false}
             />
           ))}
         </View>
@@ -183,6 +200,16 @@ export default function VerifyOTPScreen() {
         >
           <Text style={styles.changeNumberText}>Change phone number</Text>
         </TouchableOpacity>
+
+        {/* Development helper - only shows in __DEV__ mode */}
+        {__DEV__ && (
+          <TouchableOpacity
+            style={styles.devHelperButton}
+            onPress={() => showDevHelper(phoneNumber)}
+          >
+            <Text style={styles.devHelperText}>🔧 Get OTP Code (Dev Mode)</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -265,6 +292,21 @@ const styles = StyleSheet.create({
   changeNumberText: {
     fontSize: 16,
     color: '#666',
+  },
+  devHelperButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    backgroundColor: '#FFF3CD',
+    borderRadius: 12,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#FFC107',
+  },
+  devHelperText: {
+    fontSize: 15,
+    color: '#856404',
+    fontWeight: '600',
   },
 });
 

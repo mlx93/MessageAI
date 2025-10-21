@@ -38,6 +38,15 @@ export default function CompleteProfileScreen() {
       setFirstName(userProfile.firstName || '');
       setLastName(userProfile.lastName || '');
       setPhoneNumber(userProfile.phoneNumber || '');
+      
+      // If profile is complete, redirect to app
+      if (userProfile.displayName && 
+          userProfile.displayName.trim().length > 0 && 
+          userProfile.phoneNumber && 
+          userProfile.phoneNumber.trim().length > 0) {
+        console.log('Profile already complete, redirecting to app');
+        router.replace('/(tabs)');
+      }
     }
   }, [userProfile]);
 

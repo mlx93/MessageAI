@@ -5,6 +5,7 @@ import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
 import { updateConversationLastMessage, addParticipantToConversation } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
@@ -31,76 +32,7 @@ interface SearchResult {
   initials: string;
 }
 
-// Swipeable Message Component for timestamp reveal
-interface SwipeableMessageProps {
-  children: React.ReactNode;
-  timestamp: Date;
-  isOwnMessage: boolean;
-}
-
-function SwipeableMessage({ children, timestamp, isOwnMessage }: SwipeableMessageProps) {
-  const translateX = useSharedValue(0);
-  const [isRevealed, setIsRevealed] = useState(false);
-
-  const formattedTime = format(timestamp, 'h:mm a');
-  const formattedDate = isToday(timestamp) 
-    ? 'Today'
-    : isYesterday(timestamp)
-    ? 'Yesterday'
-    : format(timestamp, 'MMM d, yyyy');
-
-  const pan = Gesture.Pan()
-    .onUpdate((event) => {
-      // Only allow left swipe (negative translation)
-      if (event.translationX < 0) {
-        translateX.value = event.translationX;
-      }
-    })
-    .onEnd((event) => {
-      if (event.translationX < -50) {
-        // Threshold reached - reveal timestamp
-        translateX.value = withSpring(-80);
-        runOnJS(setIsRevealed)(true);
-      } else {
-        // Snap back
-        translateX.value = withSpring(0);
-        runOnJS(setIsRevealed)(false);
-      }
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  // Reset on tap
-  const handlePress = () => {
-    if (isRevealed) {
-      translateX.value = withSpring(0);
-      setIsRevealed(false);
-    }
-  };
-
-  return (
-    <View style={styles.swipeableContainer}>
-      {/* Timestamp that appears on swipe */}
-      <View style={[styles.timestampReveal, isOwnMessage && styles.timestampRevealOwn]}>
-        <Text style={styles.timestampText}>{formattedTime}</Text>
-        {!isToday(timestamp) && (
-          <Text style={styles.timestampDateText}>{formattedDate}</Text>
-        )}
-      </View>
-      
-      {/* Message content */}
-      <GestureDetector gesture={pan}>
-        <Animated.View style={animatedStyle}>
-          <TouchableOpacity activeOpacity={1} onPress={handlePress}>
-            {children}
-          </TouchableOpacity>
-        </Animated.View>
-      </GestureDetector>
-    </View>
-  );
-}
+// No separate SwipeableMessage component - container-level swipe instead
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams();
@@ -120,11 +52,15 @@ export default function ChatScreen() {
   const hasMarkedRead = useRef(false);
   const scrollViewRef = useRef<ScrollView>(null);
   
+  // Container-level swipe for all blue bubbles
+  const blueBubblesTranslateX = useSharedValue(0);
+  
   // Typing indicators
-  const { startTyping } = useTypingIndicator(
+  const { updateTypingStatus } = useTypingIndicator(
     conversationId,
     user?.uid || '',
-    userProfile?.displayName || ''
+    userProfile?.displayName || '',
+    inputText.trim().length > 0
   );
   const { typingText } = useTypingStatus(conversationId, user?.uid || '');
 
@@ -179,7 +115,7 @@ export default function ChatScreen() {
 
           navigation.setOptions({
             title: isAddMode ? '' : title,
-            headerBackTitle: '',
+            headerBackTitle: 'Messages',
             headerRight: () => (
               <TouchableOpacity 
                 onPress={isAddMode ? handleCancelAdd : handleAddParticipant} 
@@ -194,7 +130,7 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.error('Failed to load conversation:', error);
-        navigation.setOptions({ title: 'Chat', headerBackTitle: '' });
+        navigation.setOptions({ title: 'Chat', headerBackTitle: 'Messages' });
       }
     };
     loadConversationTitle();
@@ -391,7 +327,7 @@ export default function ChatScreen() {
     }
   }, [inputText, conversationId, user, isOnline]);
 
-  // Format read receipt like iMessage
+  // Format read receipt like iMessage - shows when message was READ, not sent
   const formatReadReceipt = (message: Message): string | null => {
     if (!message.readBy || message.readBy.length <= 1) return null;
     
@@ -399,7 +335,10 @@ export default function ChatScreen() {
     const otherReaders = message.readBy.filter(uid => uid !== user?.uid);
     if (otherReaders.length === 0) return null;
     
-    const readTime = message.timestamp; // In production, you'd track actual read time
+    // TODO: Track actual readAt timestamp in Message type
+    // For now, use timestamp + 1 minute as approximation
+    // In production, add readAt field to track when user actually opened the chat
+    const readTime = new Date(message.timestamp.getTime() + 60000);
     const now = new Date();
     
     if (isToday(readTime)) {
@@ -415,6 +354,29 @@ export default function ChatScreen() {
       }
     }
   };
+
+  // Container-level pan gesture for all blue bubbles
+  const containerPanGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      // Only allow left swipe (negative translation)
+      if (event.translationX < 0) {
+        blueBubblesTranslateX.value = event.translationX;
+      }
+    })
+    .onEnd((event) => {
+      if (event.translationX < -60) {
+        // Reveal all timestamps
+        blueBubblesTranslateX.value = withSpring(-100);
+      } else {
+        // Hide timestamps
+        blueBubblesTranslateX.value = withSpring(0);
+      }
+    });
+
+  // Animated style for all blue bubbles
+  const blueBubblesAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: blueBubblesTranslateX.value }],
+  }));
 
   const handlePickImage = async () => {
     if (!user) return;
@@ -537,9 +499,12 @@ export default function ChatScreen() {
                 onChangeText={setAddSearchText}
                 placeholder="Type name or number..."
                 placeholderTextColor="#999"
-                autoFocus
+                autoFocus={Platform.OS === 'ios'}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="default"
+                returnKeyType="search"
+                editable={true}
               />
             </ScrollView>
           </View>
@@ -561,7 +526,7 @@ export default function ChatScreen() {
                     </View>
                     <View style={styles.resultInfo}>
                       <Text style={styles.resultName}>{item.displayName}</Text>
-                      <Text style={styles.resultPhone}>{item.phoneNumber}</Text>
+                      <Text style={styles.resultPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
                     </View>
                   </TouchableOpacity>
                 )}
@@ -577,83 +542,115 @@ export default function ChatScreen() {
         </View>
       )}
 
-      <ScrollView 
-        ref={scrollViewRef}
-        style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesContent}
-      >
-        {messages.map((message, index) => {
-          const isOwnMessage = message.senderId === user.uid;
-          const isImageMessage = message.type === 'image' && message.mediaURL;
-          const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
-          const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
-          
-          return (
-            <View key={`${message.id}-${index}`} style={styles.messageContainer}>
-              <SwipeableMessage timestamp={message.timestamp} isOwnMessage={isOwnMessage}>
-                <View 
-                  style={[
-                    styles.messageBubble,
-                    isOwnMessage ? styles.ownMessage : styles.otherMessage,
-                    isImageMessage && styles.imageMessageBubble
-                  ]}
-                >
-                  {!isOwnMessage && (
-                    <Text style={styles.senderName}>
-                      {message.senderId === user.uid ? 'You' : 'User'}
-                    </Text>
-                  )}
-                  
-                  {isImageMessage ? (
-                    <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
-                      <Image 
-                        source={{ uri: message.mediaURL }} 
-                        style={styles.messageImage}
-                        resizeMode="cover"
-                      />
-                    </TouchableOpacity>
-                  ) : (
-                    <Text style={[styles.messageText, { color: isOwnMessage ? '#fff' : '#000' }]}>
-                      {message.text}
-                    </Text>
-                  )}
-                  
-                  <View style={styles.messageFooter}>
-                    <Text style={[styles.messageTime, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : '#999' }]}>
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                    {isOwnMessage && (
-                      <Text style={styles.messageStatus}>
-                        {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : '✓'}
+      <View style={styles.messagesWrapper}>
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.messagesContainer}
+          contentContainerStyle={styles.messagesContent}
+        >
+          {messages.map((message, index) => {
+            const isOwnMessage = message.senderId === user.uid;
+            const isImageMessage = message.type === 'image' && message.mediaURL;
+            const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
+            const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
+            const formattedTime = format(message.timestamp, 'h:mm a');
+            
+            return (
+              <View key={`${message.id}-${index}`} style={styles.messageRow}>
+                {isOwnMessage ? (
+                  // Blue bubbles: All move together with container gesture
+                  <GestureDetector gesture={containerPanGesture}>
+                    <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
+                      <View style={styles.messageContainer}>
+                        <View 
+                          style={[
+                            styles.messageBubble,
+                            styles.ownMessage,
+                            isImageMessage && styles.imageMessageBubble
+                          ]}
+                        >
+                          {isImageMessage ? (
+                            <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                              <Image 
+                                source={{ uri: message.mediaURL }} 
+                                style={styles.messageImage}
+                                resizeMode="cover"
+                              />
+                            </TouchableOpacity>
+                          ) : (
+                            <Text style={[styles.messageText, { color: '#fff' }]}>
+                              {message.text}
+                            </Text>
+                          )}
+                        </View>
+                        
+                        {/* Read receipt below bubble - always visible */}
+                        {readReceipt && isLastInGroup && (
+                          <Text style={[styles.readReceipt, styles.readReceiptOwn]}>
+                            {readReceipt}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      {/* Timestamp revealed on swipe */}
+                      <View style={styles.timestampRevealContainer}>
+                        <Text style={styles.timestampRevealText}>{formattedTime}</Text>
+                      </View>
+                    </Animated.View>
+                  </GestureDetector>
+                ) : (
+                  // Grey bubbles: Fixed, no swipe
+                  <View style={styles.messageContainer}>
+                    <View 
+                      style={[
+                        styles.messageBubble,
+                        styles.otherMessage,
+                        isImageMessage && styles.imageMessageBubble
+                      ]}
+                    >
+                      {isImageMessage ? (
+                        <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                          <Image 
+                            source={{ uri: message.mediaURL }} 
+                            style={styles.messageImage}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.messageText, { color: '#000' }]}>
+                          {message.text}
+                        </Text>
+                      )}
+                    </View>
+                    
+                    {/* Read receipt below bubble */}
+                    {readReceipt && isLastInGroup && (
+                      <Text style={styles.readReceipt}>
+                        {readReceipt}
                       </Text>
                     )}
                   </View>
-                </View>
-              </SwipeableMessage>
-              
-              {/* iMessage-style read receipt below bubble */}
-              {readReceipt && isLastInGroup && (
-                <Text style={[styles.readReceipt, isOwnMessage && styles.readReceiptOwn]}>
-                  {readReceipt}
-                </Text>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+                )}
+              </View>
+            );
+          })}
 
-      {/* Typing Indicator - iMessage style */}
-      {typingText && (
-        <View style={styles.typingIndicatorContainer}>
-          <View style={styles.typingBubble}>
-            <View style={styles.typingDotsContainer}>
-              <View style={[styles.typingDot, styles.typingDot1]} />
-              <View style={[styles.typingDot, styles.typingDot2]} />
-              <View style={[styles.typingDot, styles.typingDot3]} />
+          {/* Typing Indicator - inline with messages */}
+          {typingText && (
+            <View style={styles.messageRow}>
+              <View style={styles.messageContainer}>
+                <View style={styles.typingBubble}>
+                  <View style={styles.typingDotsContainer}>
+                    <View style={[styles.typingDot, styles.typingDot1]} />
+                    <View style={[styles.typingDot, styles.typingDot2]} />
+                    <View style={[styles.typingDot, styles.typingDot3]} />
+                  </View>
+                </View>
+              </View>
             </View>
-          </View>
-        </View>
-      )}
+          )}
+        </ScrollView>
+      </View>
 
       <View style={styles.inputContainer}>
         <TouchableOpacity 
@@ -670,12 +667,7 @@ export default function ChatScreen() {
         <TextInput
           style={styles.input}
           value={inputText}
-          onChangeText={(text) => {
-            setInputText(text);
-            if (text.trim()) {
-              startTyping();
-            }
-          }}
+          onChangeText={setInputText}
           placeholder="Type a message..."
           multiline
           maxLength={1000}
@@ -777,10 +769,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  typingIndicatorContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
   typingBubble: {
     backgroundColor: '#E8E8E8',
     borderRadius: 18,
@@ -788,6 +776,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignSelf: 'flex-start',
     maxWidth: '80%',
+    marginBottom: 4,
   },
   typingDotsContainer: {
     flexDirection: 'row',
@@ -819,43 +808,45 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
+  messagesWrapper: {
+    flex: 1,
+    overflow: 'hidden', // Hide timestamps that are positioned outside viewport
+  },
   messagesContainer: {
     flex: 1,
   },
   messagesContent: {
     padding: 16,
   },
-  messageContainer: {
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 4,
+    overflow: 'visible',
   },
-  swipeableContainer: {
+  messageContainer: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  ownMessageWrapper: {
     position: 'relative',
     width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  timestampReveal: {
+  timestampRevealContainer: {
     position: 'absolute',
-    right: 0,
+    right: -100, // Hidden beyond viewport initially
     top: 0,
     bottom: 0,
+    width: 90,
     justifyContent: 'center',
-    paddingRight: 8,
-    zIndex: -1,
+    paddingLeft: 12,
   },
-  timestampRevealOwn: {
-    right: 'auto',
-    left: 0,
-    paddingRight: 0,
-    paddingLeft: 8,
-  },
-  timestampText: {
+  timestampRevealText: {
     fontSize: 12,
     color: '#999',
     fontWeight: '500',
-  },
-  timestampDateText: {
-    fontSize: 10,
-    color: '#BBB',
-    marginTop: 2,
   },
   messageBubble: {
     maxWidth: '80%',
@@ -869,6 +860,7 @@ const styles = StyleSheet.create({
   ownMessage: {
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
+    marginLeft: 'auto', // Push to far right
   },
   otherMessage: {
     backgroundColor: '#E8E8E8',
@@ -904,20 +896,21 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.9)',
   },
   readReceipt: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
     marginTop: 2,
     marginBottom: 8,
     paddingHorizontal: 4,
+    alignSelf: 'flex-start', // Align with grey bubbles
   },
   readReceiptOwn: {
     textAlign: 'right',
-    alignSelf: 'flex-end',
+    alignSelf: 'flex-end', // Align with blue bubbles
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     paddingBottom: 12,
     borderTopWidth: 0.5,
@@ -958,6 +951,8 @@ const styles = StyleSheet.create({
     minWidth: 60,
     height: 36,
     marginBottom: 4,
+    marginLeft: 6,
+    marginRight: 4,
   },
   sendButtonDisabled: {
     backgroundColor: '#C0C0C0',

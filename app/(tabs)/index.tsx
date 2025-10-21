@@ -1,12 +1,15 @@
 import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
-import { getUserConversations } from '../../services/conversationService';
+import { getUserConversations, deleteConversation } from '../../services/conversationService';
 import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
 import { Conversation } from '../../types';
 import { router, useNavigation } from 'expo-router';
 import { formatTimestamp } from '../../utils/messageHelpers';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 export default function ConversationsScreen() {
   const navigation = useNavigation();
@@ -116,7 +119,7 @@ export default function ConversationsScreen() {
         onPress: async () => {
           try {
             await signOut();
-            router.replace('/auth/login');
+            router.replace('/auth/phone-login');
           } catch (error: any) {
             Alert.alert('Error', error.message || 'Failed to sign out');
           }
@@ -129,61 +132,166 @@ export default function ConversationsScreen() {
     router.push('/auth/edit-profile');
   };
 
-  const renderItem = ({ item }: { item: Conversation }) => {
-    if (!user) return null; // Safety check
-    const unreadCount = item.participantDetails[user.uid]?.unreadCount || 0;
+  const handleDeleteConversation = (conversationId: string, conversationTitle: string) => {
+    Alert.alert(
+      'Delete Conversation',
+      `Are you sure you want to delete "${conversationTitle}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (!user) return;
+              await deleteConversation(conversationId, user.uid);
+              // Conversation will be automatically removed from list by the real-time listener
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to delete conversation');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Swipeable Conversation Component
+  const SwipeableConversationItem = ({ item }: { item: Conversation }) => {
+    if (!user) return null;
     
-    // Get online status for direct conversations
+    const translateX = useSharedValue(0);
+    const [isNavigating, setIsNavigating] = useState(false);
+    const unreadCount = item.participantDetails[user.uid]?.unreadCount || 0;
     const otherUserId = item.type === 'direct' 
       ? item.participants.find(id => id !== user.uid)
       : null;
     const isOnline = otherUserId ? presenceMap[otherUserId]?.online : false;
-    
-    return (
-      <TouchableOpacity 
-        style={styles.conversationItem}
-        onPress={() => router.push(`/chat/${item.id}`)}
-      >
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(item)}</Text>
-          </View>
-          {item.type === 'direct' && isOnline && (
-            <View style={styles.onlineIndicator} />
-          )}
-        </View>
+
+    const panGesture = Gesture.Pan()
+      .onUpdate((event) => {
+        // Only allow left swipe (negative translation)
+        if (event.translationX < 0) {
+          translateX.value = event.translationX;
+        }
+      })
+      .onEnd((event) => {
+        if (event.translationX < -80) {
+          // Threshold reached - reveal delete button
+          translateX.value = withSpring(-80);
+        } else {
+          // Snap back
+          translateX.value = withSpring(0);
+        }
+      });
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      transform: [{ translateX: translateX.value }],
+    }));
+
+    const handleDelete = () => {
+      translateX.value = withSpring(0); // Close swipe before deleting
+      const title = getConversationTitle(item);
+      setTimeout(() => {
+        runOnJS(handleDeleteConversation)(item.id, title);
+      }, 300);
+    };
+
+    const handlePress = () => {
+      if (translateX.value < -10) {
+        // Close if swiped
+        translateX.value = withSpring(0);
+      } else if (!isNavigating) {
+        // Prevent double navigation
+        setIsNavigating(true);
+        router.push(`/chat/${item.id}`);
         
-        <View style={styles.conversationDetails}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{getConversationTitle(item)}</Text>
-            <Text style={styles.timestamp}>
-              {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
-            </Text>
-          </View>
-          
-          <View style={styles.footer}>
-            <Text style={styles.lastMessage} numberOfLines={1}>
-              {item.lastMessage.text || 'No messages yet'}
-            </Text>
-            {unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>{unreadCount}</Text>
-              </View>
-            )}
-          </View>
+        // Reset flag after navigation completes
+        setTimeout(() => {
+          setIsNavigating(false);
+        }, 1000);
+      }
+    };
+
+    return (
+      <View style={styles.swipeableContainer}>
+        {/* Delete Button (behind the item) */}
+        <View style={styles.deleteButtonContainer}>
+          <TouchableOpacity 
+            style={styles.deleteButton}
+            onPress={handleDelete}
+          >
+            <Ionicons name="trash-outline" size={24} color="#fff" />
+            <Text style={styles.deleteButtonText}>Delete</Text>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+
+        {/* Swipeable Content */}
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[animatedStyle]}>
+            <TouchableOpacity 
+              style={styles.conversationItem}
+              onPress={handlePress}
+              activeOpacity={0.7}
+            >
+              <View style={styles.avatarContainer}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{getInitials(item)}</Text>
+                </View>
+                {item.type === 'direct' && isOnline && (
+                  <View style={styles.onlineIndicator} />
+                )}
+              </View>
+              
+              <View style={styles.conversationDetails}>
+                <View style={styles.header}>
+                  <Text style={styles.title}>{getConversationTitle(item)}</Text>
+                  <Text style={styles.timestamp}>
+                    {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
+                  </Text>
+                </View>
+                
+                <View style={styles.footer}>
+                  <Text style={styles.lastMessage} numberOfLines={1}>
+                    {item.lastMessage.text || 'No messages yet'}
+                  </Text>
+                  {unreadCount > 0 && (
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadText}>{unreadCount}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </GestureDetector>
+      </View>
     );
   };
 
-  const renderHeader = () => (
-    <View style={styles.headerContainer}>
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>
-          {userProfile?.firstName} {userProfile?.lastName}
-        </Text>
-        <Text style={styles.userEmail}>{userProfile?.email}</Text>
-      </View>
+  const renderItem = ({ item }: { item: Conversation }) => {
+    return <SwipeableConversationItem item={item} />;
+  };
+
+  const renderHeader = () => {
+    console.log('🎨 Rendering header with userProfile:', {
+      firstName: userProfile?.firstName,
+      lastName: userProfile?.lastName,
+      displayName: userProfile?.displayName,
+      email: userProfile?.email
+    });
+    
+    // Format contact info - prefer email, fallback to formatted phone
+    const contactInfo = userProfile?.email || 
+                       (userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : '');
+    
+    return (
+      <View style={styles.headerContainer}>
+        <View style={styles.userInfo}>
+          <Text style={styles.userName}>
+            {userProfile?.displayName || `${userProfile?.firstName} ${userProfile?.lastName}` || 'User'}
+          </Text>
+          <Text style={styles.userEmail}>{contactInfo}</Text>
+        </View>
       <View style={styles.headerButtons}>
         <TouchableOpacity style={styles.headerButton} onPress={handleEditProfile}>
           <Text style={styles.headerButtonText}>Edit</Text>
@@ -193,7 +301,8 @@ export default function ConversationsScreen() {
         </TouchableOpacity>
       </View>
     </View>
-  );
+    );
+  };
 
   // Loading state
   if (loading) {
@@ -282,6 +391,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  swipeableContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  deleteButtonContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FF3B30',
+  },
+  deleteButton: {
+    width: 80,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
   },
   conversationItem: { 
     flexDirection: 'row', 

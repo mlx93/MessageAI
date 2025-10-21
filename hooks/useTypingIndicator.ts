@@ -12,64 +12,45 @@ import { db } from '../services/firebase';
 /**
  * Hook to send typing status updates
  * 
- * Automatically clears typing status after 500ms of no input
+ * Shows typing indicator when text exists in input (even if stopped typing)
  * 
  * @param conversationId - ID of the conversation
  * @param userId - Current user's ID
  * @param displayName - Current user's display name
- * @returns Object with startTyping function
+ * @param hasText - Whether there's text in the input box
+ * @returns Object with updateTypingStatus function
  */
 export const useTypingIndicator = (
   conversationId: string,
   userId: string,
-  displayName: string
+  displayName: string,
+  hasText: boolean
 ) => {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const startTyping = useCallback(async () => {
+  const updateTypingStatus = useCallback(async (isTyping: boolean) => {
     try {
-      // Set typing status to true
       await setDoc(
         doc(db, `conversations/${conversationId}/typing`, userId),
         {
-          isTyping: true,
+          isTyping,
           displayName,
           timestamp: serverTimestamp(),
         }
       );
-      
-      // Clear existing timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      
-      // Stop typing after 500ms of inactivity
-      timeoutRef.current = setTimeout(async () => {
-        try {
-          await setDoc(
-            doc(db, `conversations/${conversationId}/typing`, userId),
-            {
-              isTyping: false,
-              displayName,
-              timestamp: serverTimestamp(),
-            }
-          );
-        } catch (error) {
-          console.error('Failed to clear typing status:', error);
-        }
-      }, 500);
     } catch (error) {
-      console.error('Failed to set typing status:', error);
+      console.error('Failed to update typing status:', error);
     }
   }, [conversationId, userId, displayName]);
+
+  // Update typing status based on whether text exists
+  useEffect(() => {
+    updateTypingStatus(hasText);
+  }, [hasText, updateTypingStatus]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      
       // Clear typing status when component unmounts
       setDoc(
         doc(db, `conversations/${conversationId}/typing`, userId),
@@ -84,7 +65,7 @@ export const useTypingIndicator = (
     };
   }, [conversationId, userId, displayName]);
 
-  return { startTyping };
+  return { updateTypingStatus };
 };
 
 /**

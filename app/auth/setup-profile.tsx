@@ -5,7 +5,7 @@
  * User enters their display name and optional email
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,20 +19,61 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { createUserProfileWithPhone } from '../../services/authService';
+import { useAuth } from '../../store/AuthContext';
 
 export default function SetupProfileScreen() {
   const { userId, phoneNumber } = useLocalSearchParams<{
     userId: string;
     phoneNumber: string;
   }>();
+  const { refreshUserProfile } = useAuth();
 
-  const [displayName, setDisplayName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Pre-populate fields if user has existing data
+  useEffect(() => {
+    const loadExistingProfile = async () => {
+      if (!userId) return;
+      
+      try {
+        const { getUserProfile } = await import('../../services/authService');
+        const profile = await getUserProfile(userId);
+        
+        if (profile) {
+          // Pre-populate from existing profile
+          if (profile.firstName) setFirstName(profile.firstName);
+          if (profile.lastName) setLastName(profile.lastName);
+          if (profile.email) setEmail(profile.email);
+          
+          // If profile is complete, skip to app
+          if (profile.displayName && profile.displayName.trim().length > 0) {
+            console.log('Profile already complete, redirecting to app');
+            router.replace('/(tabs)');
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load existing profile:', error);
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    loadExistingProfile();
+  }, [userId]);
 
   const handleContinue = async () => {
-    if (!displayName.trim()) {
-      Alert.alert('Name Required', 'Please enter your name');
+    if (!firstName.trim()) {
+      Alert.alert('First Name Required', 'Please enter your first name');
+      return;
+    }
+
+    if (!lastName.trim()) {
+      Alert.alert('Last Name Required', 'Please enter your last name');
       return;
     }
 
@@ -44,12 +85,26 @@ export default function SetupProfileScreen() {
 
     setLoading(true);
     try {
+      // Combine first and last name for displayName
+      const displayName = `${firstName.trim()} ${lastName.trim()}`;
+      
+      console.log('Creating profile with:', { firstName, lastName, displayName, email });
+      
       await createUserProfileWithPhone(
         userId,
         phoneNumber,
-        displayName.trim(),
-        email.trim() || undefined
+        displayName,
+        email.trim() || undefined,
+        firstName.trim(),
+        lastName.trim()
       );
+
+      console.log('Profile created successfully, refreshing...');
+      
+      // Refresh the AuthContext to load the new profile
+      await refreshUserProfile();
+      
+      console.log('Profile refreshed, navigating to app');
 
       // Navigate to app
       router.replace('/(tabs)');
@@ -69,6 +124,15 @@ export default function SetupProfileScreen() {
     return emailRegex.test(email);
   };
 
+  // Show loading while checking existing profile
+  if (initialLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -80,14 +144,27 @@ export default function SetupProfileScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Display Name *</Text>
+            <Text style={styles.label}>First Name *</Text>
             <TextInput
               style={styles.input}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="John Smith"
+              value={firstName}
+              onChangeText={setFirstName}
+              placeholder="John"
               placeholderTextColor="#999"
               autoFocus
+              autoCapitalize="words"
+              maxLength={50}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Last Name *</Text>
+            <TextInput
+              style={styles.input}
+              value={lastName}
+              onChangeText={setLastName}
+              placeholder="Smith"
+              placeholderTextColor="#999"
               autoCapitalize="words"
               maxLength={50}
             />
@@ -114,7 +191,7 @@ export default function SetupProfileScreen() {
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleContinue}
-          disabled={loading || !displayName.trim()}
+          disabled={loading || !firstName.trim() || !lastName.trim()}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -135,6 +212,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
