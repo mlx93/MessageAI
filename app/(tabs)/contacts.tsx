@@ -1,4 +1,4 @@
-import { View, FlatList, Text, TouchableOpacity, TextInput, Button, Alert, StyleSheet } from 'react-native';
+import { View, FlatList, Text, TouchableOpacity, TextInput, Button, Alert, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserContacts, searchUserByPhone, normalizePhoneNumber } from '../../services/contactService';
@@ -21,7 +21,9 @@ export default function ContactsScreen() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchPhone, setSearchPhone] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -30,17 +32,30 @@ export default function ContactsScreen() {
   }, [user]);
 
   const loadContacts = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     
     try {
+      setError(null);
       const userContacts = await getUserContacts(user.uid);
       console.log(`📇 Loaded ${userContacts.length} contacts from Firestore`);
       // Show ALL contacts (both app users and non-app users)
       setContacts(userContacts as Contact[]);
+      setLoading(false);
+      setRefreshing(false);
     } catch (error: any) {
       console.error('Failed to load contacts:', error);
-      // Silently fail - user can manually import
+      setError(error.message || 'Failed to load contacts');
+      setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadContacts();
   };
 
   const handleAddContact = async () => {
@@ -142,6 +157,29 @@ export default function ContactsScreen() {
     }
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading contacts...</Text>
+      </View>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Your Contacts</Text>
@@ -181,6 +219,14 @@ export default function ContactsScreen() {
       <FlatList
         data={contacts}
         keyExtractor={(item) => item.id}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#007AFF"
+            colors={['#007AFF']}
+          />
+        }
         renderItem={({ item }) => (
           <TouchableOpacity 
             onPress={() => item.isAppUser && item.appUserId && startConversation(item.appUserId)}
@@ -352,6 +398,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

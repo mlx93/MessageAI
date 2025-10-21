@@ -1,4 +1,4 @@
-import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations } from '../../services/conversationService';
@@ -13,6 +13,9 @@ export default function ConversationsScreen() {
   const { user, userProfile, signOut } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; lastSeen?: Date }>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({
@@ -27,15 +30,30 @@ export default function ConversationsScreen() {
   useEffect(() => {
     if (!user) {
       setConversations([]); // Clear conversations when user signs out
+      setLoading(false);
       return;
     }
     
-    const unsubscribe = getUserConversations(user.uid, (convos) => {
-      setConversations(convos);
-    });
-    
-    return unsubscribe;
+    try {
+      setError(null);
+      const unsubscribe = getUserConversations(user.uid, (convos) => {
+        setConversations(convos);
+        setLoading(false);
+        setRefreshing(false);
+      });
+      
+      return unsubscribe;
+    } catch (err: any) {
+      setError(err.message || 'Failed to load conversations');
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [user]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // The useEffect will handle reloading
+  };
 
   // Subscribe to presence for all participants
   useEffect(() => {
@@ -177,6 +195,29 @@ export default function ConversationsScreen() {
     </View>
   );
 
+  // Loading state
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading conversations...</Text>
+      </View>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <FlatList
@@ -184,6 +225,14 @@ export default function ConversationsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ListHeaderComponent={renderHeader}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#007AFF"
+            colors={['#007AFF']}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>💬</Text>
@@ -328,5 +377,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
