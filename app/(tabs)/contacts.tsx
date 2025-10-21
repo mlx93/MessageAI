@@ -30,10 +30,11 @@ export default function ContactsScreen() {
     
     try {
       const userContacts = await getUserContacts(user.uid);
-      // Show ALL contacts, not just app users
+      console.log(`📇 Loaded ${userContacts.length} contacts from Firestore`);
+      // Show ALL contacts (both app users and non-app users)
       setContacts(userContacts as Contact[]);
     } catch (error: any) {
-      console.log('Failed to load contacts:', error);
+      console.error('Failed to load contacts:', error);
       // Silently fail - user can manually import
     }
   };

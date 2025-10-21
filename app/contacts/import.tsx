@@ -67,9 +67,12 @@ export default function ImportContactsScreen() {
         return;
       }
 
+      // Get ALL contacts from device (no filtering by app users)
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
+
+      console.log(`📱 Found ${data.length} total contacts on device`);
 
       const contactsList: DeviceContact[] = [];
       data.forEach(contact => {
@@ -87,10 +90,14 @@ export default function ImportContactsScreen() {
         }
       });
 
+      console.log(`📱 Extracted ${contactsList.length} phone numbers from contacts`);
+
       // Remove duplicates by phone number
       const uniqueContacts = Array.from(
         new Map(contactsList.map(c => [c.phoneNumber, c])).values()
       );
+
+      console.log(`📱 After deduplication: ${uniqueContacts.length} unique contacts`);
 
       // Auto-select all contacts by default
       const contactsWithSelection = uniqueContacts.map(c => ({ ...c, selected: true }));
@@ -98,7 +105,16 @@ export default function ImportContactsScreen() {
       setDeviceContacts(contactsWithSelection);
       setFilteredContacts(contactsWithSelection);
       setSelectAll(true);
+
+      // Show confirmation of how many contacts were found
+      if (uniqueContacts.length === 0) {
+        Alert.alert(
+          'No Contacts Found',
+          'No contacts with phone numbers were found on this device. If you\'re using the iOS Simulator, you may need to add contacts manually in the Contacts app.'
+        );
+      }
     } catch (error: any) {
+      console.error('Failed to load contacts:', error);
       Alert.alert('Error', 'Failed to load contacts: ' + error.message);
     } finally {
       setLoading(false);
