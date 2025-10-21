@@ -1,15 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { useAuth } from '../../store/AuthContext';
-import { subscribeToMessages, sendMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
+import { subscribeToMessages, sendMessage, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
 import { updateConversationLastMessage, addParticipantToConversation } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
 import { queueMessage } from '../../services/offlineQueue';
 import { searchUserByPhone, getUserContacts } from '../../services/contactService';
+import { subscribeToUserPresence } from '../../services/presenceService';
+import { pickAndUploadImage } from '../../services/imageService';
+import { setActiveConversation } from '../../services/notificationService';
+import { useTypingIndicator, useTypingStatus } from '../../hooks/useTypingIndicator';
 import { v4 as uuidv4 } from 'uuid';
 import NetInfo from '@react-native-community/netinfo';
 import { Message } from '../../types';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Participant {
   uid: string;
@@ -34,9 +39,20 @@ export default function ChatScreen() {
   const [addSearchText, setAddSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [currentParticipants, setCurrentParticipants] = useState<Participant[]>([]);
+  const [otherUserOnline, setOtherUserOnline] = useState(false);
+  const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const conversationId = id as string;
   const hasMarkedRead = useRef(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Typing indicators
+  const { startTyping } = useTypingIndicator(
+    conversationId,
+    user?.uid || '',
+    userProfile?.displayName || ''
+  );
+  const { typingText } = useTypingStatus(conversationId, user?.uid || '');
 
   // Load conversation details and participants
   useEffect(() => {
@@ -58,9 +74,25 @@ export default function ChatScreen() {
 
           // Set title based on mode
           let title = '';
+          let subtitle = '';
           if (conversation.type === 'direct') {
             const otherUserId = conversation.participants.find(id => id !== user.uid);
             title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
+            // Add presence status
+            if (otherUserOnline) {
+              subtitle = 'Online';
+            } else if (otherUserLastSeen) {
+              const minutesAgo = Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 60000);
+              if (minutesAgo < 1) {
+                subtitle = 'Last seen just now';
+              } else if (minutesAgo < 60) {
+                subtitle = `Last seen ${minutesAgo}m ago`;
+              } else if (minutesAgo < 1440) {
+                subtitle = `Last seen ${Math.floor(minutesAgo / 60)}h ago`;
+              } else {
+                subtitle = `Last seen ${Math.floor(minutesAgo / 1440)}d ago`;
+              }
+            }
           } else {
             const names = conversation.participants
               .filter(id => id !== user.uid)
@@ -68,6 +100,7 @@ export default function ChatScreen() {
               .slice(0, 3)
               .join(', ');
             title = names + (conversation.participants.length > 4 ? '...' : '');
+            subtitle = `${conversation.participants.length} participants`;
           }
 
           navigation.setOptions({
@@ -136,7 +169,56 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isAddMode, navigation]);
+  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserLastSeen]);
+
+  // Subscribe to presence for direct conversations
+  useEffect(() => {
+    if (!user) return;
+
+    const setupPresence = async () => {
+      try {
+        const { getConversation } = await import('../../services/conversationService');
+        const conversation = await getConversation(conversationId);
+        
+        if (conversation && conversation.type === 'direct') {
+          const otherUserId = conversation.participants.find(id => id !== user.uid);
+          if (otherUserId) {
+            // Subscribe to other user's presence
+            const unsubscribe = subscribeToUserPresence(otherUserId, (online, lastSeen) => {
+              setOtherUserOnline(online);
+              setOtherUserLastSeen(lastSeen);
+            });
+            return unsubscribe;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to setup presence:', error);
+      }
+    };
+
+    const unsubscribePromise = setupPresence();
+
+    return () => {
+      unsubscribePromise.then(unsub => unsub?.());
+    };
+  }, [conversationId, user]);
+
+  // Set active conversation for smart notifications
+  useEffect(() => {
+    if (!user) return;
+
+    // Set this conversation as active
+    setActiveConversation(user.uid, conversationId).catch(error => {
+      console.error('Failed to set active conversation:', error);
+    });
+
+    // Clear on unmount
+    return () => {
+      setActiveConversation(user.uid, null).catch(error => {
+        console.error('Failed to clear active conversation:', error);
+      });
+    };
+  }, [conversationId, user]);
 
   // Search for users when in add mode
   useEffect(() => {
@@ -233,6 +315,62 @@ export default function ChatScreen() {
       setMessages(prev => prev.filter(m => m.id !== localId));
     }
   }, [inputText, conversationId, user, isOnline]);
+
+  const handlePickImage = async () => {
+    if (!user) return;
+
+    try {
+      setIsUploadingImage(true);
+      
+      // Pick and upload image
+      const imageUrl = await pickAndUploadImage(conversationId);
+      
+      if (!imageUrl) {
+        // User cancelled or error occurred
+        setIsUploadingImage(false);
+        return;
+      }
+
+      // Send image message
+      const localId = uuidv4();
+      const tempMessage: Message = {
+        id: localId,
+        conversationId,
+        text: 'Image',
+        senderId: user.uid,
+        timestamp: new Date(),
+        status: 'sent',
+        type: 'image',
+        mediaURL: imageUrl,
+        localId,
+        readBy: [user.uid],
+        deliveredTo: []
+      };
+
+      // Add to messages
+      setMessages(prev => [...prev, tempMessage]);
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+
+      // Send to server
+      if (isOnline) {
+        await sendImageMessage(conversationId, imageUrl, user.uid, localId);
+        await updateConversationLastMessage(conversationId, '📷 Image', user.uid);
+      } else {
+        await queueMessage({
+          conversationId,
+          text: 'Image',
+          senderId: user.uid,
+          localId
+        });
+      }
+
+      setIsUploadingImage(false);
+    } catch (error: any) {
+      console.error('Failed to send image:', error);
+      Alert.alert('Error', 'Failed to send image. Please try again.');
+      setIsUploadingImage(false);
+    }
+  };
 
   const handleAddParticipant = () => {
     setIsAddMode(true);
@@ -346,12 +484,15 @@ export default function ChatScreen() {
       >
         {messages.map((message, index) => {
           const isOwnMessage = message.senderId === user.uid;
+          const isImageMessage = message.type === 'image' && message.mediaURL;
+          
           return (
             <View 
               key={`${message.id}-${index}`} 
               style={[
                 styles.messageBubble,
-                isOwnMessage ? styles.ownMessage : styles.otherMessage
+                isOwnMessage ? styles.ownMessage : styles.otherMessage,
+                isImageMessage && styles.imageMessageBubble
               ]}
             >
               {!isOwnMessage && (
@@ -359,9 +500,21 @@ export default function ChatScreen() {
                   {message.senderId === user.uid ? 'You' : 'User'}
                 </Text>
               )}
-              <Text style={[styles.messageText, { color: isOwnMessage ? '#fff' : '#000' }]}>
-                {message.text}
-              </Text>
+              
+              {isImageMessage ? (
+                <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                  <Image 
+                    source={{ uri: message.mediaURL }} 
+                    style={styles.messageImage}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.messageText, { color: isOwnMessage ? '#fff' : '#000' }]}>
+                  {message.text}
+                </Text>
+              )}
+              
               <View style={styles.messageFooter}>
                 <Text style={[styles.messageTime, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : '#999' }]}>
                   {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -377,11 +530,34 @@ export default function ChatScreen() {
         })}
       </ScrollView>
 
+      {/* Typing Indicator */}
+      {typingText && (
+        <View style={styles.typingIndicator}>
+          <Text style={styles.typingText}>{typingText}</Text>
+        </View>
+      )}
+
       <View style={styles.inputContainer}>
+        <TouchableOpacity 
+          style={styles.imageButton}
+          onPress={handlePickImage}
+          disabled={isUploadingImage}
+        >
+          {isUploadingImage ? (
+            <ActivityIndicator size="small" color="#007AFF" />
+          ) : (
+            <Ionicons name="image-outline" size={28} color="#007AFF" />
+          )}
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={(text) => {
+            setInputText(text);
+            if (text.trim()) {
+              startTyping();
+            }
+          }}
           placeholder="Type a message..."
           multiline
           maxLength={1000}
@@ -483,6 +659,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  typingIndicator: {
+    backgroundColor: '#F8F8F8',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E8E8E8',
+  },
+  typingText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
   offlineBanner: {
     backgroundColor: '#ff9800',
     padding: 10,
@@ -504,6 +692,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 8,
   },
+  imageMessageBubble: {
+    padding: 4,
+  },
   ownMessage: {
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
@@ -511,6 +702,12 @@ const styles = StyleSheet.create({
   otherMessage: {
     backgroundColor: '#E8E8E8',
     alignSelf: 'flex-start',
+  },
+  messageImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 4,
   },
   senderName: {
     fontSize: 12,
@@ -541,6 +738,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E8E8E8',
     backgroundColor: '#fff',
+  },
+  imageButton: {
+    padding: 8,
+    marginRight: 4,
   },
   input: {
     flex: 1,

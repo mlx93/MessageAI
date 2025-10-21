@@ -2,6 +2,7 @@ import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert } from 'react
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations } from '../../services/conversationService';
+import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
 import { Conversation } from '../../types';
 import { router, useNavigation } from 'expo-router';
 import { formatTimestamp } from '../../utils/messageHelpers';
@@ -11,6 +12,7 @@ export default function ConversationsScreen() {
   const navigation = useNavigation();
   const { user, userProfile, signOut } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; lastSeen?: Date }>>({});
 
   useEffect(() => {
     navigation.setOptions({
@@ -34,6 +36,34 @@ export default function ConversationsScreen() {
     
     return unsubscribe;
   }, [user]);
+
+  // Subscribe to presence for all participants
+  useEffect(() => {
+    if (!user || conversations.length === 0) return;
+
+    // Get all unique participant IDs (excluding current user)
+    const allParticipantIds = Array.from(
+      new Set(
+        conversations.flatMap(conv => 
+          conv.participants.filter(id => id !== user.uid)
+        )
+      )
+    );
+
+    if (allParticipantIds.length === 0) return;
+
+    // Subscribe to presence
+    const unsubscribes = subscribeToMultipleUsersPresence(
+      allParticipantIds,
+      (newPresenceMap) => {
+        setPresenceMap(newPresenceMap);
+      }
+    );
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [user, conversations.length]);
 
   const getConversationTitle = (conversation: Conversation) => {
     if (!user) return 'Chat';
@@ -85,13 +115,24 @@ export default function ConversationsScreen() {
     if (!user) return null; // Safety check
     const unreadCount = item.participantDetails[user.uid]?.unreadCount || 0;
     
+    // Get online status for direct conversations
+    const otherUserId = item.type === 'direct' 
+      ? item.participants.find(id => id !== user.uid)
+      : null;
+    const isOnline = otherUserId ? presenceMap[otherUserId]?.online : false;
+    
     return (
       <TouchableOpacity 
         style={styles.conversationItem}
         onPress={() => router.push(`/chat/${item.id}`)}
       >
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(item)}</Text>
+        <View style={styles.avatarContainer}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{getInitials(item)}</Text>
+          </View>
+          {item.type === 'direct' && isOnline && (
+            <View style={styles.onlineIndicator} />
+          )}
         </View>
         
         <View style={styles.conversationDetails}>
@@ -200,6 +241,10 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     backgroundColor: '#fff',
   },
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 15,
+  },
   avatar: { 
     width: 50, 
     height: 50, 
@@ -207,7 +252,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF', 
     justifyContent: 'center', 
     alignItems: 'center', 
-    marginRight: 15 
+  },
+  onlineIndicator: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#4CD964',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   avatarText: { 
     color: 'white', 

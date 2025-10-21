@@ -3,12 +3,14 @@
  * 
  * Provides authentication state and user profile throughout the app
  * Listens to Firebase Auth state changes and syncs with Firestore user profile
+ * Manages presence status (online/offline)
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
+import { setUserOnline, setUserOffline } from '../services/presenceService';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -52,6 +54,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const profile = await getUserProfile(firebaseUser.uid);
         console.log('Profile loaded:', profile?.displayName);
         setUserProfile(profile);
+        
+        // Set user as online
+        try {
+          await setUserOnline(firebaseUser.uid);
+          console.log('User set to online');
+        } catch (error) {
+          console.error('Failed to set user online:', error);
+        }
       } else {
         setUserProfile(null);
       }
@@ -64,6 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const handleSignOut = async () => {
     try {
+      // Set user offline before signing out
+      if (auth.currentUser) {
+        await setUserOffline(auth.currentUser.uid);
+        console.log('User set to offline');
+      }
+      
       const { signOut } = await import('../services/authService');
       console.log('Signing out...');
       await signOut();
