@@ -105,6 +105,7 @@ export default function ChatScreen() {
 
           navigation.setOptions({
             title: isAddMode ? '' : title,
+            headerBackTitle: '',
             headerRight: () => (
               <TouchableOpacity 
                 onPress={isAddMode ? handleCancelAdd : handleAddParticipant} 
@@ -119,7 +120,7 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.error('Failed to load conversation:', error);
-        navigation.setOptions({ title: 'Chat' });
+        navigation.setOptions({ title: 'Chat', headerBackTitle: '' });
       }
     };
     loadConversationTitle();
