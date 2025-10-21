@@ -1,8 +1,12 @@
 import { View, FlatList, Text, TouchableOpacity, TextInput, Button, Alert, StyleSheet } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
-import { getUserContacts, searchUserByPhone } from '../../services/contactService';
+import { getUserContacts, searchUserByPhone, normalizePhoneNumber } from '../../services/contactService';
 import { router } from 'expo-router';
+import * as Contacts from 'expo-contacts';
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Contact {
   id: string;
@@ -39,8 +43,70 @@ export default function ContactsScreen() {
     }
   };
 
-  const handleImportContacts = () => {
-    router.push('/contacts/import');
+  const handleAddContact = async () => {
+    if (!user) return;
+    
+    try {
+      // Request contacts permission
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant contacts permission to add contacts'
+        );
+        return;
+      }
+
+      // Open native contact picker (works on both iOS and Android)
+      const result = await Contacts.presentContactPickerAsync();
+      
+      // Check if user cancelled
+      if (!result || 'cancelled' in result) {
+        console.log('User cancelled contact selection');
+        return;
+      }
+
+      // Get contact data
+      const contact = result;
+      const phoneNumber = contact.phoneNumbers?.[0]?.number;
+      
+      if (!phoneNumber) {
+        Alert.alert('No Phone Number', 'This contact has no phone number');
+        return;
+      }
+
+      const normalizedPhone = normalizePhoneNumber(phoneNumber);
+      const contactName = contact.name || 'Unknown';
+
+      // Check if contact is an app user
+      const q = query(collection(db, 'users'), where('phoneNumber', '==', normalizedPhone));
+      const snapshot = await getDocs(q);
+      const isAppUser = !snapshot.empty;
+      const appUserId = isAppUser ? snapshot.docs[0].id : null;
+
+      // Save to Firestore
+      await setDoc(doc(db, `users/${user.uid}/contacts`, normalizedPhone), {
+        phoneNumber: normalizedPhone,
+        name: contactName,
+        isAppUser,
+        appUserId,
+        lastSynced: new Date()
+      });
+
+      // Refresh contacts list
+      await loadContacts();
+
+      Alert.alert(
+        'Contact Added',
+        isAppUser 
+          ? `${contactName} is on MessageAI! You can now chat with them.`
+          : `${contactName} added to contacts. They're not on MessageAI yet.`
+      );
+
+    } catch (error: any) {
+      console.error('Failed to add contact:', error);
+      Alert.alert('Error', 'Failed to add contact. Please try again.');
+    }
   };
 
   const startConversation = async (contactUserId: string) => {
@@ -96,19 +162,18 @@ export default function ContactsScreen() {
         />
       </View>
       
-      {/* Import contacts button */}
+      {/* Add contact button with native picker */}
       <TouchableOpacity 
-        style={styles.refreshButton}
-        onPress={handleImportContacts}
+        style={styles.addContactButton}
+        onPress={handleAddContact}
       >
-        <Text style={styles.refreshText}>
-          📱 Import Contacts
-        </Text>
+        <Ionicons name="person-add" size={24} color="#fff" />
+        <Text style={styles.addContactText}>Add Contact</Text>
       </TouchableOpacity>
       
       {contacts.length === 0 && (
         <Text style={styles.helpText}>
-          Tap the button above to select contacts to import
+          Tap "Add Contact" to select contacts from your phone
         </Text>
       )}
       
@@ -180,14 +245,17 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontSize: 16,
   },
-  refreshButton: {
+  addContactButton: {
     backgroundColor: '#007AFF',
-    padding: 12,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
     marginBottom: 15,
+    gap: 8,
   },
-  refreshText: {
+  addContactText: {
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
