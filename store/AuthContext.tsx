@@ -8,9 +8,10 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
+import { AppState, AppStateStatus } from 'react-native';
 import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
-import { setUserOnline, setUserOffline } from '../services/presenceService';
+import { setUserOnline, setUserOffline, setUserInApp } from '../services/presenceService';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -55,10 +56,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log('Profile loaded:', profile?.displayName);
         setUserProfile(profile);
         
-        // Set user as online
+        // Set user as online and in app
         try {
-          await setUserOnline(firebaseUser.uid);
-          console.log('User set to online');
+          await setUserOnline(firebaseUser.uid, true);
+          console.log('User set to online and in app');
         } catch (error) {
           console.error('Failed to set user online:', error);
         }
@@ -70,6 +71,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return unsubscribe;
+  }, []);
+
+  // Monitor app state to update inApp status
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      if (!auth.currentUser) return;
+
+      console.log('App state changed:', nextAppState);
+
+      if (nextAppState === 'active') {
+        // App is in foreground
+        try {
+          await setUserInApp(auth.currentUser.uid, true);
+          console.log('User set to inApp: true');
+        } catch (error) {
+          console.error('Failed to set user inApp:', error);
+        }
+      } else if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // App is in background or inactive
+        try {
+          await setUserInApp(auth.currentUser.uid, false);
+          console.log('User set to inApp: false');
+        } catch (error) {
+          console.error('Failed to set user inApp:', error);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription?.remove();
+    };
   }, []);
 
   const handleSignOut = async () => {

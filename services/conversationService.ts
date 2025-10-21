@@ -11,17 +11,48 @@ import { v4 as uuidv4 } from 'uuid';
 export const createOrGetConversation = async (participantIds: string[]): Promise<string> => {
   const sorted = [...participantIds].sort();
   
-  // For direct messages, check if conversation exists
+  // For direct messages, check if conversation exists by deterministic ID
   if (participantIds.length === 2) {
-    const q = query(
-      collection(db, 'conversations'),
-      where('type', '==', 'direct'),
-      where('participants', '==', sorted)
-    );
-    const snapshot = await getDocs(q);
-    
-    if (!snapshot.empty) {
-      return snapshot.docs[0].id;
+    const deterministicId = sorted.join('_');
+    try {
+      const existingConv = await getDoc(doc(db, 'conversations', deterministicId));
+      
+      if (existingConv.exists()) {
+        console.log(`✅ Found existing direct conversation: ${deterministicId}`);
+        return existingConv.id;
+      }
+    } catch (readError: any) {
+      // If we can't read the conversation (permission error), it might exist but we're not in it
+      // This shouldn't happen, but if it does, we'll try to create it anyway
+      console.warn(`⚠️ Could not read direct conversation ${deterministicId}:`, readError.message);
+    }
+  }
+  
+  // For groups, check if conversation with same participants already exists
+  if (participantIds.length >= 3) {
+    try {
+      // Query all conversations where first participant is a member
+      const q = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', sorted[0])
+      );
+      const snapshot = await getDocs(q);
+      
+      // Filter locally for exact participant match
+      for (const docSnap of snapshot.docs) {
+        const conv = docSnap.data() as Conversation;
+        const convParticipants = [...conv.participants].sort();
+        
+        // Check if participants arrays are identical
+        if (convParticipants.length === sorted.length && 
+            convParticipants.every((val, index) => val === sorted[index])) {
+          console.log(`✅ Found existing group conversation: ${docSnap.id}`);
+          return docSnap.id;
+        }
+      }
+    } catch (queryError) {
+      console.error('Error querying for existing group:', queryError);
+      // Continue to create new conversation if query fails
     }
   }
   
@@ -55,7 +86,21 @@ export const createOrGetConversation = async (participantIds: string[]): Promise
     updatedAt: new Date()
   };
   
-  await setDoc(doc(db, 'conversations', conversationId), conversation);
+  try {
+    await setDoc(doc(db, 'conversations', conversationId), conversation);
+    console.log(`✅ Created new ${conversation.type} conversation: ${conversationId}`);
+  } catch (setDocError: any) {
+    console.error('Error creating conversation with setDoc:', setDocError);
+    
+    // If it's a permission error, the conversation might already exist
+    if (setDocError.code === 'permission-denied') {
+      console.warn(`⚠️ Permission denied when creating ${conversationId}. It may already exist.`);
+      // Return the ID anyway - if it exists, navigation will work
+      return conversationId;
+    }
+    
+    throw new Error(`Failed to create conversation: ${setDocError.message || setDocError}`);
+  }
   
   return conversationId;
 };
@@ -79,9 +124,14 @@ export const getUserConversations = (userId: string, callback: (conversations: C
           ...data,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
-          lastMessage: {
-            ...data.lastMessage,
-            timestamp: data.lastMessage?.timestamp?.toDate() || new Date()
+          lastMessage: data.lastMessage ? {
+            text: data.lastMessage.text || '',
+            senderId: data.lastMessage.senderId || '',
+            timestamp: data.lastMessage.timestamp?.toDate() || new Date(0) // Epoch if no timestamp
+          } : {
+            text: '',
+            senderId: '',
+            timestamp: new Date(0) // Epoch indicates no messages yet
           }
         } as Conversation;
       })
@@ -255,20 +305,39 @@ export const splitConversation = async (
 
     console.log(`🔀 Splitting conversation: ${oldParticipants.length} → ${newParticipants.length} participants`);
 
+    // Check if target conversation already exists
+    let existingNewConversationId: string;
+    try {
+      existingNewConversationId = await createOrGetConversation(newParticipantIds);
+    } catch (createError: any) {
+      console.error('Error in createOrGetConversation:', createError);
+      // If creation/fetching fails, provide a helpful error message
+      const errorMsg = createError.message || 'Unknown error';
+      throw new Error(`Unable to create group chat: ${errorMsg}. Please try again.`);
+    }
+    
+    // If it's the same as the old conversation, no split needed
+    if (existingNewConversationId === oldConversationId) {
+      console.log('⏭️ Target conversation is same as source, no split needed');
+      return oldConversationId;
+    }
+    
     // DON'T archive the old conversation - keep it active for original participants
     // Just update the timestamp so it doesn't interfere with sorting
-    await updateDoc(doc(db, 'conversations', oldConversationId), {
-      updatedAt: Timestamp.now(),
-    });
+    try {
+      await updateDoc(doc(db, 'conversations', oldConversationId), {
+        updatedAt: Timestamp.now(),
+      });
+    } catch (error) {
+      console.error('Failed to update old conversation timestamp:', error);
+      // Continue anyway - not critical
+    }
 
-    // Create new conversation with new participant set
-    const newConversationId = await createOrGetConversation(newParticipantIds);
-
-    console.log(`✅ Conversation split: ${oldConversationId} → ${newConversationId}`);
+    console.log(`✅ Conversation split: ${oldConversationId} → ${existingNewConversationId}`);
     console.log(`   Old conversation kept active: [${oldParticipants.join(', ')}]`);
-    console.log(`   New conversation created: [${newParticipants.join(', ')}]`);
+    console.log(`   New conversation: [${newParticipants.join(', ')}]`);
 
-    return newConversationId;
+    return existingNewConversationId;
   } catch (error) {
     console.error('Split conversation error:', error);
     throw error;

@@ -24,24 +24,7 @@ export default function NewMessageScreen() {
   const [messageText, setMessageText] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
-  useEffect(() => {
-    navigation.setOptions({
-      title: 'New aiMessage',
-      headerBackTitleVisible: false,
-      headerBackTitle: '', // Remove back button text
-      headerShown: true,
-      headerRight: () => (
-        <TouchableOpacity 
-          style={{ marginRight: 16 }}
-          onPress={() => {
-            // Optionally add more users or do nothing - the + is always visible
-          }}
-        >
-          <Text style={{ fontSize: 28, color: '#007AFF', fontWeight: '300' }}>+</Text>
-        </TouchableOpacity>
-      ),
-    });
-  }, []);
+  // Header is now configured in _layout.tsx
 
   useEffect(() => {
     if (!searchText.trim() || !user) {
@@ -112,8 +95,8 @@ export default function NewMessageScreen() {
     <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
       <KeyboardAvoidingView 
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
       >
         {/* To: field with selected users */}
         <View style={styles.toContainer}>
@@ -328,7 +311,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 16,
     borderTopWidth: 1,
     borderTopColor: '#E8E8E8',
     backgroundColor: '#fff',
@@ -339,11 +323,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F0F0',
     borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     marginRight: 8,
     maxHeight: 100,
+    minHeight: 36,
     fontSize: 17,
     color: '#000',
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 34,

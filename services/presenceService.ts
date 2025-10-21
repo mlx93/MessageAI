@@ -13,12 +13,14 @@ import { db } from './firebase';
  * 
  * When user comes online:
  * 1. Set online: true in Firestore
- * 2. Update lastSeen timestamp
- * 3. Register onDisconnect handler to set offline when connection drops
+ * 2. Set inApp: true to indicate active app usage
+ * 3. Update lastSeen timestamp
+ * 4. Register onDisconnect handler to set offline when connection drops
  * 
  * @param userId - User ID to set online
+ * @param inApp - Whether user is actively in the app (default: true)
  */
-export const setUserOnline = async (userId: string): Promise<void> => {
+export const setUserOnline = async (userId: string, inApp: boolean = true): Promise<void> => {
   const userRef = doc(db, 'users', userId);
   
   // Set user as online
@@ -26,6 +28,7 @@ export const setUserOnline = async (userId: string): Promise<void> => {
     userRef,
     {
       online: true,
+      inApp,
       lastSeen: serverTimestamp(),
     },
     { merge: true }
@@ -48,6 +51,7 @@ export const setUserOffline = async (userId: string): Promise<void> => {
     doc(db, 'users', userId),
     {
       online: false,
+      inApp: false,
       lastSeen: serverTimestamp(),
     },
     { merge: true }
@@ -63,7 +67,7 @@ export const setUserOffline = async (userId: string): Promise<void> => {
  */
 export const subscribeToUserPresence = (
   userId: string,
-  callback: (online: boolean, lastSeen?: Date) => void
+  callback: (online: boolean, inApp: boolean, lastSeen?: Date) => void
 ): Unsubscribe => {
   const userRef = doc(db, 'users', userId);
   
@@ -71,9 +75,10 @@ export const subscribeToUserPresence = (
     if (snapshot.exists()) {
       const data = snapshot.data();
       const online = data.online || false;
+      const inApp = data.inApp || false;
       const lastSeen = data.lastSeen?.toDate();
       
-      callback(online, lastSeen);
+      callback(online, inApp, lastSeen);
     }
   });
 };
@@ -88,13 +93,13 @@ export const subscribeToUserPresence = (
  */
 export const subscribeToMultipleUsersPresence = (
   userIds: string[],
-  callback: (presenceMap: Record<string, { online: boolean; lastSeen?: Date }>) => void
+  callback: (presenceMap: Record<string, { online: boolean; inApp: boolean; lastSeen?: Date }>) => void
 ): Unsubscribe[] => {
-  const presenceMap: Record<string, { online: boolean; lastSeen?: Date }> = {};
+  const presenceMap: Record<string, { online: boolean; inApp: boolean; lastSeen?: Date }> = {};
   
   const unsubscribes = userIds.map((userId) => {
-    return subscribeToUserPresence(userId, (online, lastSeen) => {
-      presenceMap[userId] = { online, lastSeen };
+    return subscribeToUserPresence(userId, (online, inApp, lastSeen) => {
+      presenceMap[userId] = { online, inApp, lastSeen };
       callback({ ...presenceMap });
     });
   });
@@ -112,6 +117,26 @@ export const updateLastSeen = async (userId: string): Promise<void> => {
   await setDoc(
     doc(db, 'users', userId),
     {
+      lastSeen: serverTimestamp(),
+    },
+    { merge: true }
+  );
+};
+
+/**
+ * Set whether user is actively in the app
+ * This allows distinguishing between:
+ * - Green indicator: online AND inApp (actively using the app)
+ * - Yellow indicator: online but NOT inApp (logged in, has internet, but app in background)
+ * 
+ * @param userId - User ID
+ * @param inApp - Whether user is actively in the app
+ */
+export const setUserInApp = async (userId: string, inApp: boolean): Promise<void> => {
+  await setDoc(
+    doc(db, 'users', userId),
+    {
+      inApp,
       lastSeen: serverTimestamp(),
     },
     { merge: true }

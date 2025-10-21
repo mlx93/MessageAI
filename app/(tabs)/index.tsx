@@ -15,7 +15,7 @@ export default function ConversationsScreen() {
   const navigation = useNavigation();
   const { user, userProfile, signOut } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; lastSeen?: Date }>>({});
+  const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; inApp: boolean; lastSeen?: Date }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -213,17 +213,20 @@ export default function ConversationsScreen() {
       ? item.participants.find(id => id !== user.uid)
       : null;
     const isOnline = otherUserId ? presenceMap[otherUserId]?.online : false;
+    const isInApp = otherUserId ? presenceMap[otherUserId]?.inApp : false;
 
     const panGesture = Gesture.Pan()
+      .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
+      .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (prioritize scrolling)
       .onUpdate((event) => {
-        // Only allow left swipe (negative translation)
+        // Only allow left swipe (negative translation) and limit to -80px
         if (event.translationX < 0) {
-          translateX.value = event.translationX;
+          translateX.value = Math.max(event.translationX, -80);
         }
       })
       .onEnd((event) => {
-        if (event.translationX < -80) {
-          // Threshold reached - reveal delete button
+        if (event.translationX < -40) {
+          // Threshold reached - reveal delete button (lowered to 40px for easier access)
           translateX.value = withSpring(-80);
         } else {
           // Snap back
@@ -233,6 +236,7 @@ export default function ConversationsScreen() {
 
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [{ translateX: translateX.value }],
+      backgroundColor: '#fff', // Cover the delete button when not swiped
     }));
 
     const handleDelete = () => {
@@ -245,9 +249,12 @@ export default function ConversationsScreen() {
 
     const handlePress = () => {
       if (translateX.value < -10) {
-        // Close if swiped
+        // Close if swiped - don't navigate
         translateX.value = withSpring(0);
       } else if (!isNavigating) {
+        // Ensure swipe is fully closed before navigating
+        translateX.value = 0;
+        
         // Prevent double navigation
         setIsNavigating(true);
         router.push(`/chat/${item.id}`);
@@ -285,7 +292,12 @@ export default function ConversationsScreen() {
                   <Text style={styles.avatarText}>{getInitials(item)}</Text>
                 </View>
                 {item.type === 'direct' && isOnline && (
-                  <View style={styles.onlineIndicator} />
+                  <View 
+                    style={[
+                      styles.onlineIndicator, 
+                      { backgroundColor: isInApp ? '#34C759' : '#FFD60A' }
+                    ]} 
+                  />
                 )}
               </View>
               
@@ -299,9 +311,25 @@ export default function ConversationsScreen() {
                 
                 <View style={styles.footer}>
                   <Text style={styles.lastMessage} numberOfLines={1}>
-                    {item.lastMessage.text && item.lastMessage.text.trim() !== '' 
-                      ? item.lastMessage.text 
-                      : 'No messages yet'}
+                    {(() => {
+                      // Check if there's actual text content
+                      if (item.lastMessage?.text && item.lastMessage.text.trim() !== '') {
+                        return item.lastMessage.text;
+                      }
+                      
+                      // Check if there's a valid timestamp (meaning messages were sent)
+                      const timestamp = item.lastMessage?.timestamp;
+                      if (timestamp) {
+                        const time = typeof timestamp.getTime === 'function' ? timestamp.getTime() : 0;
+                        // Check if it's a real message time (not just initialization)
+                        // Messages sent in the last 10 years would be > this value
+                        if (time > new Date('2015-01-01').getTime()) {
+                          return 'Photo';
+                        }
+                      }
+                      
+                      return 'Start a conversation';
+                    })()}
                   </Text>
                   {unreadCount > 0 && (
                     <View style={styles.unreadBadge}>
@@ -391,7 +419,7 @@ export default function ConversationsScreen() {
               }}
               style={styles.appleHeaderButton}
             >
-              <Text style={styles.appleHeaderButtonText}>Cancel</Text>
+              <Text style={styles.appleHeaderButtonText}>Done</Text>
             </TouchableOpacity>
             
             {!isEditingProfile && (
@@ -509,22 +537,22 @@ export default function ConversationsScreen() {
 
             {/* Bottom Actions */}
             <View style={styles.appleBottomActions}>
-              <TouchableOpacity 
-                style={styles.appleTinySignOutButton}
-                onPress={() => {
-                  setShowProfileMenu(false);
-                  handleSignOut();
-                }}
-              >
-                <Text style={styles.appleTinySignOutText}>Sign Out</Text>
-              </TouchableOpacity>
-              
-              {isEditingProfile && (
+              {isEditingProfile ? (
                 <TouchableOpacity 
-                  style={styles.appleDoneButton}
+                  style={styles.appleSaveChangesButton}
                   onPress={handleSaveProfile}
                 >
-                  <Text style={styles.appleDoneButtonText}>Done</Text>
+                  <Text style={styles.appleSaveChangesButtonText}>Save Changes</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.appleSignOutButton}
+                  onPress={() => {
+                    setShowProfileMenu(false);
+                    handleSignOut();
+                  }}
+                >
+                  <Text style={styles.appleSignOutButtonText}>Sign Out</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -648,29 +676,30 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   appleBottomActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 24,
-    marginTop: 24,
+    marginTop: 32,
   },
-  appleTinySignOutButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+  appleSignOutButton: {
+    backgroundColor: '#FF3B30',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  appleTinySignOutText: {
-    fontSize: 13,
-    color: '#FF3B30',
-    fontWeight: '400',
+  appleSignOutButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
   },
-  appleDoneButton: {
+  appleSaveChangesButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  appleDoneButtonText: {
+  appleSaveChangesButtonText: {
     color: '#fff',
     fontSize: 17,
     fontWeight: '600',
@@ -727,7 +756,7 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#4CD964',
+    // backgroundColor set dynamically: green (#34C759) if in app, yellow (#FFD60A) if online but not in app
     borderWidth: 2,
     borderColor: '#fff',
   },

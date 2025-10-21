@@ -48,6 +48,7 @@ export default function ChatScreen() {
   const [pendingParticipants, setPendingParticipants] = useState<SearchResult[]>([]); // Users selected but not yet added
   const [participantsToRemove, setParticipantsToRemove] = useState<string[]>([]); // UIDs of participants to remove
   const [otherUserOnline, setOtherUserOnline] = useState(false);
+  const [otherUserInApp, setOtherUserInApp] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const conversationId = id as string;
@@ -131,6 +132,30 @@ export default function ChatScreen() {
           navigation.setOptions({
             title: isAddMode ? '' : title,
             headerBackTitle: 'Messages',
+            headerTitle: isAddMode || conversation.type !== 'direct' ? undefined : () => (
+              <View style={{ flexDirection: 'column', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
+                    {title}
+                  </Text>
+                  {otherUserOnline && (
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if online but not in app
+                      }}
+                    />
+                  )}
+                </View>
+                {subtitle && (
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    {subtitle}
+                  </Text>
+                )}
+              </View>
+            ),
             headerRight: () => (
               <TouchableOpacity 
                 onPress={buttonAction} 
@@ -203,7 +228,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserLastSeen, pendingParticipants, participantsToRemove]);
+  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserInApp, otherUserLastSeen, pendingParticipants, participantsToRemove]);
 
   // Subscribe to presence for direct conversations
   useEffect(() => {
@@ -218,8 +243,9 @@ export default function ChatScreen() {
           const otherUserId = conversation.participants.find(id => id !== user.uid);
           if (otherUserId) {
             // Subscribe to other user's presence
-            const unsubscribe = subscribeToUserPresence(otherUserId, (online, lastSeen) => {
+            const unsubscribe = subscribeToUserPresence(otherUserId, (online, inApp, lastSeen) => {
               setOtherUserOnline(online);
+              setOtherUserInApp(inApp);
               setOtherUserLastSeen(lastSeen);
             });
             return unsubscribe;
@@ -491,11 +517,11 @@ export default function ChatScreen() {
     try {
       // Calculate new participant list
       const currentParticipantIds = currentParticipants.map(p => p.uid);
-      const allParticipantIds = [
+      const allParticipantIds = Array.from(new Set([
         user.uid, // Always include current user
         ...currentParticipantIds.filter(id => !participantsToRemove.includes(id)), // Remove marked
         ...pendingParticipants.map(p => p.uid) // Add new
-      ];
+      ]));
 
       // Check if participants are changing and if we should split
       const isChangingParticipants = pendingParticipants.length > 0 || participantsToRemove.length > 0;
@@ -655,12 +681,13 @@ export default function ChatScreen() {
                 onChangeText={setAddSearchText}
                 placeholder="Type name or number..."
                 placeholderTextColor="#999"
-                autoFocus={Platform.OS === 'ios'}
+                autoFocus={true}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="default"
                 returnKeyType="search"
                 editable={true}
+                blurOnSubmit={false}
               />
             </ScrollView>
           </View>
@@ -835,14 +862,9 @@ export default function ChatScreen() {
       <View style={styles.inputContainer}>
         <TouchableOpacity 
           style={styles.imageButton}
-          onPress={handlePickImage}
-          disabled={isUploadingImage}
+          disabled={true}
         >
-          {isUploadingImage ? (
-            <ActivityIndicator size="small" color="#007AFF" />
-          ) : (
-            <Ionicons name="image-outline" size={28} color="#007AFF" />
-          )}
+          <Ionicons name="image-outline" size={26} color="#999" />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
@@ -1156,8 +1178,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F8F8',
   },
   imageButton: {
-    padding: 8,
-    marginRight: 4,
+    padding: 4,
+    marginLeft: 2,
+    marginRight: 6,
     marginBottom: 4,
     width: 36,
     height: 36,

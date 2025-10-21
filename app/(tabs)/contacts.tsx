@@ -5,9 +5,11 @@ import { getUserContacts, searchUserByPhone, normalizePhoneNumber } from '../../
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { router } from 'expo-router';
 import * as Contacts from 'expo-contacts';
-import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 interface Contact {
   id: string;
@@ -16,6 +18,7 @@ interface Contact {
   isAppUser: boolean;
   appUserId: string | null;
   lastSynced: Date;
+  isInContacts?: boolean; // NEW: Track if user is already in contacts
 }
 
 export default function ContactsScreen() {
@@ -49,15 +52,19 @@ export default function ContactsScreen() {
         const { searchAllUsers } = await import('../../services/contactService');
         const allUsers = await searchAllUsers(searchText, user.uid, 20);
         
-        // Map to Contact format
-        const searchResults = allUsers.map(u => ({
-          id: u.uid,
-          phoneNumber: u.phoneNumber || '',
-          name: u.displayName || `${u.firstName} ${u.lastName}`.trim(),
-          isAppUser: true,
-          appUserId: u.uid,
-          lastSynced: new Date(),
-        }));
+        // Map to Contact format and check if already in contacts
+        const searchResults = allUsers.map(u => {
+          const existingContact = contacts.find(c => c.appUserId === u.uid || c.phoneNumber === u.phoneNumber);
+          return {
+            id: u.uid,
+            phoneNumber: u.phoneNumber || '',
+            name: u.displayName || `${u.firstName} ${u.lastName}`.trim(),
+            isAppUser: true,
+            appUserId: u.uid,
+            lastSynced: existingContact?.lastSynced || new Date(),
+            isInContacts: !!existingContact, // NEW: Track if already in contacts
+          };
+        });
 
         setFilteredContacts(searchResults);
       } catch (error) {
@@ -104,6 +111,36 @@ export default function ContactsScreen() {
   const handleRefresh = () => {
     setRefreshing(true);
     loadContacts();
+  };
+
+  const handleImportAllContacts = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      // Use the bulk import function from contactService
+      const { importContacts } = await import('../../services/contactService');
+      await importContacts(user.uid);
+      
+      // Refresh contacts list
+      const userContacts = await getUserContacts(user.uid);
+      setContacts(userContacts as Contact[]);
+      setFilteredContacts(userContacts as Contact[]);
+      
+      // Count how many contacts are app users
+      const appUserCount = userContacts.filter((c: any) => c.isAppUser).length;
+      const totalCount = userContacts.length;
+      
+      Alert.alert(
+        'Import Complete',
+        `${appUserCount} of ${totalCount} contacts are on aiMessage`
+      );
+    } catch (error: any) {
+      console.error('Failed to import contacts:', error);
+      Alert.alert('Error', error.message || 'Failed to import contacts');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAddContact = async () => {
@@ -188,6 +225,58 @@ export default function ContactsScreen() {
 
   const [isNavigating, setIsNavigating] = useState(false);
 
+  const handleDeleteContact = (contact: Contact) => {
+    Alert.alert(
+      'Delete Contact',
+      `Remove ${contact.name} from your contacts?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (!user) return;
+              // Delete from Firestore
+              await deleteDoc(doc(db, `users/${user.uid}/contacts`, contact.phoneNumber));
+              // Refresh contacts list
+              await loadContacts();
+            } catch (error: any) {
+              console.error('Failed to delete contact:', error);
+              Alert.alert('Error', 'Failed to delete contact');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAddSearchedUserToContacts = async (contact: Contact) => {
+    if (!user) return;
+    
+    try {
+      // Save to Firestore
+      await setDoc(doc(db, `users/${user.uid}/contacts`, contact.phoneNumber), {
+        phoneNumber: contact.phoneNumber,
+        name: contact.name,
+        isAppUser: true,
+        appUserId: contact.appUserId,
+        lastSynced: new Date()
+      });
+
+      // Refresh contacts list
+      await loadContacts();
+
+      // Clear search bar
+      setSearchText('');
+
+      Alert.alert('Success', `${contact.name} added to contacts`);
+    } catch (error: any) {
+      console.error('Failed to add contact:', error);
+      Alert.alert('Error', 'Failed to add contact. Please try again.');
+    }
+  };
+
   const startConversation = async (contactUserId: string) => {
     if (!user || isNavigating) return;
     
@@ -197,6 +286,11 @@ export default function ContactsScreen() {
       const { createOrGetConversation } = await import('../../services/conversationService');
       const conversationId = await createOrGetConversation([user.uid, contactUserId]);
       router.push(`/chat/${conversationId}`);
+      
+      // Reset navigation flag after navigation completes
+      setTimeout(() => {
+        setIsNavigating(false);
+      }, 1000);
     } catch (error: any) {
       Alert.alert('Error', 'Failed to create conversation: ' + error.message);
       setIsNavigating(false);
@@ -227,6 +321,120 @@ export default function ContactsScreen() {
     );
   }
 
+  // Swipeable Contact Item Component
+  const SwipeableContactItem = ({ item }: { item: Contact }) => {
+    const translateX = useSharedValue(0);
+
+    const panGesture = Gesture.Pan()
+      .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
+      .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (prioritize scrolling)
+      .onUpdate((event) => {
+        // Only allow left swipe (negative translation) and limit to -80px
+        if (event.translationX < 0) {
+          translateX.value = Math.max(event.translationX, -80);
+        }
+      })
+      .onEnd((event) => {
+        if (event.translationX < -40) {
+          // Threshold reached - reveal delete button (lowered to 40px for easier access)
+          translateX.value = withSpring(-80);
+        } else {
+          // Snap back
+          translateX.value = withSpring(0);
+        }
+      });
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      transform: [{ translateX: translateX.value }],
+      backgroundColor: '#fff', // Cover the delete button when not swiped
+    }));
+
+    const handleDelete = () => {
+      translateX.value = withSpring(0); // Close swipe before deleting
+      setTimeout(() => {
+        runOnJS(handleDeleteContact)(item);
+      }, 300);
+    };
+
+    // Only enable swipe-to-delete for contacts that are actually in the user's contact list
+    // (both app users and non-app users can be deleted if they're in your contacts)
+    const canDelete = item.isInContacts !== false;
+
+    return (
+      <View style={styles.swipeableContainer}>
+        {/* Delete Button (behind the item) - only for actual contacts */}
+        {canDelete && (
+          <View style={styles.deleteButtonContainer}>
+            <TouchableOpacity 
+              style={styles.deleteButton}
+              onPress={handleDelete}
+            >
+              <Ionicons name="trash-outline" size={24} color="#fff" />
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Swipeable Content */}
+        <GestureDetector gesture={canDelete ? panGesture : Gesture.Pan()}>
+          <Animated.View style={[animatedStyle]}>
+            <TouchableOpacity 
+              onPress={() => {
+                // Close swipe if open, otherwise navigate
+                if (canDelete && translateX.value < -10) {
+                  translateX.value = withSpring(0);
+                } else if (item.isAppUser && item.appUserId) {
+                  if (canDelete) {
+                    translateX.value = 0; // Ensure fully closed
+                  }
+                  startConversation(item.appUserId);
+                }
+              }}
+              style={[styles.contactItem, !item.isAppUser && styles.contactItemDisabled]}
+              disabled={!item.isAppUser}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.contactAvatar, !item.isAppUser && styles.contactAvatarDisabled]}>
+                <Text style={styles.contactInitials}>
+                  {item.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                </Text>
+              </View>
+              <View style={styles.contactInfo}>
+                <Text style={[styles.contactName, !item.isAppUser && styles.contactNameDisabled]}>
+                  {item.name}
+                </Text>
+                <Text style={styles.contactPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
+                {!item.isAppUser && (
+                  <Text style={styles.notOnAppText}>Not on aiMessage</Text>
+                )}
+              </View>
+              {item.isAppUser ? (
+                item.isInContacts === false ? (
+                  // User found in search but not in contacts - show Add button
+                  <TouchableOpacity 
+                    style={styles.addToContactsButton}
+                    onPress={() => handleAddSearchedUserToContacts(item)}
+                  >
+                    <Text style={styles.addToContactsButtonText}>Add</Text>
+                  </TouchableOpacity>
+                ) : (
+                  // User already in contacts - show Chat button
+                  <View style={styles.chatButton}>
+                    <Text style={styles.chatButtonText}>Chat</Text>
+                  </View>
+                )
+              ) : (
+                <View style={styles.inviteButton}>
+                  <Text style={styles.inviteButtonText}>Invite</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        </GestureDetector>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       {/* Search Bar */}
@@ -250,18 +458,27 @@ export default function ContactsScreen() {
         )}
       </View>
       
+      {/* Import all contacts button */}
+      <TouchableOpacity 
+        style={styles.importButton}
+        onPress={handleImportAllContacts}
+      >
+        <Ionicons name="cloud-download" size={24} color="#fff" />
+        <Text style={styles.importButtonText}>Import All Contacts</Text>
+      </TouchableOpacity>
+
       {/* Add contact button with native picker */}
       <TouchableOpacity 
         style={styles.addContactButton}
         onPress={handleAddContact}
       >
         <Ionicons name="person-add" size={24} color="#fff" />
-        <Text style={styles.addContactText}>Add Contact</Text>
+        <Text style={styles.addContactText}>Add Single Contact</Text>
       </TouchableOpacity>
       
       {contacts.length === 0 && (
         <Text style={styles.helpText}>
-          Tap "Add Contact" to select contacts from your phone
+          Tap "Import All Contacts" to sync all your phone contacts
         </Text>
       )}
       
@@ -277,37 +494,7 @@ export default function ContactsScreen() {
             colors={['#007AFF']}
           />
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            onPress={() => item.isAppUser && item.appUserId && startConversation(item.appUserId)}
-            style={[styles.contactItem, !item.isAppUser && styles.contactItemDisabled]}
-            disabled={!item.isAppUser}
-          >
-            <View style={[styles.contactAvatar, !item.isAppUser && styles.contactAvatarDisabled]}>
-              <Text style={styles.contactInitials}>
-                {item.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-              </Text>
-            </View>
-            <View style={styles.contactInfo}>
-              <Text style={[styles.contactName, !item.isAppUser && styles.contactNameDisabled]}>
-                {item.name}
-              </Text>
-              <Text style={styles.contactPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
-              {!item.isAppUser && (
-                <Text style={styles.notOnAppText}>Not on aiMessage</Text>
-              )}
-            </View>
-            {item.isAppUser ? (
-              <View style={styles.chatButton}>
-                <Text style={styles.chatButtonText}>Chat</Text>
-              </View>
-            ) : (
-              <View style={styles.inviteButton}>
-                <Text style={styles.inviteButtonText}>Invite</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
+        renderItem={({ item }) => <SwipeableContactItem item={item} />}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No contacts imported yet</Text>
@@ -350,6 +537,22 @@ const styles = StyleSheet.create({
   searchLoading: {
     marginRight: 8,
   },
+  importButton: {
+    backgroundColor: '#34C759',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    gap: 8,
+  },
+  importButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
   addContactButton: {
     backgroundColor: '#007AFF',
     flexDirection: 'row',
@@ -380,6 +583,7 @@ const styles = StyleSheet.create({
     padding: 15,
     borderBottomWidth: 1,
     borderColor: '#eee',
+    backgroundColor: '#fff',
   },
   contactItemDisabled: {
     opacity: 0.6,
@@ -422,6 +626,16 @@ const styles = StyleSheet.create({
     color: '#FF9500',
     marginTop: 2,
     fontStyle: 'italic',
+  },
+  addToContactsButton: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  addToContactsButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   chatButton: {
     backgroundColor: '#007AFF',
@@ -488,6 +702,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  swipeableContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  deleteButtonContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FF3B30',
+  },
+  deleteButton: {
+    width: 80,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
   },
 });
 

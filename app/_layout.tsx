@@ -91,12 +91,16 @@ function AppContent() {
           headerBackTitle: 'Messages',
           presentation: 'card',
           gestureEnabled: true,
+          animation: 'slide_from_right',
         }} 
       />
       <Stack.Screen 
         name="new-message" 
         options={{ 
-          headerShown: false, // Let the screen itself handle the header
+          headerShown: true,
+          title: 'New Message',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
           presentation: 'card',
         }} 
       />
