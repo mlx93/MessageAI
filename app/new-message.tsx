@@ -76,7 +76,7 @@ export default function NewMessageScreen() {
     try {
       // Create conversation with selected users
       const participantIds = [user.uid, ...selectedUsers.map(u => u.uid)];
-      const conversationId = await createOrGetConversation(participantIds);
+      const conversationId = await createOrGetConversation(participantIds, user.uid);
       
       // Send the first message
       const localId = uuidv4();

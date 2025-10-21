@@ -7,8 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
  * Create a new conversation or get existing one
  * For direct messages, uses deterministic ID (sorted participant IDs joined)
  * For groups, uses UUID
+ * 
+ * @param participantIds - Array of user IDs to include in the conversation
+ * @param currentUserId - ID of the current user (required for querying existing groups)
  */
-export const createOrGetConversation = async (participantIds: string[]): Promise<string> => {
+export const createOrGetConversation = async (participantIds: string[], currentUserId: string): Promise<string> => {
   const sorted = [...participantIds].sort();
   
   // For direct messages, check if conversation exists by deterministic ID
@@ -31,10 +34,10 @@ export const createOrGetConversation = async (participantIds: string[]): Promise
   // For groups, check if conversation with same participants already exists
   if (participantIds.length >= 3) {
     try {
-      // Query all conversations where first participant is a member
+      // Query conversations where CURRENT USER is a participant (avoids permission errors)
       const q = query(
         collection(db, 'conversations'),
-        where('participants', 'array-contains', sorted[0])
+        where('participants', 'array-contains', currentUserId)
       );
       const snapshot = await getDocs(q);
       
@@ -50,6 +53,7 @@ export const createOrGetConversation = async (participantIds: string[]): Promise
           return docSnap.id;
         }
       }
+      console.log(`🔍 No existing group found with ${sorted.length} participants, creating new one`);
     } catch (queryError) {
       console.error('Error querying for existing group:', queryError);
       // Continue to create new conversation if query fails
@@ -308,7 +312,7 @@ export const splitConversation = async (
     // Check if target conversation already exists
     let existingNewConversationId: string;
     try {
-      existingNewConversationId = await createOrGetConversation(newParticipantIds);
+      existingNewConversationId = await createOrGetConversation(newParticipantIds, initiatorId);
     } catch (createError: any) {
       console.error('Error in createOrGetConversation:', createError);
       // If creation/fetching fails, provide a helpful error message

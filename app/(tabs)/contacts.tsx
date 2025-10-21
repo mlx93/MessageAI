@@ -284,7 +284,7 @@ export default function ContactsScreen() {
     try {
       // Import conversation service dynamically to avoid circular deps
       const { createOrGetConversation } = await import('../../services/conversationService');
-      const conversationId = await createOrGetConversation([user.uid, contactUserId]);
+      const conversationId = await createOrGetConversation([user.uid, contactUserId], user.uid);
       router.push(`/chat/${conversationId}`);
       
       // Reset navigation flag after navigation completes
