@@ -26,17 +26,24 @@ Notifications.setNotificationHandler({
 /**
  * Register for push notifications and save FCM token to Firestore
  * 
- * Note: For Expo Go (development), this works on both simulators and devices
- * For production builds, iOS requires a physical device
+ * Note: Expo Go on Android (SDK 53+) doesn't support push notifications
+ * Use a development build for full functionality
+ * iOS Expo Go still works for push notifications
  * 
  * @param userId - User ID to associate with the FCM token
- * @returns Expo push token or null if failed/denied
+ * @returns Expo push token or null if failed/denied/unsupported
  */
 export const registerForPushNotifications = async (userId: string): Promise<string | null> => {
   try {
     // Check if device (not web)
     if (!Device.isDevice && Platform.OS !== 'ios' && Platform.OS !== 'android') {
-      console.log('Push notifications not available on web');
+      console.log('📱 Push notifications not available on web');
+      return null;
+    }
+
+    // Expo Go limitation: Android doesn't support push notifications
+    if (Platform.OS === 'android' && !Device.isDevice) {
+      console.log('📱 Push notifications not supported in Android Expo Go - use development build');
       return null;
     }
 
@@ -51,13 +58,13 @@ export const registerForPushNotifications = async (userId: string): Promise<stri
     }
     
     if (finalStatus !== 'granted') {
-      console.log('Push notification permission denied');
+      console.log('📱 Push notification permission denied');
       return null;
     }
     
     // Get Expo push token
     const token = (await Notifications.getExpoPushTokenAsync()).data;
-    console.log('Push token:', token);
+    console.log('📱 Push token registered:', token);
     
     // Save token to Firestore
     await setDoc(
@@ -70,8 +77,13 @@ export const registerForPushNotifications = async (userId: string): Promise<stri
     );
     
     return token;
-  } catch (error) {
-    console.error('Failed to register for push notifications:', error);
+  } catch (error: any) {
+    // Gracefully handle Expo Go limitations
+    if (error.message && error.message.includes('projectId')) {
+      console.log('📱 Push notifications not supported in Expo Go - app will work without them');
+    } else {
+      console.error('📱 Failed to register for push notifications:', error.message || error);
+    }
     return null;
   }
 };
