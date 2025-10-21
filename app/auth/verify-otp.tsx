@@ -20,7 +20,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { verifyPhoneCode, getUserProfile } from '../../services/authService';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { showDevHelper } from '../../services/devOtpHelper';
+import { autoFetchAndShowOTP, isTestNumber } from '../../services/otpService';
 
 export default function VerifyOTPScreen() {
   const { verificationId, phoneNumber } = useLocalSearchParams<{
@@ -32,8 +32,36 @@ export default function VerifyOTPScreen() {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [countdown, setCountdown] = useState(60);
+  const [fetchingCode, setFetchingCode] = useState(false);
   
   const inputRefs = useRef<(TextInput | null)[]>([]);
+
+  // Auto-fetch OTP code from Firestore (for development/testing)
+  useEffect(() => {
+    if (!verificationId || !phoneNumber) return;
+
+    // Start fetching after a short delay to let the Cloud Function execute
+    const timer = setTimeout(() => {
+      setFetchingCode(true);
+      console.log('🔄 Starting auto-fetch for OTP code...');
+      
+      const unsubscribe = autoFetchAndShowOTP(
+        verificationId,
+        formatPhoneNumber(phoneNumber),
+        (fetchedCode) => {
+          console.log('✅ Code auto-fetched:', fetchedCode);
+          setFetchingCode(false);
+        }
+      );
+
+      return () => {
+        unsubscribe();
+        setFetchingCode(false);
+      };
+    }, 2000); // Wait 2 seconds for Cloud Function to execute
+
+    return () => clearTimeout(timer);
+  }, [verificationId, phoneNumber]);
 
   // Countdown timer for resend
   useEffect(() => {
@@ -180,6 +208,13 @@ export default function VerifyOTPScreen() {
           </View>
         )}
 
+        {fetchingCode && !loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color="#007AFF" />
+            <Text style={styles.helpText}>Fetching your code...</Text>
+          </View>
+        )}
+
         <TouchableOpacity
           style={[styles.resendButton, (countdown > 0 || resending) && styles.resendButtonDisabled]}
           onPress={handleResend}
@@ -200,16 +235,6 @@ export default function VerifyOTPScreen() {
         >
           <Text style={styles.changeNumberText}>Change phone number</Text>
         </TouchableOpacity>
-
-        {/* Development helper - only shows in __DEV__ mode */}
-        {__DEV__ && (
-          <TouchableOpacity
-            style={styles.devHelperButton}
-            onPress={() => showDevHelper(phoneNumber)}
-          >
-            <Text style={styles.devHelperText}>🔧 Get OTP Code (Dev Mode)</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -293,20 +318,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  devHelperButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    backgroundColor: '#FFF3CD',
-    borderRadius: 12,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#FFC107',
-  },
-  devHelperText: {
-    fontSize: 15,
-    color: '#856404',
-    fontWeight: '600',
+  helpText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#007AFF',
+    textAlign: 'center',
   },
 });
 

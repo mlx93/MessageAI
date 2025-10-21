@@ -18,13 +18,7 @@ service cloud.firestore {
       allow update: if isOwner(userId);
     }
     
-    // Users by email index (for uniqueness)
-    match /usersByEmail/{email} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    
-    // Users by phone index (for uniqueness)
+    // Users by phone index (for uniqueness) 
     match /usersByPhone/{phone} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
@@ -68,10 +62,12 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
     
-    // Phone verification codes (Cloud Functions only)
-    // Clients should not access this directly - use Cloud Functions
+    // Phone verification codes
+    // Allow read for OTP auto-fetch (verificationId acts as secure token)
+    // Only Cloud Functions can write
     match /verifications/{verificationId} {
-      allow read, write: if false;
+      allow read: if true; // Anyone with verificationId can read (needed for OTP auto-fetch)
+      allow write: if false; // Only Cloud Functions can write
     }
   }
 }

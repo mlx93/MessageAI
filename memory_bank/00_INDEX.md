@@ -1,9 +1,10 @@
 # MessageAI (aiMessage) Memory Bank - Index
 
 **Last Updated:** October 21, 2025  
-**Status:** 🎉 MVP COMPLETE ✅ - All Final Fixes Applied  
+**Status:** ⚠️ MVP COMPLETE + Resilience Fixes Needed  
 **Product Name:** aiMessage (rebranded from MessageAI)  
-**Version:** 1.0.0
+**Version:** 1.0.0  
+**Testing Confidence:** 60% → Need 95% (4-6 hours of fixes)
 
 ---
 
@@ -69,33 +70,47 @@ Troubleshooting guide documenting all issues encountered during setup and their 
 
 ---
 
-### **05. Current Codebase State**
+### **05. Current Codebase State** ⭐ UPDATED
 `05_current_codebase_state.md`
 
 Snapshot of the current codebase structure, key files, and what's been implemented.
 
 **Key Info:**
-- Complete project structure
-- All services and screens implemented
+- Complete project structure (app/, services/, components/, hooks/)
+- All 11 services and 15+ screens implemented
 - iMessage-style UI complete
+- **Testing Infrastructure** (NEW):
+  - Firebase Emulator setup (Auth, Firestore, Functions, Storage)
+  - 5 integration test suites (153 tests, 1,920 lines)
+  - 3 unit test suites (76+ tests)
+  - 229+ total automated tests
+  - 60-65% code coverage
+  - 8/10 MVP requirements fully tested
 - Production-ready codebase
 
 ---
 
-### **06. Active Context & Progress** ✅ COMPLETE
+### **06. Active Context & Progress** ⭐ UPDATED
 `06_active_context_progress.md`
 
-Final development status and comprehensive completion summary.
+Final development status, testing evaluation, and resilience fixes plan.
 
 **Key Info:**
-- MVP 100% complete (all features working)
+- MVP 100% complete (all 10 features working)
 - iMessage-quality UX delivered with perfect swipe behavior
-- Chat alignment: All blue bubbles move together, grey stay fixed
-- Read receipts always visible below messages
-- Timestamps revealed on swipe
-- Phone + OTP authentication implemented
-- Known issues documented
-- Production deployment ready
+- **Testing Evaluation Complete** (NEW):
+  - Evaluated 7 MVP test scenarios against codebase
+  - Identified critical gap: App lifecycle handling (BLOCKING)
+  - 5 priorities for resilience fixes (4-6 hours)
+  - Detailed implementation plan in `docs/MVP_RESILIENCE_FIXES.md`
+  - Current confidence: 60% → Target: 95%
+- **What Will Fail Testing**:
+  - ❌ Background messages (20% confidence) - CRITICAL
+  - ⚠️ Offline → Online (70% confidence)
+  - ⚠️ Force-quit persistence (75% confidence)
+  - ⚠️ Poor network handling (60% confidence)
+  - ⚠️ Rapid-fire messages (70% confidence)
+- Next: Implement Priority 1 (App Lifecycle) - 1 hour
 
 ---
 
@@ -128,7 +143,7 @@ Product decisions, known issues, and future enhancements based on `docs/PRODUCT_
 
 ## 🎯 Quick Reference
 
-### **MVP Status - ALL COMPLETE ✅**
+### **MVP Status - Features Complete, Resilience Needed**
 - ✅ **Hour 0-1:** Project Setup (100%)
 - ✅ **Hour 1-2:** Email/Password Authentication (100%)
 - ✅ **Hour 2-3:** Phone + OTP Authentication (100%)
@@ -140,22 +155,42 @@ Product decisions, known issues, and future enhancements based on `docs/PRODUCT_
 - ✅ **Hour 15-18:** Typing Indicators (100%)
 - ✅ **Hour 18-21:** Image Upload & Sharing (100%)
 - ✅ **Bonus:** iMessage-style UI polish (100%)
-- **Overall:** 🎉 100% complete, production ready
+- **Overall:** 🎉 Features 100%, ⚠️ Resilience 60% (needs fixes)
 
-### **Testing Commands**
+### **Testing Readiness - 5 Priorities Identified**
+| Test Scenario | Current | Target | Priority | Time |
+|---------------|---------|--------|----------|------|
+| Real-time chat | ✅ 95% | 95% | ✅ Pass | - |
+| Offline → Online | ⚠️ 70% | 95% | P2 | 1.5h |
+| **Background messages** | ❌ **20%** | **95%** | **P1** | **1h** |
+| Force-quit persist | ⚠️ 75% | 95% | P3 | 30m |
+| Poor network | ⚠️ 60% | 95% | P4 | 1h |
+| Rapid-fire (20+ msgs) | ⚠️ 70% | 95% | P5 | 1h |
+| Group chat | ✅ 90% | 95% | ✅ Pass | - |
+
+**Critical Fix Required:** App lifecycle handling (P1) - 1 hour
+
+### **Development Commands**
 ```bash
 # Start Expo development server
 npx expo start
 
 # Press 'i' for iOS Simulator
 # Press 'a' for Android Emulator
+```
 
-# Run tests (if needed)
-npm test
+### **Manual Testing Protocol** ⭐ UPDATED
+After implementing resilience fixes, test these 7 scenarios:
+1. ✅ Real-time chat (2 simulators) - Should pass
+2. ⚠️ Offline → Online - Needs P2 fixes
+3. ❌ Background messages - Needs P1 fixes (CRITICAL)
+4. ⚠️ Force-quit persistence - Needs P3 fixes
+5. ⚠️ Poor network (throttle to 2G) - Needs P4 fixes
+6. ⚠️ Rapid-fire (20+ messages) - Needs P5 fixes
+7. ✅ Group chat (3+ users) - Should pass
 
-# Start Firebase Emulators (for testing)
-firebase emulators:start
-
+### **Build Commands**
+```bash
 # Create development build (for production features)
 eas build --profile development --platform ios
 eas build --profile development --platform android
@@ -181,17 +216,27 @@ eas build --profile development --platform android
 ## 🔄 Memory Bank Updates
 
 This memory bank was last fully updated on **October 21, 2025** to reflect:
-- ✅ MVP 100% complete
+- ✅ MVP 100% complete (features)
 - ✅ All 10 core features + bonus features delivered
 - ✅ iMessage-quality UI polish
-- ✅ Chat alignment fixes: All blue bubbles move together (corrected implementation)
-- ✅ Read receipts always visible below messages
-- ✅ Timestamps revealed on swipe (right side)
-- ✅ Phone number formatting utility added
-- ✅ photoURL error resolved
-- ✅ Product direction decisions documented
-- ✅ Known issues and limitations cataloged
-- ✅ Production deployment path outlined
+- ⚠️ **Testing Evaluation Complete** (NEW):
+  - Evaluated codebase against 7 MVP test scenarios
+  - Identified critical gap: No app lifecycle handling
+  - 5 priorities for resilience (4-6 hours total)
+  - Created comprehensive fix plan: `docs/MVP_RESILIENCE_FIXES.md`
+- ❌ **Will Fail Testing Without Fixes**:
+  - Background messages (20% confidence) - CRITICAL
+  - Offline → Online recovery (70% confidence)
+  - Force-quit persistence (75% confidence)
+  - Poor network handling (60% confidence)
+  - Rapid-fire performance (70% confidence)
+- 📋 **Implementation Plan Ready**:
+  - P1: App lifecycle handling (1h) - BLOCKS testing
+  - P2: Offline UX improvements (1.5h)
+  - P3: Force-quit persistence (30m)
+  - P4: Poor network timeouts (1h)
+  - P5: Rapid-fire performance (1h)
+  - Total: 4-6 hours to 95% confidence
 
 **Update triggers:**
 - After completing major milestones ✅
@@ -204,7 +249,7 @@ This memory bank was last fully updated on **October 21, 2025** to reflect:
 
 ## 🎉 Current Achievement
 
-**aiMessage MVP - Production Ready!**
+**aiMessage MVP - Production Ready + Testing Infrastructure!**
 
 **What's Complete:**
 - ✅ 10 core messaging features
@@ -221,28 +266,64 @@ This memory bank was last fully updated on **October 21, 2025** to reflect:
 - ✅ Phone number formatting utility
 - ✅ Inline participant add feature
 - ✅ OTP dev helper for easy testing
+- ✅ **Testing Infrastructure** (NEW):
+  - Firebase Emulator setup
+  - 229+ automated tests (153 integration, 76+ unit)
+  - 60-65% code coverage
+  - 8/10 MVP requirements tested
+  - Comprehensive testing documentation
+  - Testing agent prompt (MessageAI-specific)
 
 **Known Limitations:**
 - ⏸️ Android push notifications (needs dev build)
 - ⏸️ Social auth OAuth (needs production build)
-- ⏸️ Multi-device testing (needs 2+ simulators)
+- ❌ **App lifecycle handling** (CRITICAL - blocks testing)
+- ⚠️ **Offline resilience** (partial - needs improvement)
+- ⚠️ **Network timeouts** (missing - causes hangs)
 
-**Next Steps:**
-1. Add test users to Firebase (30 min)
-2. Multi-device testing (1 hour)
-3. Create development build (2-3 hours)
-4. Production prep & beta testing (1 week)
+**Next Steps (CRITICAL PATH):**
+1. **Implement P1: App Lifecycle** (1 hour) ← START HERE
+   - Add AppState handling to `AuthContext.tsx`
+   - Presence heartbeat every 30s
+   - Reconnection logic on foreground
+   - **This alone gets you from 60% → 85% confidence**
+
+2. **Implement P4: Network Timeouts** (1 hour)
+   - Add timeout wrapper to `messageService.ts`
+   - Handle slow connections gracefully
+   - Queue on timeout
+
+3. **Implement P2, P3, P5** (3 hours) - Polish
+   - Offline UX improvements
+   - Force-quit persistence
+   - Rapid-fire performance
+
+4. **Manual Testing** (2-3 hours)
+   - Run all 7 test scenarios
+   - Document results
+   - Fix any issues found
+
+5. **Multi-device testing** (1 hour)
+6. **Create development build** (2-3 hours)
+7. **Production prep & beta testing** (1 week)
 
 ---
 
 **Last Updated:** October 21, 2025  
-**Status:** MVP Complete - Production Ready ✅  
-**Next Session:** Production prep, beta testing, or post-MVP features
+**Status:** ⚠️ Features Complete, Resilience Fixes Needed  
+**Next Session:** Implement resilience fixes (P1-P5) - 4-6 hours
+
+**CRITICAL BLOCKER:**
+- ❌ **App lifecycle handling missing** - Background messages will fail testing
+- Fix: Add AppState listener to `AuthContext.tsx` (1 hour)
+- Without this: 20% confidence on Scenario #3 (background messages)
+- With this: 85% confidence on all scenarios
 
 **Important Notes:**
 - Use phone + OTP or email/password for MVP testing
 - Social auth requires production build (code complete)
 - Android push notifications need development build
 - All core features working perfectly in simulators
-- **Android tip:** Gesture changes require restart (`npx expo start -c`)
+- **Testing readiness:** 60% → Target: 95% (need 4-6h of fixes)
+- **Detailed plan:** See `docs/MVP_RESILIENCE_FIXES.md`
 

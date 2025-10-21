@@ -20,6 +20,7 @@ import { router } from 'expo-router';
 import { useAuth } from '../../store/AuthContext';
 import * as Contacts from 'expo-contacts';
 import { normalizePhoneNumber } from '../../services/contactService';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { collection, query, where, getDocs, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 
@@ -241,7 +242,7 @@ export default function ImportContactsScreen() {
             </View>
             <View style={styles.contactInfo}>
               <Text style={styles.contactName}>{item.name}</Text>
-              <Text style={styles.contactPhone}>{item.phoneNumber}</Text>
+              <Text style={styles.contactPhone}>{formatPhoneNumber(item.phoneNumber)}</Text>
             </View>
           </TouchableOpacity>
         )}

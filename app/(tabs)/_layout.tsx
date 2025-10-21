@@ -25,6 +25,14 @@ export default function TabsLayout() {
         options={{
           title: 'Messages',
           headerLargeTitle: true,
+          headerStyle: {
+            height: 120, // Increase header height for more space
+          },
+          headerTitleAlign: 'center', // Center title on Android
+          headerTitleStyle: {
+            fontSize: 20,
+            fontWeight: '600',
+          },
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubbles" size={size} color={color} />
           ),

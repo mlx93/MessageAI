@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, TextInput, FlatList, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, TextInput, FlatList, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { useAuth } from '../store/AuthContext';
-import { searchUserByPhone, getUserContacts } from '../services/contactService';
+import { searchAllUsers, getUserContacts } from '../services/contactService';
 import { formatPhoneNumber } from '../utils/phoneFormat';
 import { createOrGetConversation, updateConversationLastMessage } from '../services/conversationService';
 import { sendMessage } from '../services/messageService';
@@ -26,10 +26,20 @@ export default function NewMessageScreen() {
 
   useEffect(() => {
     navigation.setOptions({
-      title: 'New Message',
+      title: 'New aiMessage',
       headerBackTitleVisible: false,
       headerBackTitle: '', // Remove back button text
       headerShown: true,
+      headerRight: () => (
+        <TouchableOpacity 
+          style={{ marginRight: 16 }}
+          onPress={() => {
+            // Optionally add more users or do nothing - the + is always visible
+          }}
+        >
+          <Text style={{ fontSize: 28, color: '#007AFF', fontWeight: '300' }}>+</Text>
+        </TouchableOpacity>
+      ),
     });
   }, []);
 
@@ -42,41 +52,20 @@ export default function NewMessageScreen() {
     setIsSearching(true);
     const searchTimeout = setTimeout(async () => {
       try {
-        // Search by phone number
-        const phoneUser = await searchUserByPhone(searchText);
-        const results: Contact[] = [];
+        // Search ALL app users (not just contacts) with fuzzy matching
+        const users = await searchAllUsers(searchText, user.uid, 10);
         
-        if (phoneUser && !selectedUsers.find(u => u.uid === phoneUser.uid)) {
-          results.push({
-            uid: phoneUser.uid,
-            displayName: phoneUser.displayName,
-            phoneNumber: phoneUser.phoneNumber,
-            initials: phoneUser.initials,
-          });
-        }
-
-        // Also get contacts and filter by name
-        const contacts = await getUserContacts(user.uid);
-        const nameMatches = contacts
-          .filter(c => 
-            c.isAppUser && 
-            c.name.toLowerCase().includes(searchText.toLowerCase()) &&
-            !selectedUsers.find(u => u.uid === c.appUserId)
-          )
-          .map(c => ({
-            uid: c.appUserId!,
-            displayName: c.name,
-            phoneNumber: c.phoneNumber,
-            initials: c.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+        // Filter out already selected users and format results
+        const results = users
+          .filter(u => !selectedUsers.find(selected => selected.uid === u.uid))
+          .map(u => ({
+            uid: u.uid,
+            displayName: u.displayName || `${u.firstName} ${u.lastName}`,
+            phoneNumber: u.phoneNumber || '',
+            initials: u.initials || u.displayName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??',
           }));
-
-        // Combine and deduplicate
-        const allResults = [...results, ...nameMatches];
-        const unique = Array.from(
-          new Map(allResults.map(item => [item.uid, item])).values()
-        );
         
-        setSearchResults(unique.slice(0, 5));
+        setSearchResults(results);
       } catch (error) {
         console.error('Search error:', error);
         setSearchResults([]);
@@ -120,13 +109,14 @@ export default function NewMessageScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      {/* To: field with selected users */}
-      <View style={styles.toContainer}>
+    <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+      <KeyboardAvoidingView 
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        {/* To: field with selected users */}
+        <View style={styles.toContainer}>
         <Text style={styles.toLabel}>To:</Text>
         <View style={styles.toContent}>
           <ScrollView 
@@ -134,13 +124,13 @@ export default function NewMessageScreen() {
             showsHorizontalScrollIndicator={false}
             style={styles.selectedUsersScroll}
           >
-            {selectedUsers.map(user => (
+            {selectedUsers.map(selectedUser => (
               <TouchableOpacity
-                key={user.uid}
+                key={selectedUser.uid}
                 style={styles.userPill}
-                onPress={() => handleRemoveUser(user.uid)}
+                onPress={() => handleRemoveUser(selectedUser.uid)}
               >
-                <Text style={styles.userPillText}>{user.displayName}</Text>
+                <Text style={styles.userPillText}>{selectedUser.displayName}</Text>
                 <Text style={styles.userPillRemove}>✕</Text>
               </TouchableOpacity>
             ))}
@@ -223,7 +213,8 @@ export default function NewMessageScreen() {
           <Text style={styles.sendButtonText}>↑</Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 

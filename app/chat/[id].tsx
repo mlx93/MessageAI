@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -7,10 +7,10 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
-import { updateConversationLastMessage, addParticipantToConversation } from '../../services/conversationService';
+import { updateConversationLastMessage, addParticipantToConversation, removeParticipantFromConversation } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
 import { queueMessage } from '../../services/offlineQueue';
-import { searchUserByPhone, getUserContacts } from '../../services/contactService';
+import { searchAllUsers, getUserContacts } from '../../services/contactService';
 import { subscribeToUserPresence } from '../../services/presenceService';
 import { pickAndUploadImage } from '../../services/imageService';
 import { setActiveConversation } from '../../services/notificationService';
@@ -45,6 +45,8 @@ export default function ChatScreen() {
   const [addSearchText, setAddSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [currentParticipants, setCurrentParticipants] = useState<Participant[]>([]);
+  const [pendingParticipants, setPendingParticipants] = useState<SearchResult[]>([]); // Users selected but not yet added
+  const [participantsToRemove, setParticipantsToRemove] = useState<string[]>([]); // UIDs of participants to remove
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -64,6 +66,9 @@ export default function ChatScreen() {
   );
   const { typingText } = useTypingStatus(conversationId, user?.uid || '');
 
+  const [participantDetailsMap, setParticipantDetailsMap] = useState<Record<string, any>>({});
+  const [isGroupChat, setIsGroupChat] = useState(false);
+
   // Load conversation details and participants
   useEffect(() => {
     if (!user) return;
@@ -73,6 +78,12 @@ export default function ChatScreen() {
         const { getConversation } = await import('../../services/conversationService');
         const conversation = await getConversation(conversationId);
         if (conversation) {
+          // Check if group chat (3+ participants)
+          setIsGroupChat(conversation.participants.length >= 3);
+          
+          // Store participant details for all participants (including sender info)
+          setParticipantDetailsMap(conversation.participantDetails);
+          
           // Store current participants
           const participants: Participant[] = conversation.participants
             .filter(id => id !== user.uid)
@@ -113,17 +124,29 @@ export default function ChatScreen() {
             subtitle = `${conversation.participants.length} participants`;
           }
 
+          // Determine button based on state
+          const hasPendingChanges = isAddMode && (pendingParticipants.length > 0 || participantsToRemove.length > 0);
+          const buttonAction = hasPendingChanges ? handleConfirmAddUsers : (isAddMode ? handleCancelAdd : handleAddParticipant);
+
           navigation.setOptions({
             title: isAddMode ? '' : title,
             headerBackTitle: 'Messages',
             headerRight: () => (
               <TouchableOpacity 
-                onPress={isAddMode ? handleCancelAdd : handleAddParticipant} 
-                style={{ marginRight: 8 }}
+                onPress={buttonAction} 
+                style={{ 
+                  marginRight: 12,
+                  width: 32,
+                  height: 32,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
               >
-                <Text style={{ color: '#007AFF', fontSize: 17 }}>
-                  {isAddMode ? 'Cancel' : 'Add'}
-                </Text>
+                <Ionicons 
+                  name={isAddMode ? (hasPendingChanges ? "checkmark" : "close") : "person-add-outline"} 
+                  size={24} 
+                  color="#007AFF" 
+                />
               </TouchableOpacity>
             ),
           });
@@ -180,7 +203,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserLastSeen]);
+  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserLastSeen, pendingParticipants, participantsToRemove]);
 
   // Subscribe to presence for direct conversations
   useEffect(() => {
@@ -240,42 +263,20 @@ export default function ChatScreen() {
 
     const searchTimeout = setTimeout(async () => {
       try {
-        // Search by phone number
-        const phoneUser = await searchUserByPhone(addSearchText);
-        const results: SearchResult[] = [];
+        // Search ALL app users (not just contacts) with fuzzy matching
+        const users = await searchAllUsers(addSearchText, user.uid, 10);
         
-        if (phoneUser && !currentParticipants.find(p => p.uid === phoneUser.uid) && phoneUser.uid !== user.uid) {
-          results.push({
-            uid: phoneUser.uid,
-            displayName: phoneUser.displayName,
-            phoneNumber: phoneUser.phoneNumber,
-            initials: phoneUser.initials,
-          });
-        }
-
-        // Also get contacts and filter by name
-        const contacts = await getUserContacts(user.uid);
-        const nameMatches = contacts
-          .filter(c => 
-            c.isAppUser && 
-            c.name.toLowerCase().includes(addSearchText.toLowerCase()) &&
-            !currentParticipants.find(p => p.uid === c.appUserId) &&
-            c.appUserId !== user.uid
-          )
-          .map(c => ({
-            uid: c.appUserId!,
-            displayName: c.name,
-            phoneNumber: c.phoneNumber,
-            initials: c.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+        // Filter out current participants and format results
+        const results = users
+          .filter(u => !currentParticipants.find(p => p.uid === u.uid))
+          .map(u => ({
+            uid: u.uid,
+            displayName: u.displayName || `${u.firstName} ${u.lastName}`,
+            phoneNumber: u.phoneNumber || '',
+            initials: u.initials || u.displayName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??',
           }));
-
-        // Combine and deduplicate
-        const allResults = [...results, ...nameMatches];
-        const unique = Array.from(
-          new Map(allResults.map(item => [item.uid, item])).values()
-        );
         
-        setSearchResults(unique.slice(0, 5));
+        setSearchResults(results);
       } catch (error) {
         console.error('Search error:', error);
         setSearchResults([]);
@@ -378,6 +379,17 @@ export default function ChatScreen() {
     transform: [{ translateX: blueBubblesTranslateX.value }],
   }));
 
+  // Get sender info for group chats
+  const getSenderInfo = (senderId: string) => {
+    const details = participantDetailsMap[senderId];
+    if (!details) return null;
+    
+    const displayName = details.displayName || 'Unknown';
+    const initials = details.initials || displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    
+    return { displayName, initials };
+  };
+
   const handlePickImage = async () => {
     if (!user) return;
 
@@ -436,29 +448,139 @@ export default function ChatScreen() {
 
   const handleAddParticipant = () => {
     setIsAddMode(true);
+    setPendingParticipants([]); // Clear pending when entering add mode
+    setParticipantsToRemove([]); // Clear removal list
   };
 
   const handleCancelAdd = () => {
     setIsAddMode(false);
     setAddSearchText('');
     setSearchResults([]);
+    setPendingParticipants([]); // Discard pending changes
+    setParticipantsToRemove([]); // Discard removals
   };
 
-  const handleSelectUser = async (selectedUser: SearchResult) => {
+  const handleRemoveExistingParticipant = (uid: string) => {
+    // Toggle removal state
+    setParticipantsToRemove(prev => 
+      prev.includes(uid) 
+        ? prev.filter(id => id !== uid) // Un-mark for removal
+        : [...prev, uid] // Mark for removal
+    );
+  };
+
+  const handleSelectUser = (selectedUser: SearchResult) => {
+    // Add to pending list (not immediately to conversation)
+    setPendingParticipants(prev => {
+      const exists = prev.find(p => p.uid === selectedUser.uid);
+      if (exists) return prev; // Don't add duplicates
+      return [...prev, selectedUser];
+    });
+    
+    // Clear search
+    setAddSearchText('');
+    setSearchResults([]);
+  };
+
+  const handleConfirmAddUsers = async () => {
+    if (pendingParticipants.length === 0 && participantsToRemove.length === 0) {
+      setIsAddMode(false);
+      return;
+    }
+
     try {
-      await addParticipantToConversation(conversationId, selectedUser.uid);
+      // Calculate new participant list
+      const currentParticipantIds = currentParticipants.map(p => p.uid);
+      const allParticipantIds = [
+        user.uid, // Always include current user
+        ...currentParticipantIds.filter(id => !participantsToRemove.includes(id)), // Remove marked
+        ...pendingParticipants.map(p => p.uid) // Add new
+      ];
+
+      // Check if participants are changing and if we should split
+      const isChangingParticipants = pendingParticipants.length > 0 || participantsToRemove.length > 0;
       
-      // Add to current participants list
-      setCurrentParticipants(prev => [...prev, {
-        uid: selectedUser.uid,
-        displayName: selectedUser.displayName
-      }]);
+      if (isChangingParticipants) {
+        // Import splitting functions
+        const { shouldSplitOnParticipantAdd, splitConversation, getConversation } = 
+          await import('../../services/conversationService');
+        
+        const shouldSplit = await shouldSplitOnParticipantAdd(conversationId);
+        
+        if (shouldSplit) {
+          // Show confirmation dialog
+          Alert.alert(
+            'Create New Conversation?',
+            'Changing participants will create a new conversation. Previous messages will remain in the old conversation.',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => {
+                  // Reset state
+                  setPendingParticipants([]);
+                  setParticipantsToRemove([]);
+                }
+              },
+              {
+                text: 'Continue',
+                onPress: async () => {
+                  try {
+                    // Split conversation
+                    const newConversationId = await splitConversation(
+                      conversationId,
+                      allParticipantIds,
+                      user.uid
+                    );
+                    
+                    // Navigate to new conversation
+                    router.replace(`/chat/${newConversationId}`);
+                    
+                    // Reset state
+                    setIsAddMode(false);
+                    setAddSearchText('');
+                    setSearchResults([]);
+                    setPendingParticipants([]);
+                    setParticipantsToRemove([]);
+                    
+                    Alert.alert('Success', 'New conversation created');
+                  } catch (error: any) {
+                    Alert.alert('Error', error.message);
+                  }
+                }
+              }
+            ]
+          );
+          return;
+        }
+      }
+
+      // No split needed - just add/remove participants
+      // Remove marked participants
+      for (const uid of participantsToRemove) {
+        await removeParticipantFromConversation(conversationId, uid);
+        
+        // Remove from current participants list
+        setCurrentParticipants(prev => prev.filter(p => p.uid !== uid));
+      }
+
+      // Add all pending participants
+      for (const participant of pendingParticipants) {
+        await addParticipantToConversation(conversationId, participant.uid);
+        
+        // Add to current participants list
+        setCurrentParticipants(prev => [...prev, {
+          uid: participant.uid,
+          displayName: participant.displayName
+        }]);
+      }
       
-      // Reset add mode
+      // Reset add mode - no success toast
+      setIsAddMode(false);
       setAddSearchText('');
       setSearchResults([]);
-      
-      Alert.alert('Success', `${selectedUser.displayName} added to conversation!`);
+      setPendingParticipants([]);
+      setParticipantsToRemove([]);
     } catch (error: any) {
       Alert.alert('Error', error.message);
     }
@@ -488,11 +610,45 @@ export default function ChatScreen() {
               style={styles.participantsScroll}
               contentContainerStyle={styles.participantsContent}
             >
-              {currentParticipants.map(participant => (
-                <View key={participant.uid} style={styles.participantPill}>
+              {/* Show existing participants (can be marked for removal) */}
+              {currentParticipants
+                .filter(p => p.uid !== user.uid) // Don't show current user
+                .map(participant => {
+                  const isMarkedForRemoval = participantsToRemove.includes(participant.uid);
+                  return (
+                    <View key={`current-${participant.uid}`} style={[
+                      styles.participantPill,
+                      isMarkedForRemoval && styles.participantPillRemoving
+                    ]}>
+                      <Text style={[
+                        styles.participantPillText,
+                        isMarkedForRemoval && styles.participantPillTextRemoving
+                      ]}>
+                        {participant.displayName}
+                      </Text>
+                      <TouchableOpacity 
+                        onPress={() => handleRemoveExistingParticipant(participant.uid)}
+                        style={styles.removePillButton}
+                      >
+                        <Text style={styles.removePillText}>×</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+
+              {/* Show pending participants (users selected but not yet added) */}
+              {pendingParticipants.map(participant => (
+                <View key={`pending-${participant.uid}`} style={[styles.participantPill, styles.participantPillPending]}>
                   <Text style={styles.participantPillText}>{participant.displayName}</Text>
+                  <TouchableOpacity 
+                    onPress={() => setPendingParticipants(prev => prev.filter(p => p.uid !== participant.uid))}
+                    style={styles.removePillButton}
+                  >
+                    <Text style={styles.removePillText}>×</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
+
               <TextInput
                 style={styles.addSearchInput}
                 value={addSearchText}
@@ -542,8 +698,9 @@ export default function ChatScreen() {
         </View>
       )}
 
-      <View style={styles.messagesWrapper}>
-        <ScrollView 
+      <TouchableWithoutFeedback onPress={() => isAddMode && handleCancelAdd()}>
+        <View style={styles.messagesWrapper}>
+          <ScrollView 
           ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
@@ -553,7 +710,11 @@ export default function ChatScreen() {
             const isImageMessage = message.type === 'image' && message.mediaURL;
             const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
             const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
+            const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== message.senderId;
             const formattedTime = format(message.timestamp, 'h:mm a');
+            
+            // Get sender info for group chats
+            const senderInfo = !isOwnMessage && isGroupChat ? getSenderInfo(message.senderId) : null;
             
             return (
               <View key={`${message.id}-${index}`} style={styles.messageRow}>
@@ -600,35 +761,53 @@ export default function ChatScreen() {
                   </GestureDetector>
                 ) : (
                   // Grey bubbles: Fixed, no swipe
-                  <View style={styles.messageContainer}>
-                    <View 
-                      style={[
-                        styles.messageBubble,
-                        styles.otherMessage,
-                        isImageMessage && styles.imageMessageBubble
-                      ]}
-                    >
-                      {isImageMessage ? (
-                        <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
-                          <Image 
-                            source={{ uri: message.mediaURL }} 
-                            style={styles.messageImage}
-                            resizeMode="cover"
-                          />
-                        </TouchableOpacity>
-                      ) : (
-                        <Text style={[styles.messageText, { color: '#000' }]}>
-                          {message.text}
+                  <View style={styles.otherMessageWrapper}>
+                    {/* Avatar - only show for group chats and first message in group */}
+                    {isGroupChat && isFirstInGroup && senderInfo && (
+                      <View style={styles.senderAvatar}>
+                        <Text style={styles.senderAvatarText}>{senderInfo.initials}</Text>
+                      </View>
+                    )}
+                    {/* Spacer when not showing avatar */}
+                    {isGroupChat && !isFirstInGroup && (
+                      <View style={styles.avatarSpacer} />
+                    )}
+                    
+                    <View style={styles.messageContainer}>
+                      {/* Sender name - only for group chats and first message in group */}
+                      {isGroupChat && isFirstInGroup && senderInfo && (
+                        <Text style={styles.senderName}>{senderInfo.displayName}</Text>
+                      )}
+                      
+                      <View 
+                        style={[
+                          styles.messageBubble,
+                          styles.otherMessage,
+                          isImageMessage && styles.imageMessageBubble
+                        ]}
+                      >
+                        {isImageMessage ? (
+                          <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                            <Image 
+                              source={{ uri: message.mediaURL }} 
+                              style={styles.messageImage}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={[styles.messageText, { color: '#000' }]}>
+                            {message.text}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      {/* Read receipt below bubble */}
+                      {readReceipt && isLastInGroup && (
+                        <Text style={styles.readReceipt}>
+                          {readReceipt}
                         </Text>
                       )}
                     </View>
-                    
-                    {/* Read receipt below bubble */}
-                    {readReceipt && isLastInGroup && (
-                      <Text style={styles.readReceipt}>
-                        {readReceipt}
-                      </Text>
-                    )}
                   </View>
                 )}
               </View>
@@ -651,6 +830,7 @@ export default function ChatScreen() {
           )}
         </ScrollView>
       </View>
+      </TouchableWithoutFeedback>
 
       <View style={styles.inputContainer}>
         <TouchableOpacity 
@@ -716,11 +896,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   participantPillText: {
     color: '#000',
     fontSize: 15,
+  },
+  participantPillRemoving: {
+    backgroundColor: '#FFE5E5', // Light red for removal
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  participantPillTextRemoving: {
+    color: '#FF3B30',
+    textDecorationLine: 'line-through',
+  },
+  participantPillPending: {
+    backgroundColor: '#E3F2FD', // Light blue for new additions
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  removePillButton: {
+    marginLeft: 6,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removePillText: {
+    fontSize: 20,
+    color: '#666',
     fontWeight: '500',
+    lineHeight: 16,
   },
   addSearchInput: {
     fontSize: 17,
@@ -816,7 +1024,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    padding: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingLeft: 16,
+    paddingRight: 0, // No right padding - timestamps flush with screen edge
   },
   messageRow: {
     flexDirection: 'row',
@@ -836,12 +1047,12 @@ const styles = StyleSheet.create({
   },
   timestampRevealContainer: {
     position: 'absolute',
-    right: -100, // Hidden beyond viewport initially
+    right: -80, // Reduced spacing - flush with edge when revealed
     top: 0,
     bottom: 0,
-    width: 90,
+    width: 80,
     justifyContent: 'center',
-    paddingLeft: 12,
+    paddingLeft: 8,
   },
   timestampRevealText: {
     fontSize: 12,
@@ -861,22 +1072,48 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
     marginLeft: 'auto', // Push to far right
+    marginRight: 8, // Small margin so bubbles don't touch screen edge
   },
   otherMessage: {
     backgroundColor: '#E8E8E8',
     alignSelf: 'flex-start',
+  },
+  otherMessageWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 4,
+  },
+  senderAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    marginBottom: 2,
+  },
+  senderAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  avatarSpacer: {
+    width: 28,
+    marginRight: 8,
+  },
+  senderName: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+    marginLeft: 4,
+    fontWeight: '600',
   },
   messageImage: {
     width: 200,
     height: 200,
     borderRadius: 12,
     marginBottom: 4,
-  },
-  senderName: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    fontWeight: '600',
   },
   messageText: {
     fontSize: 16,
@@ -905,7 +1142,8 @@ const styles = StyleSheet.create({
   },
   readReceiptOwn: {
     textAlign: 'right',
-    alignSelf: 'flex-end', // Align with blue bubbles
+    alignSelf: 'flex-end', // Right-adjusted under blue bubbles
+    marginRight: 8, // Match bubble margin
   },
   inputContainer: {
     flexDirection: 'row',

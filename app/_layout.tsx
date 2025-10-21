@@ -71,7 +71,7 @@ function AppContent() {
       <Stack.Screen name="auth/verify-otp" />
       <Stack.Screen name="auth/setup-profile" />
       <Stack.Screen name="auth/edit-profile" />
-      <Stack.Screen name="auth/complete-profile" />
+      {/* DEPRECATED: complete-profile removed - setup-profile handles all profile completion */}
       <Stack.Screen name="(tabs)" />
       <Stack.Screen 
         name="contacts/import" 
@@ -87,16 +87,16 @@ function AppContent() {
         options={{ 
           headerShown: true,
           title: '',
-          headerBackTitleVisible: false,
+          headerBackTitleVisible: true,
+          headerBackTitle: 'Messages',
           presentation: 'card',
+          gestureEnabled: true,
         }} 
       />
       <Stack.Screen 
         name="new-message" 
         options={{ 
-          headerShown: true,
-          title: 'New Message',
-          headerBackTitleVisible: false,
+          headerShown: false, // Let the screen itself handle the header
           presentation: 'card',
         }} 
       />

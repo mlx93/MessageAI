@@ -1,5 +1,5 @@
-import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
-import { useEffect, useState } from 'react';
+import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl, Modal, TextInput, ScrollView } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations, deleteConversation } from '../../services/conversationService';
 import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
@@ -19,16 +19,32 @@ export default function ConversationsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editedFirstName, setEditedFirstName] = useState('');
+  const [editedLastName, setEditedLastName] = useState('');
+  const [editedEmail, setEditedEmail] = useState('');
 
   useEffect(() => {
     navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity 
+          onPress={handleOpenProfile} 
+          style={{ marginLeft: 16, flexDirection: 'row', alignItems: 'center' }}
+        >
+          <Text style={{ fontSize: 17, fontWeight: '600', color: '#007AFF' }}>
+            {userProfile?.firstName || 'Menu'}
+          </Text>
+          <Ionicons name="chevron-down" size={16} color="#007AFF" style={{ marginLeft: 4 }} />
+        </TouchableOpacity>
+      ),
       headerRight: () => (
         <TouchableOpacity onPress={() => router.push('/new-message')} style={{ marginRight: 8 }}>
           <Ionicons name="create-outline" size={28} color="#007AFF" />
         </TouchableOpacity>
       ),
     });
-  }, []);
+  }, [userProfile, handleOpenProfile]);
 
   useEffect(() => {
     if (!user) {
@@ -128,9 +144,40 @@ export default function ConversationsScreen() {
     ]);
   };
 
-  const handleEditProfile = () => {
-    router.push('/auth/edit-profile');
-  };
+  const handleOpenProfile = useCallback(() => {
+    // Populate edit fields with current values
+    setEditedFirstName(userProfile?.firstName || '');
+    setEditedLastName(userProfile?.lastName || '');
+    setEditedEmail(userProfile?.email || '');
+    setIsEditingProfile(false);
+    setShowProfileMenu(true);
+  }, [userProfile]);
+
+  const handleSaveProfile = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const { updateUserProfile } = await import('../../services/authService');
+      await updateUserProfile(user.uid, {
+        firstName: editedFirstName.trim(),
+        lastName: editedLastName.trim(),
+        email: editedEmail.trim() || undefined,
+      });
+      
+      setIsEditingProfile(false);
+      Alert.alert('Success', 'Profile updated successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    }
+  }, [user, editedFirstName, editedLastName, editedEmail]);
+
+  const handleCancelEdit = useCallback(() => {
+    // Revert to original values
+    setEditedFirstName(userProfile?.firstName || '');
+    setEditedLastName(userProfile?.lastName || '');
+    setEditedEmail(userProfile?.email || '');
+    setIsEditingProfile(false);
+  }, [userProfile]);
 
   const handleDeleteConversation = (conversationId: string, conversationTitle: string) => {
     Alert.alert(
@@ -252,7 +299,9 @@ export default function ConversationsScreen() {
                 
                 <View style={styles.footer}>
                   <Text style={styles.lastMessage} numberOfLines={1}>
-                    {item.lastMessage.text || 'No messages yet'}
+                    {item.lastMessage.text && item.lastMessage.text.trim() !== '' 
+                      ? item.lastMessage.text 
+                      : 'No messages yet'}
                   </Text>
                   {unreadCount > 0 && (
                     <View style={styles.unreadBadge}>
@@ -270,38 +319,6 @@ export default function ConversationsScreen() {
 
   const renderItem = ({ item }: { item: Conversation }) => {
     return <SwipeableConversationItem item={item} />;
-  };
-
-  const renderHeader = () => {
-    console.log('🎨 Rendering header with userProfile:', {
-      firstName: userProfile?.firstName,
-      lastName: userProfile?.lastName,
-      displayName: userProfile?.displayName,
-      email: userProfile?.email
-    });
-    
-    // Format contact info - prefer email, fallback to formatted phone
-    const contactInfo = userProfile?.email || 
-                       (userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : '');
-    
-    return (
-      <View style={styles.headerContainer}>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>
-            {userProfile?.displayName || `${userProfile?.firstName} ${userProfile?.lastName}` || 'User'}
-          </Text>
-          <Text style={styles.userEmail}>{contactInfo}</Text>
-        </View>
-      <View style={styles.headerButtons}>
-        <TouchableOpacity style={styles.headerButton} onPress={handleEditProfile}>
-          <Text style={styles.headerButtonText}>Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.headerButton, styles.signOutButton]} onPress={handleSignOut}>
-          <Text style={styles.headerButtonText}>Sign Out</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-    );
   };
 
   // Loading state
@@ -327,13 +344,16 @@ export default function ConversationsScreen() {
     );
   }
 
+  // Format contact info for profile modal
+  const contactInfo = userProfile?.email || 
+                     (userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : '');
+
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <FlatList
         data={conversations}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        ListHeaderComponent={renderHeader}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -350,46 +370,309 @@ export default function ConversationsScreen() {
           </View>
         }
       />
+
+      {/* Apple-Style Profile Modal */}
+      <Modal
+        visible={showProfileMenu}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => {
+          handleCancelEdit();
+          setShowProfileMenu(false);
+        }}
+      >
+        <View style={styles.appleModalContainer}>
+          {/* Header */}
+          <View style={styles.appleModalHeader}>
+            <TouchableOpacity 
+              onPress={() => {
+                handleCancelEdit();
+                setShowProfileMenu(false);
+              }}
+              style={styles.appleHeaderButton}
+            >
+              <Text style={styles.appleHeaderButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            
+            {!isEditingProfile && (
+              <TouchableOpacity 
+                onPress={() => setIsEditingProfile(true)}
+                style={styles.appleHeaderButton}
+              >
+                <Text style={[styles.appleHeaderButtonText, styles.appleEditButton]}>Edit</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <ScrollView style={styles.appleModalContent} contentContainerStyle={styles.appleScrollContent}>
+            {/* Avatar Section */}
+            <View style={styles.appleAvatarSection}>
+              <View style={styles.appleAvatar}>
+                <Text style={styles.appleAvatarText}>
+                  {(editedFirstName || userProfile?.firstName)?.[0]?.toUpperCase() || ''}
+                  {(editedLastName || userProfile?.lastName)?.[0]?.toUpperCase() || ''}
+                </Text>
+              </View>
+              <Text style={styles.appleDisplayName}>
+                {isEditingProfile 
+                  ? `${editedFirstName} ${editedLastName}`.trim() || 'Your Name' 
+                  : `${userProfile?.firstName} ${userProfile?.lastName}`.trim() || 'User'}
+              </Text>
+            </View>
+
+            {/* Fields Section */}
+            {isEditingProfile ? (
+              /* Edit Mode: Labels above inputs */
+              <View style={styles.appleEditFieldsContainer}>
+                {/* First Name */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>First name</Text>
+                  <TextInput
+                    style={styles.appleEditFieldInput}
+                    value={editedFirstName}
+                    onChangeText={setEditedFirstName}
+                    placeholder="First Name"
+                    placeholderTextColor="#999"
+                    autoCapitalize="words"
+                    autoFocus={true}
+                  />
+                </View>
+
+                {/* Last Name */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Last name</Text>
+                  <TextInput
+                    style={styles.appleEditFieldInput}
+                    value={editedLastName}
+                    onChangeText={setEditedLastName}
+                    placeholder="Last Name"
+                    placeholderTextColor="#999"
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                {/* Email */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Email</Text>
+                  <TextInput
+                    style={styles.appleEditFieldInput}
+                    value={editedEmail}
+                    onChangeText={setEditedEmail}
+                    placeholder="Email"
+                    placeholderTextColor="#999"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                {/* Phone (read-only) */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Mobile</Text>
+                  <View style={[styles.appleEditFieldInput, styles.appleReadOnlyField]}>
+                    <Text style={styles.appleReadOnlyFieldText}>
+                      {userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : 'Not set'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              /* View Mode: Only values, no labels - clickable to edit */
+              <View style={styles.appleViewFieldsContainer}>
+                <TouchableOpacity 
+                  style={styles.appleViewFieldRow}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.appleViewFieldValue}>{userProfile?.firstName || 'Not set'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.appleViewFieldRow}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.appleViewFieldValue}>{userProfile?.lastName || 'Not set'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.appleViewFieldRow}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.appleViewFieldValue}>{userProfile?.email || 'Not set'}</Text>
+                </TouchableOpacity>
+                <View style={styles.appleViewFieldRow}>
+                  <Text style={[styles.appleViewFieldValue, styles.appleViewFieldReadOnly]}>
+                    {userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : 'Not set'}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Bottom Actions */}
+            <View style={styles.appleBottomActions}>
+              <TouchableOpacity 
+                style={styles.appleTinySignOutButton}
+                onPress={() => {
+                  setShowProfileMenu(false);
+                  handleSignOut();
+                }}
+              >
+                <Text style={styles.appleTinySignOutText}>Sign Out</Text>
+              </TouchableOpacity>
+              
+              {isEditingProfile && (
+                <TouchableOpacity 
+                  style={styles.appleDoneButton}
+                  onPress={handleSaveProfile}
+                >
+                  <Text style={styles.appleDoneButtonText}>Done</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerContainer: {
-    backgroundColor: '#f8f8f8',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+  // Apple-Style Profile Modal
+  appleModalContainer: {
+    flex: 1,
+    backgroundColor: '#F2F2F7',
   },
-  userInfo: {
-    marginBottom: 12,
+  appleModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 60,
+    paddingBottom: 16,
+    backgroundColor: '#F2F2F7',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#C6C6C8',
   },
-  userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  appleHeaderButton: {
+    padding: 4,
+  },
+  appleHeaderButtonText: {
+    fontSize: 17,
+    color: '#007AFF',
+  },
+  appleSaveButton: {
+    fontWeight: '600',
+  },
+  appleEditButton: {
+    fontWeight: '400',
+  },
+  appleModalContent: {
+    flex: 1,
+  },
+  appleScrollContent: {
+    paddingBottom: 40,
+  },
+  appleAvatarSection: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#F2F2F7',
+  },
+  appleAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appleAvatarText: {
+    color: '#fff',
+    fontSize: 40,
+    fontWeight: '400',
+  },
+  appleDisplayName: {
+    fontSize: 28,
+    fontWeight: '600',
     color: '#000',
-    marginBottom: 4,
   },
-  userEmail: {
-    fontSize: 14,
+  // Edit Mode Styles
+  appleEditFieldsContainer: {
+    paddingHorizontal: 16,
+    marginTop: 24,
+  },
+  appleEditFieldGroup: {
+    marginBottom: 24,
+  },
+  appleEditFieldLabel: {
+    fontSize: 13,
+    color: '#000',
+    marginBottom: 8,
+    textTransform: 'capitalize',
+  },
+  appleEditFieldInput: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 17,
+    color: '#000',
+    borderWidth: 0.5,
+    borderColor: '#C6C6C8',
+  },
+  appleReadOnlyField: {
+    backgroundColor: '#F2F2F7',
+  },
+  appleReadOnlyFieldText: {
+    fontSize: 17,
     color: '#666',
   },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: 10,
+  // View Mode Styles
+  appleViewFieldsContainer: {
+    backgroundColor: '#fff',
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: '#C6C6C8',
+    marginTop: 24,
   },
-  headerButton: {
-    backgroundColor: '#007AFF',
+  appleViewFieldRow: {
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#C6C6C8',
+  },
+  appleViewFieldValue: {
+    fontSize: 17,
+    color: '#000',
+  },
+  appleViewFieldReadOnly: {
+    color: '#666',
+  },
+  appleBottomActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+    marginTop: 24,
+  },
+  appleTinySignOutButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  appleTinySignOutText: {
+    fontSize: 13,
+    color: '#FF3B30',
+    fontWeight: '400',
+  },
+  appleDoneButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
     borderRadius: 8,
   },
-  signOutButton: {
-    backgroundColor: '#FF3B30',
-  },
-  headerButtonText: {
+  appleDoneButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: '600',
   },
   swipeableContainer: {
@@ -544,3 +827,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+

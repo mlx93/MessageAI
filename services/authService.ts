@@ -2,7 +2,8 @@
  * Authentication Service
  * 
  * Handles user authentication, registration, and profile management
- * Implements email/phone uniqueness via Firestore index collections
+ * Implements phone number uniqueness via Firestore index collections
+ * Phone numbers are the primary identifier for users
  */
 
 import {
@@ -51,12 +52,11 @@ export const normalizePhoneNumber = (phone: string): string => {
  * Creates:
  * 1. Firebase Auth user
  * 2. User profile in users/{uid}
- * 3. Email uniqueness index in usersByEmail/{email}
- * 4. Phone uniqueness index in usersByPhone/{phone}
+ * 3. Phone uniqueness index in usersByPhone/{phone}
  * 
  * Uses batch write for atomicity - if any part fails, entire operation rolls back
  * 
- * @throws Error if email or phone already exists
+ * @throws Error if phone number already exists
  */
 export const signUp = async (
   email: string,
@@ -91,12 +91,6 @@ export const signUp = async (
   // User profile
   batch.set(doc(db, 'users', user.uid), profile);
   
-  // Email uniqueness index
-  batch.set(doc(db, 'usersByEmail', email), {
-    uid: user.uid,
-    createdAt: new Date(),
-  });
-  
   // Phone uniqueness index
   batch.set(doc(db, 'usersByPhone', normalizedPhone), {
     uid: user.uid,
@@ -111,7 +105,7 @@ export const signUp = async (
     await user.delete();
     
     if (error.code === 'permission-denied') {
-      throw new Error('Email or phone number already in use');
+      throw new Error('Phone number already in use');
     }
     throw error;
   }
@@ -525,22 +519,14 @@ export const createUserProfileWithPhone = async (
     // Use batch write for atomicity
     const batch = writeBatch(db);
 
-    // Write user profile
-    batch.set(doc(db, 'users', userId), userProfile);
+    // Write user profile (merge to avoid overwriting existing data)
+    batch.set(doc(db, 'users', userId), userProfile, { merge: true });
 
-    // Create phone number index for uniqueness
+    // Create/update phone number index for uniqueness
     batch.set(doc(db, 'usersByPhone', phoneNumber), {
       uid: userId,
       createdAt: new Date(),
-    });
-
-    // Create email index if email provided
-    if (email) {
-      batch.set(doc(db, 'usersByEmail', email.toLowerCase()), {
-        uid: userId,
-        createdAt: new Date(),
-      });
-    }
+    }, { merge: true });
 
     await batch.commit();
     

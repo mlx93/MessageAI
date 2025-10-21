@@ -176,32 +176,49 @@ export const verifyPhoneCode = onCall(async (request) => {
     let userId: string;
     let isNewUser = false;
 
-    // Check if user exists with this phone
-    const usersSnap = await admin
+    // Check if phone number already exists in usersByPhone index
+    const phoneIndexSnap = await admin
       .firestore()
-      .collection("users")
-      .where("phoneNumber", "==", verification.phoneNumber)
-      .limit(1)
+      .doc(`usersByPhone/${verification.phoneNumber}`)
       .get();
 
-    if (!usersSnap.empty) {
-      // User exists
-      userId = usersSnap.docs[0].id;
-      console.log(`Existing user: ${userId}`);
+    if (phoneIndexSnap.exists) {
+      // User exists with this phone number
+      const phoneData = phoneIndexSnap.data();
+      userId = phoneData?.uid;
+      console.log(`Existing user found via phone index: ${userId}`);
     } else {
       // Create new user in Firestore
       const userRef = admin.firestore().collection("users").doc();
       userId = userRef.id;
 
-      await userRef.set({
+      // Use batch to create user + usersByPhone index atomically
+      const batch = admin.firestore().batch();
+
+      // Create user profile
+      batch.set(userRef, {
         phoneNumber: verification.phoneNumber,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         displayName: "", // To be set during profile setup
         email: "",
+        firstName: "",
+        lastName: "",
+        initials: "?",
       });
 
+      // Create usersByPhone index for uniqueness
+      const phoneIndexRef = admin.firestore()
+        .collection("usersByPhone")
+        .doc(verification.phoneNumber);
+      batch.set(phoneIndexRef, {
+        uid: userId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
       isNewUser = true;
-      console.log(`New user created: ${userId}`);
+      console.log(`New user created: ${userId} with phone index`);
     }
 
     // Create Firebase Auth user with email and phone
@@ -212,25 +229,107 @@ export const verifyPhoneCode = onCall(async (request) => {
     // Use phone number as email (Firebase requires email format)
     const tempEmail =
       `${verification.phoneNumber.replace(/\+/g, "")}@temp.messageai.app`;
+
     try {
-      // Try to get existing auth user
-      await admin.auth().getUser(userId);
-      console.log(`Auth user already exists: ${userId}`);
-      // Update password for existing user so client can sign in
-      await admin.auth().updateUser(userId, {
-        password: securePassword,
-      });
-      console.log(`Auth user password updated: ${userId}`);
-    } catch (error) {
-      // Create auth user if doesn't exist
-      await admin.auth().createUser({
-        uid: userId,
-        email: tempEmail,
-        phoneNumber: verification.phoneNumber,
-        password: securePassword,
-        emailVerified: true, // Auto-verify since phone is verified
-      });
-      console.log(`Auth user created: ${userId} with email ${tempEmail}`);
+      // First, try to find existing auth user by email or phone
+      let existingAuthUser = null;
+
+      try {
+        // Try to get by UID first
+        existingAuthUser = await admin.auth().getUser(userId);
+        console.log(`Found existing auth user by UID: ${userId}`);
+      } catch (uidError) {
+        // Try to get by email
+        try {
+          existingAuthUser = await admin.auth().getUserByEmail(tempEmail);
+          console.log(`Found existing auth user by email: ${tempEmail}`);
+        } catch (emailError) {
+          // Try to get by phone
+          try {
+            existingAuthUser = await admin.auth()
+              .getUserByPhoneNumber(verification.phoneNumber);
+            console.log(
+              `Found existing auth user by phone: ${verification.phoneNumber}`
+            );
+          } catch (phoneError) {
+            // No existing user found
+            console.log("No existing auth user found, will create new");
+          }
+        }
+      }
+
+      if (existingAuthUser) {
+        // Auth user exists - update it
+        console.log(`Updating existing auth user: ${existingAuthUser.uid}`);
+
+        // Save the incorrectly created UID before reassigning
+        const incorrectUserId = userId;
+
+        // Update the user with new password and ensure phone is set
+        await admin.auth().updateUser(existingAuthUser.uid, {
+          password: securePassword,
+          phoneNumber: verification.phoneNumber,
+          email: tempEmail,
+        });
+
+        // Update userId to match the existing auth user
+        userId = existingAuthUser.uid;
+
+        // Update Firestore user document to use correct UID
+        if (isNewUser && incorrectUserId !== existingAuthUser.uid) {
+          // Delete the incorrectly created user docs (with wrong UID)
+          console.log(`Cleaning up incorrect docs:
+            ${incorrectUserId} → ${existingAuthUser.uid}`);
+          await admin.firestore().doc(`users/${incorrectUserId}`).delete();
+          await admin.firestore()
+            .doc(`usersByPhone/${verification.phoneNumber}`)
+            .delete();
+
+          // Check if user doc exists for the correct UID
+          const correctUserDoc = await admin.firestore()
+            .doc(`users/${existingAuthUser.uid}`)
+            .get();
+
+          if (!correctUserDoc.exists) {
+            // Create user doc with correct UID
+            await admin.firestore().doc(`users/${existingAuthUser.uid}`).set({
+              phoneNumber: verification.phoneNumber,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              displayName: "",
+              email: "",
+              firstName: "",
+              lastName: "",
+              initials: "?",
+            });
+
+            // Create phone index with correct UID
+            await admin.firestore()
+              .doc(`usersByPhone/${verification.phoneNumber}`)
+              .set({
+                uid: existingAuthUser.uid,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+          }
+        }
+
+        console.log(`✅ Auth user updated successfully: ${userId}`);
+      } else {
+        // No existing user - create new auth user
+        await admin.auth().createUser({
+          uid: userId,
+          email: tempEmail,
+          phoneNumber: verification.phoneNumber,
+          password: securePassword,
+          emailVerified: true, // Auto-verify since phone is verified
+        });
+        console.log(`✅ Auth user created: ${userId} with email ${tempEmail}`);
+      }
+    } catch (authError) {
+      console.error("Error managing auth user:", authError);
+      throw new HttpsError(
+        "internal",
+        `Failed to create/update auth user: ${authError}`
+      );
     }
 
     // Return credentials for client-side sign in

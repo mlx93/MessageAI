@@ -103,3 +103,72 @@ export const searchUserByPhone = async (phoneNumber: string): Promise<User | nul
   return snapshot.docs[0].data() as User;
 };
 
+/**
+ * Search ALL app users by name or phone (fuzzy/partial matching)
+ * This allows finding users even if they're not in your contacts
+ * 
+ * @param searchText - Name or phone number to search for
+ * @param currentUserId - Current user ID (to exclude from results)
+ * @param limit - Maximum number of results to return
+ * @returns Array of matching users
+ */
+export const searchAllUsers = async (
+  searchText: string,
+  currentUserId: string,
+  limit: number = 10
+): Promise<User[]> => {
+  if (!searchText || searchText.trim().length < 2) {
+    return [];
+  }
+
+  const searchLower = searchText.toLowerCase().trim();
+  
+  // Get ALL users from Firestore (in production, you'd want pagination/indexing)
+  const snapshot = await getDocs(collection(db, 'users'));
+  const allUsers = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as User));
+  
+  // Filter users by partial name or phone match
+  const matches = allUsers.filter(user => {
+    // Exclude current user
+    if (user.uid === currentUserId) return false;
+    
+    // Match by display name (partial, case-insensitive)
+    const displayName = (user.displayName || '').toLowerCase();
+    if (displayName.includes(searchLower)) return true;
+    
+    // Match by first name (partial)
+    const firstName = (user.firstName || '').toLowerCase();
+    if (firstName.startsWith(searchLower)) return true;
+    
+    // Match by last name (partial)
+    const lastName = (user.lastName || '').toLowerCase();
+    if (lastName.startsWith(searchLower)) return true;
+    
+    // Match by phone number (partial)
+    const phoneNumber = (user.phoneNumber || '').replace(/\D/g, '');
+    const searchDigits = searchText.replace(/\D/g, '');
+    if (searchDigits.length >= 3 && phoneNumber.includes(searchDigits)) return true;
+    
+    return false;
+  });
+  
+  // Sort by relevance (exact matches first, then starts-with, then contains)
+  matches.sort((a, b) => {
+    const aName = (a.displayName || '').toLowerCase();
+    const bName = (b.displayName || '').toLowerCase();
+    
+    // Exact match
+    if (aName === searchLower) return -1;
+    if (bName === searchLower) return 1;
+    
+    // Starts with
+    if (aName.startsWith(searchLower) && !bName.startsWith(searchLower)) return -1;
+    if (!aName.startsWith(searchLower) && bName.startsWith(searchLower)) return 1;
+    
+    // Alphabetical
+    return aName.localeCompare(bName);
+  });
+  
+  return matches.slice(0, limit);
+};
+

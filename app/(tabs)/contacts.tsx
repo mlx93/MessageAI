@@ -21,9 +21,11 @@ interface Contact {
 export default function ContactsScreen() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [searchPhone, setSearchPhone] = useState('');
+  const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
+  const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,6 +33,50 @@ export default function ContactsScreen() {
       loadContacts();
     }
   }, [user]);
+
+  // Search across ALL app users, not just imported contacts
+  useEffect(() => {
+    if (!searchText.trim() || !user) {
+      setFilteredContacts(contacts);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const searchTimeout = setTimeout(async () => {
+      try {
+        // Search all app users by name or phone
+        const { searchAllUsers } = await import('../../services/contactService');
+        const allUsers = await searchAllUsers(searchText, user.uid, 20);
+        
+        // Map to Contact format
+        const searchResults = allUsers.map(u => ({
+          id: u.uid,
+          phoneNumber: u.phoneNumber || '',
+          name: u.displayName || `${u.firstName} ${u.lastName}`.trim(),
+          isAppUser: true,
+          appUserId: u.uid,
+          lastSynced: new Date(),
+        }));
+
+        setFilteredContacts(searchResults);
+      } catch (error) {
+        console.error('Search error:', error);
+        // Fallback to local filtering
+        const searchLower = searchText.toLowerCase();
+        const filtered = contacts.filter(contact => {
+          const nameMatch = contact.name.toLowerCase().includes(searchLower);
+          const phoneMatch = contact.phoneNumber.includes(searchText.replace(/\D/g, ''));
+          return nameMatch || phoneMatch;
+        });
+        setFilteredContacts(filtered);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300); // Debounce search
+
+    return () => clearTimeout(searchTimeout);
+  }, [searchText, contacts, user]);
 
   const loadContacts = async () => {
     if (!user) {
@@ -44,6 +90,7 @@ export default function ContactsScreen() {
       console.log(`📇 Loaded ${userContacts.length} contacts from Firestore`);
       // Show ALL contacts (both app users and non-app users)
       setContacts(userContacts as Contact[]);
+      setFilteredContacts(userContacts as Contact[]); // Initialize filtered contacts
       setLoading(false);
       setRefreshing(false);
     } catch (error: any) {
@@ -156,28 +203,6 @@ export default function ContactsScreen() {
     }
   };
 
-  const searchAndStartChat = async () => {
-    if (!searchPhone || !user || isNavigating) return;
-    
-    setLoading(true);
-    setIsNavigating(true);
-    try {
-      const foundUser = await searchUserByPhone(searchPhone);
-      if (foundUser) {
-        const { createOrGetConversation } = await import('../../services/conversationService');
-        const conversationId = await createOrGetConversation([user.uid, foundUser.uid]);
-        router.push(`/chat/${conversationId}`);
-      } else {
-        Alert.alert('Not Found', 'No user found with that phone number');
-        setIsNavigating(false);
-      }
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-      setIsNavigating(false);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Loading state
   if (loading) {
@@ -204,22 +229,25 @@ export default function ContactsScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Your Contacts</Text>
-      
-      {/* Search by phone section */}
-      <View style={styles.searchSection}>
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
-          style={styles.input}
-          placeholder="Enter phone number (+1234567890)"
-          value={searchPhone}
-          onChangeText={setSearchPhone}
-          keyboardType="phone-pad"
+          style={styles.searchInput}
+          placeholder="Search by name or phone..."
+          value={searchText}
+          onChangeText={setSearchText}
+          autoCapitalize="none"
+          autoCorrect={false}
         />
-        <Button 
-          title={loading ? "Searching..." : "Start Chat"} 
-          onPress={searchAndStartChat} 
-          disabled={loading || !searchPhone}
-        />
+        {isSearching && (
+          <ActivityIndicator size="small" color="#007AFF" style={styles.searchLoading} />
+        )}
+        {searchText.length > 0 && !isSearching && (
+          <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
       </View>
       
       {/* Add contact button with native picker */}
@@ -239,7 +267,7 @@ export default function ContactsScreen() {
       
       {/* Contacts list */}
       <FlatList
-        data={contacts}
+        data={filteredContacts}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl
@@ -294,24 +322,33 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff',
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F2F2F7',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
-  searchSection: {
-    marginBottom: 15,
+  searchIcon: {
+    marginRight: 8,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
-    fontSize: 16,
+  searchInput: {
+    flex: 1,
+    fontSize: 17,
+    color: '#000',
+    paddingVertical: 4,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchLoading: {
+    marginRight: 8,
   },
   addContactButton: {
     backgroundColor: '#007AFF',
@@ -320,6 +357,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 14,
     borderRadius: 10,
+    marginHorizontal: 16,
     marginBottom: 15,
     gap: 8,
   },

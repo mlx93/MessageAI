@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -71,19 +71,29 @@ export const getUserConversations = (userId: string, callback: (conversations: C
   );
   
   return onSnapshot(q, (snapshot) => {
-    const conversations = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-        lastMessage: {
-          ...data.lastMessage,
-          timestamp: data.lastMessage?.timestamp?.toDate() || new Date()
-        }
-      } as Conversation;
-    });
+    const conversations = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          lastMessage: {
+            ...data.lastMessage,
+            timestamp: data.lastMessage?.timestamp?.toDate() || new Date()
+          }
+        } as Conversation;
+      })
+      // Filter out conversations deleted by this user
+      .filter(conversation => {
+        const deletedBy = conversation.deletedBy || [];
+        return !deletedBy.includes(userId);
+      })
+      // Filter out archived conversations (from conversation splitting)
+      .filter(conversation => {
+        return !conversation.archivedAt;
+      });
     callback(conversations);
   });
 };
@@ -179,19 +189,118 @@ export const deleteConversation = async (conversationId: string, userId: string)
       throw new Error('Not authorized to delete this conversation');
     }
     
-    // Delete the conversation document
-    await deleteDoc(doc(db, 'conversations', conversationId));
+    // Per-user deletion: Add user to deletedBy array instead of deleting
+    const currentDeletedBy = conversation.deletedBy || [];
+    if (!currentDeletedBy.includes(userId)) {
+      await updateDoc(doc(db, 'conversations', conversationId), {
+        deletedBy: arrayUnion(userId)
+      });
+    }
     
-    // Note: Messages are left in place but won't be accessible without the conversation
-    // In a production app, you might want to either:
-    // 1. Keep messages for archival/legal purposes
-    // 2. Delete them in a batch or Cloud Function
-    // 3. Mark conversation as "deleted" instead of actually deleting
+    // Note: Conversation remains in database but is filtered out for this user
+    // Messages are preserved for other participants
+    // If all participants delete, conversation still exists but is hidden for all
     
-    console.log(`✅ Conversation ${conversationId} deleted`);
+    console.log(`✅ Conversation ${conversationId} hidden for user ${userId}`);
   } catch (error) {
     console.error('Delete conversation error:', error);
     throw error;
+  }
+};
+
+/**
+ * Split conversation when participants change
+ * 
+ * When participants are added or removed from a conversation, this function:
+ * 1. Archives the old conversation (sets archivedAt timestamp)
+ * 2. Creates a new conversation with the new participant set
+ * 3. Returns the new conversation ID
+ * 
+ * This ensures:
+ * - People who leave can't see new messages
+ * - New people can't see old messages
+ * - Message history is preserved per participant set
+ * 
+ * @param oldConversationId - ID of the existing conversation
+ * @param newParticipantIds - Array of participant IDs for the new conversation
+ * @param initiatorId - ID of the user making the change
+ * @returns New conversation ID
+ */
+export const splitConversation = async (
+  oldConversationId: string,
+  newParticipantIds: string[],
+  initiatorId: string
+): Promise<string> => {
+  try {
+    // Get the old conversation
+    const oldConvSnap = await getDoc(doc(db, 'conversations', oldConversationId));
+    if (!oldConvSnap.exists()) {
+      throw new Error('Original conversation not found');
+    }
+
+    const oldConversation = oldConvSnap.data() as Conversation;
+
+    // Check if participants actually changed
+    const oldParticipants = [...oldConversation.participants].sort();
+    const newParticipants = [...newParticipantIds].sort();
+    
+    if (oldParticipants.join(',') === newParticipants.join(',')) {
+      // No change in participants, return original conversation
+      console.log('⏭️ No participant change detected, keeping same conversation');
+      return oldConversationId;
+    }
+
+    console.log(`🔀 Splitting conversation: ${oldParticipants.length} → ${newParticipants.length} participants`);
+
+    // Archive the old conversation
+    await updateDoc(doc(db, 'conversations', oldConversationId), {
+      archivedAt: Timestamp.now(),
+      archivedBy: initiatorId,
+      archivedReason: 'participants_changed',
+      updatedAt: Timestamp.now(),
+    });
+
+    // Create new conversation with new participant set
+    const newConversationId = await createOrGetConversation(newParticipantIds);
+
+    console.log(`✅ Conversation split: ${oldConversationId} → ${newConversationId}`);
+    console.log(`   Old: [${oldParticipants.join(', ')}]`);
+    console.log(`   New: [${newParticipants.join(', ')}]`);
+
+    return newConversationId;
+  } catch (error) {
+    console.error('Split conversation error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if conversation should be split when adding participant
+ * 
+ * This is a helper function that determines whether adding a participant
+ * should trigger a conversation split. Currently returns true if the
+ * conversation has message history (to preserve privacy).
+ * 
+ * @param conversationId - ID of the conversation
+ * @returns true if conversation should be split, false otherwise
+ */
+export const shouldSplitOnParticipantAdd = async (conversationId: string): Promise<boolean> => {
+  try {
+    // Check if conversation has any messages
+    const messagesQuery = query(
+      collection(db, `conversations/${conversationId}/messages`),
+      orderBy('timestamp', 'asc')
+    );
+    
+    const messagesSnap = await getDocs(messagesQuery);
+    const hasMessages = !messagesSnap.empty;
+
+    // Split if there are existing messages (to preserve privacy)
+    return hasMessages;
+  } catch (error) {
+    console.error('Check split condition error:', error);
+    // Default to not splitting on error
+    return false;
   }
 };
 

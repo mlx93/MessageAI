@@ -3,9 +3,9 @@
  * 
  * Handles auth routing:
  * - Shows loading spinner while checking auth state
- * - Redirects to complete-profile if profile is incomplete
+ * - Redirects to setup-profile if profile is incomplete
  * - Redirects to tabs if logged in with complete profile
- * - Redirects to login if not logged in
+ * - Redirects to phone-login if not logged in
  */
 
 import { useEffect, useRef } from 'react';
@@ -27,8 +27,8 @@ export default function IndexScreen() {
           router.replace('/(tabs)');
         } else {
           // Profile is incomplete, go to profile completion
-          console.log('Profile incomplete, redirecting to complete-profile');
-          router.replace('/auth/complete-profile');
+          console.log('Profile incomplete, redirecting to setup-profile');
+          router.replace('/auth/setup-profile');
         }
       } else {
         // User is not authenticated, go to phone login (primary auth method)
