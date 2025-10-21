@@ -1,5 +1,5 @@
 /**
- * Core Type Definitions for MessageAI MVP
+ * Core Type Definitions for aiMessage MVP
  * 
  * These types define the data models for users, messages, and conversations
  * following the architecture specified in messaging_app_prd.md

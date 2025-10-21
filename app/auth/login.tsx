@@ -172,7 +172,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>MessageAI</Text>
+        <Text style={styles.title}>aiMessage</Text>
         <Text style={styles.subtitle}>Sign in to continue</Text>
 
         <TextInput

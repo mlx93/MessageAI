@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "MessageAI",
-    "slug": "messageai-mlx93",
+    "name": "aiMessage",
+    "slug": "aimessage",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "messageai",
+    "scheme": "aimessage",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -19,7 +19,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to your camera to take photos for messages.",
         "NSPhotoLibraryUsageDescription": "This app needs access to your photos to share images in messages.",
-        "NSContactsUsageDescription": "This app needs access to your contacts to help you find friends on the app.",
+        "NSContactsUsageDescription": "aiMessage needs access to your contacts to help you connect with friends.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for voice messages."
       },
       "googleServicesFile": "./creds/GoogleService-Info.plist"
@@ -60,7 +60,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "messageai-mlx93"
+        "projectId": "aimessage"
       }
     }
   }

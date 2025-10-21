@@ -99,8 +99,8 @@ export default function ContactsScreen() {
       Alert.alert(
         'Contact Added',
         isAppUser 
-          ? `${contactName} is on MessageAI! You can now chat with them.`
-          : `${contactName} added to contacts. They're not on MessageAI yet.`
+          ? `${contactName} is on aiMessage! You can now chat with them.`
+          : `${contactName} added to contacts. They're not on aiMessage yet.`
       );
 
     } catch (error: any) {
@@ -198,7 +198,7 @@ export default function ContactsScreen() {
               </Text>
               <Text style={styles.contactPhone}>{item.phoneNumber}</Text>
               {!item.isAppUser && (
-                <Text style={styles.notOnAppText}>Not on MessageAI</Text>
+                <Text style={styles.notOnAppText}>Not on aiMessage</Text>
               )}
             </View>
             {item.isAppUser ? (
