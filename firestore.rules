@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+    }
+    
+    // Users by email index (for uniqueness)
+    match /usersByEmail/{email} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+    
+    // Users by phone index (for uniqueness)
+    match /usersByPhone/{phone} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+    
+    // Conversations
+    match /conversations/{conversationId} {
+      allow read: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow update: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+      }
+      
+      // Typing indicators subcollection
+      match /typing/{userId} {
+        allow read: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+    
+    // Active conversations (for smart notifications)
+    match /activeConversations/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+    
+    // User contacts subcollection
+    match /users/{userId}/contacts/{contactId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
+

@@ -1,31 +1,44 @@
 /**
  * Cloud Functions for MessageAI MVP
- * 
- * Handles push notifications for new messages with smart delivery logic
- * Only sends notifications to users not actively viewing the conversation
+ *
+ * Handles push notifications for new messages
+ * with smart delivery logic
  */
 
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+import * as admin from "firebase-admin";
+import {setGlobalOptions} from "firebase-functions/v2";
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
+// Set global options
+setGlobalOptions({maxInstances: 10});
+
 /**
  * Send push notification when a new message is created
- * 
+ *
  * Trigger: Firestore onCreate for messages
- * Smart logic: Only notifies users who are not currently viewing the conversation
+ * Smart logic: Only notifies users not currently
+ * viewing the conversation
  */
-export const sendMessageNotification = functions.firestore
-  .document('conversations/{conversationId}/messages/{messageId}')
-  .onCreate(async (snap, context) => {
+export const sendMessageNotification = onDocumentCreated(
+  "conversations/{conversationId}/messages/{messageId}",
+  async (event) => {
     try {
-      const message = snap.data();
-      const conversationId = context.params.conversationId;
-      const messageId = context.params.messageId;
+      const message = event.data?.data();
+      if (!message) {
+        console.log("No message data");
+        return;
+      }
 
-      console.log(`New message ${messageId} in conversation ${conversationId}`);
+      const conversationId = event.params.conversationId;
+      const messageId = event.params.messageId;
+
+      console.log(
+        `New message ${messageId} in conversation ${conversationId}`
+      );
 
       // Get conversation details
       const conversationSnap = await admin
@@ -34,14 +47,14 @@ export const sendMessageNotification = functions.firestore
         .get();
 
       if (!conversationSnap.exists) {
-        console.log('Conversation not found');
-        return null;
+        console.log("Conversation not found");
+        return;
       }
 
       const conversation = conversationSnap.data();
       if (!conversation) {
-        console.log('Conversation data is empty');
-        return null;
+        console.log("Conversation data is empty");
+        return;
       }
 
       // Get recipients (all participants except sender)
@@ -49,7 +62,7 @@ export const sendMessageNotification = functions.firestore
         (id: string) => id !== message.senderId
       );
 
-      console.log(`Recipients: ${recipients.join(', ')}`);
+      console.log(`Recipients: ${recipients.join(", ")}`);
 
       // Check who's actively viewing this conversation
       const activeUsers: string[] = [];
@@ -61,9 +74,14 @@ export const sendMessageNotification = functions.firestore
 
         if (activeSnap.exists) {
           const activeData = activeSnap.data();
-          if (activeData && activeData.conversationId === conversationId) {
+          if (
+            activeData &&
+            activeData.conversationId === conversationId
+          ) {
             activeUsers.push(userId);
-            console.log(`User ${userId} is actively viewing conversation`);
+            console.log(
+              `User ${userId} is actively viewing conversation`
+            );
           }
         }
       }
@@ -73,13 +91,16 @@ export const sendMessageNotification = functions.firestore
         (id: string) => !activeUsers.includes(id)
       );
 
-      console.log(`Users to notify: ${usersToNotify.join(', ')}`);
+      console.log(`Users to notify: ${usersToNotify.join(", ")}`);
 
       // Send notifications
-      const notifications: Promise<any>[] = [];
+      const notifications: Promise<string>[] = [];
 
       for (const userId of usersToNotify) {
-        const userSnap = await admin.firestore().doc(`users/${userId}`).get();
+        const userSnap = await admin
+          .firestore()
+          .doc(`users/${userId}`)
+          .get();
 
         if (!userSnap.exists) {
           console.log(`User ${userId} not found`);
@@ -105,29 +126,32 @@ export const sendMessageNotification = functions.firestore
           .doc(`users/${message.senderId}`)
           .get();
         const senderData = senderSnap.data();
-        const senderName = senderData?.displayName || 'Someone';
+        const senderName = senderData?.displayName || "Someone";
 
         // Prepare notification payload
         let notificationTitle = senderName;
-        let notificationBody = message.text || 'New message';
+        let notificationBody = message.text || "New message";
 
         // For group chats, include group context
-        if (conversation.type === 'group') {
+        if (conversation.type === "group") {
+          const details = conversation.participantDetails;
           const groupName = conversation.participants
             .filter((id: string) => id !== userId)
-            .map((id: string) => conversation.participantDetails[id]?.displayName || 'Unknown')
+            .map((id: string) => details[id]?.displayName || "Unknown")
             .slice(0, 3)
-            .join(', ');
+            .join(", ");
           notificationTitle = `${senderName} to ${groupName}`;
         }
 
         // Handle image messages
-        if (message.type === 'image') {
-          notificationBody = '📷 Image';
+        if (message.type === "image") {
+          notificationBody = "📷 Image";
         }
 
         // Send notification
-        console.log(`Sending notification to ${userId}: ${notificationTitle}`);
+        console.log(
+          `Sending notification to ${userId}: ${notificationTitle}`
+        );
 
         const notificationPromise = admin.messaging().send({
           token: fcmToken,
@@ -140,21 +164,19 @@ export const sendMessageNotification = functions.firestore
             messageId: messageId,
             senderId: message.senderId,
           },
-          // iOS specific
           apns: {
             payload: {
               aps: {
-                sound: 'default',
+                sound: "default",
                 badge: 1,
               },
             },
           },
-          // Android specific
           android: {
-            priority: 'high',
+            priority: "high",
             notification: {
-              sound: 'default',
-              priority: 'high',
+              sound: "default",
+              priority: "high",
             },
           },
         });
@@ -167,37 +189,43 @@ export const sendMessageNotification = functions.firestore
 
       // Log results
       results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          console.log(`Notification ${index + 1} sent successfully`);
+        if (result.status === "fulfilled") {
+          console.log(`Notification ${index + 1} sent`);
         } else {
-          console.error(`Notification ${index + 1} failed:`, result.reason);
+          console.error(
+            `Notification ${index + 1} failed:`,
+            result.reason
+          );
         }
       });
 
-      console.log(`Sent ${results.filter(r => r.status === 'fulfilled').length} notifications`);
-
-      return null;
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled"
+      ).length;
+      console.log(`Sent ${successCount} notifications`);
     } catch (error) {
-      console.error('Error sending notification:', error);
-      return null;
+      console.error("Error sending notification:", error);
     }
-  });
+  }
+);
 
 /**
  * Clean up old typing indicators
  * Runs every 5 minutes to remove stale typing status
  */
-export const cleanupTypingIndicators = functions.pubsub
-  .schedule('every 5 minutes')
-  .onRun(async (context) => {
+export const cleanupTypingIndicators = onSchedule(
+  "every 5 minutes",
+  async () => {
     const now = admin.firestore.Timestamp.now();
-    const fiveMinutesAgo = new Date(now.toMillis() - 5 * 60 * 1000);
+    const fiveMinutesAgo = new Date(
+      now.toMillis() - 5 * 60 * 1000
+    );
 
     try {
       // Get all conversations
       const conversationsSnap = await admin
         .firestore()
-        .collection('conversations')
+        .collection("conversations")
         .get();
 
       let cleaned = 0;
@@ -206,7 +234,7 @@ export const cleanupTypingIndicators = functions.pubsub
         const typingSnap = await admin
           .firestore()
           .collection(`conversations/${convDoc.id}/typing`)
-          .where('timestamp', '<', fiveMinutesAgo)
+          .where("timestamp", "<", fiveMinutesAgo)
           .get();
 
         const batch = admin.firestore().batch();
@@ -222,9 +250,8 @@ export const cleanupTypingIndicators = functions.pubsub
       }
 
       console.log(`Cleaned up ${cleaned} old typing indicators`);
-      return null;
     } catch (error) {
-      console.error('Error cleaning up typing indicators:', error);
-      return null;
+      console.error("Error cleaning typing indicators:", error);
     }
-  });
+  }
+);
