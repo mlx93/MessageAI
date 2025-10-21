@@ -161,9 +161,12 @@ export const getUserConversations = (userId: string, callback: (conversations: C
  * Update conversation's last message
  */
 export const updateConversationLastMessage = async (conversationId: string, text: string, senderId: string): Promise<void> => {
+  // When a new message arrives, the conversation should reappear for users who deleted it
+  // Clear the deletedBy array so conversation shows up in everyone's list
   await setDoc(doc(db, 'conversations', conversationId), {
     lastMessage: { text, timestamp: Timestamp.now(), senderId },
-    updatedAt: Timestamp.now()
+    updatedAt: Timestamp.now(),
+    deletedBy: [] // Reset deleted status - conversation reappears for all users
   }, { merge: true });
 };
 

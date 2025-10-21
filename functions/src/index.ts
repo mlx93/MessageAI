@@ -393,6 +393,23 @@ export const sendMessageNotification = onDocumentCreated(
         return;
       }
 
+      // Update conversation's lastMessage and clear deletedBy array
+      // This makes deleted conversations reappear when new messages arrive
+      await admin
+        .firestore()
+        .doc(`conversations/${conversationId}`)
+        .update({
+          lastMessage: {
+            text: message.text || "",
+            timestamp: message.timestamp,
+            senderId: message.senderId,
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          deletedBy: [], // Clear deleted status - conversation reappears for all users
+        });
+
+      console.log("✅ Updated conversation lastMessage and cleared deletedBy");
+
       // Get recipients (all participants except sender)
       const recipients = conversation.participants.filter(
         (id: string) => id !== message.senderId

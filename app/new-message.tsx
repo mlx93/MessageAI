@@ -7,6 +7,7 @@ import { formatPhoneNumber } from '../utils/phoneFormat';
 import { createOrGetConversation, updateConversationLastMessage } from '../services/conversationService';
 import { sendMessage } from '../services/messageService';
 import { v4 as uuidv4 } from 'uuid';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Contact {
   uid: string;
@@ -61,13 +62,33 @@ export default function NewMessageScreen() {
   }, [searchText, selectedUsers, user]);
 
   const handleSelectUser = (contact: Contact) => {
-    setSelectedUsers([...selectedUsers, contact]);
+    const newSelectedUsers = [...selectedUsers, contact];
+    setSelectedUsers(newSelectedUsers);
     setSearchText('');
     setSearchResults([]);
+    
+    // Don't auto-navigate - let user add more people if they want
+    // They'll use the "Continue to Chat" button when ready
   };
 
   const handleRemoveUser = (uid: string) => {
     setSelectedUsers(selectedUsers.filter(u => u.uid !== uid));
+  };
+
+  const handleContinueToChat = async () => {
+    if (selectedUsers.length === 0 || !user) return;
+
+    try {
+      // Find or create conversation with selected users
+      const participantIds = [user.uid, ...selectedUsers.map(u => u.uid)];
+      const conversationId = await createOrGetConversation(participantIds, user.uid);
+      
+      // Navigate to the existing/new conversation
+      router.replace(`/chat/${conversationId}`);
+    } catch (error: any) {
+      console.error('Failed to find conversation:', error);
+      alert('Failed to open conversation: ' + error.message);
+    }
   };
 
   const handleSend = async () => {
@@ -164,11 +185,22 @@ export default function NewMessageScreen() {
             <View style={styles.selectedUsersSummary}>
               <Text style={styles.summaryText}>
                 {selectedUsers.length === 1 
-                  ? selectedUsers[0].displayName
+                  ? `Chat with ${selectedUsers[0].displayName}`
                   : `${selectedUsers.length} people selected`
                 }
               </Text>
             </View>
+            
+            {/* Continue to Chat button - shown for any number of selected users */}
+            <TouchableOpacity 
+              style={styles.continueButton}
+              onPress={handleContinueToChat}
+            >
+              <Ionicons name="checkmark-circle" size={24} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.continueButtonText}>
+                {selectedUsers.length === 1 ? 'Open Chat' : 'Continue to Group'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -306,6 +338,21 @@ const styles = StyleSheet.create({
   summaryText: {
     fontSize: 15,
     color: '#666',
+    marginBottom: 12,
+  },
+  continueButton: {
+    flexDirection: 'row',
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   inputContainer: {
     flexDirection: 'row',
