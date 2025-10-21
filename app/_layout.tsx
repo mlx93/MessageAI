@@ -8,6 +8,7 @@
 import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '../store/AuthContext';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initDB } from '../services/sqliteService';
 import { processQueue } from '../services/offlineQueue';
 import { 
@@ -105,9 +106,11 @@ function AppContent() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </GestureHandlerRootView>
   );
 }
 
