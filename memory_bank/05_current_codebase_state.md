@@ -1,46 +1,69 @@
 # Current Codebase State
 
-**Last Updated:** October 20, 2024  
-**Development Phase:** Setup Complete, Ready for Feature Development
+**Last Updated:** October 21, 2025  
+**Development Phase:** Part 1 Complete (Tasks 1-7) + iMessage UI ✅  
+**Next Phase:** Part 2 (Presence, Typing, Images, Notifications)
 
 ---
 
 ## 📊 Overview
 
-**Total Files:** 50+ (excluding node_modules)  
-**Lines of Code:** ~500 (config + initial setup)  
-**Git Commits:** 3  
-**Dependencies:** 1,131 packages
+**Total Files:** 80+ (excluding node_modules)  
+**Lines of Code:** ~6,500+ (including tests and config)  
+**Git Commits:** 10+  
+**Dependencies:** 1,262 packages (production + dev)
 
 ---
 
-## 🗂️ Project Structure
+## 🗂️ Complete Project Structure
 
 ```
 MessageAI/
 ├── app/                          # Expo Router - File-based routing
-│   ├── auth/                     # Authentication screens (empty)
-│   ├── (tabs)/                   # Tab navigation screens (empty)
-│   ├── chat/                     # Chat screens (empty)
-│   ├── _layout.tsx               # ✅ Root layout (implemented)
-│   └── index.tsx                 # ✅ Home screen (implemented)
+│   ├── auth/                     # ✅ Authentication screens (complete)
+│   │   ├── login.tsx             # ✅ Email/password login
+│   │   ├── register.tsx          # ✅ Registration with auto-login
+│   │   ├── edit-profile.tsx      # ✅ Profile editing
+│   │   └── complete-profile.tsx  # ✅ Profile completion flow
+│   ├── (tabs)/                   # ✅ Tab navigation screens
+│   │   ├── _layout.tsx           # ✅ Bottom tabs (Messages, Contacts)
+│   │   ├── index.tsx             # ✅ Messages tab (conversation list)
+│   │   └── contacts.tsx          # ✅ Contacts tab (app users)
+│   ├── chat/                     # ✅ Chat screens
+│   │   ├── [id].tsx              # ✅ Chat screen (custom iMessage UI)
+│   │   └── add-participant.tsx   # ✅ Add people to conversation
+│   ├── new-message.tsx           # ✅ New message compose screen
+│   ├── _layout.tsx               # ✅ Root layout with AuthProvider
+│   └── index.tsx                 # ✅ Auth routing screen
 │
 ├── components/                   # Reusable UI components
-│   ├── chat/                     # Chat-specific components (empty)
-│   └── contacts/                 # Contact components (empty)
+│   ├── chat/                     # Chat components (future)
+│   ├── contacts/                 # Contact components (future)
+│   └── PhonePromptModal.tsx      # ✅ Phone collection modal (unused)
 │
-├── services/                     # Business logic layer
-│   ├── __tests__/                # Service unit tests (empty)
-│   └── firebase.ts               # ✅ Firebase initialization (implemented)
+├── services/                     # ✅ Business logic layer (complete)
+│   ├── __tests__/                # Service unit tests
+│   │   ├── authService.test.ts
+│   │   └── socialAuth.test.ts
+│   ├── firebase.ts               # ✅ Firebase SDK initialization
+│   ├── authService.ts            # ✅ Authentication service
+│   ├── contactService.ts         # ✅ Contact import and matching
+│   ├── conversationService.ts    # ✅ Conversation management
+│   ├── messageService.ts         # ✅ Real-time messaging
+│   ├── sqliteService.ts          # ✅ Local caching
+│   └── offlineQueue.ts           # ✅ Offline message queue
 │
 ├── hooks/                        # Custom React hooks
 │   └── __tests__/                # Hook tests (empty)
 │
-├── store/                        # State management (empty)
+├── store/                        # ✅ State management
+│   └── AuthContext.tsx           # ✅ Auth context provider
 │
-├── utils/                        # Utility functions (empty)
+├── utils/                        # ✅ Utility functions
+│   └── messageHelpers.ts         # ✅ Message formatting utilities
 │
-├── types/                        # TypeScript type definitions (empty)
+├── types/                        # ✅ TypeScript definitions
+│   └── index.ts                  # ✅ Core interfaces (User, Message, Conversation)
 │
 ├── functions/                    # Firebase Cloud Functions
 │   ├── src/
@@ -49,567 +72,569 @@ MessageAI/
 │   ├── tsconfig.json             # ✅ TypeScript config
 │   └── .eslintrc.js              # ✅ ESLint config
 │
-├── docs/                         # ✅ Project documentation (complete)
-│   ├── SETUP_GUIDE.md
-│   ├── MVP_DECISIONS.md
-│   ├── messaging_app_prd.md
-│   ├── mvp_implementation_plan.md
-│   ├── mvp_scope_summary.md
-│   ├── mvp_task_list_part1.md
-│   ├── mvp_task_list_part2.md
-│   ├── architecture.md
-│   └── MessageAI.md
+├── docs/                         # ✅ Comprehensive documentation
+│   ├── FIRESTORE_SETUP.md        # ✅ Security rules and indexes
+│   ├── UI_IMPROVEMENTS_IMESSAGE_STYLE.md # ✅ iMessage UI guide
+│   ├── HOUR_1-2_COMPLETE.md      # ✅ Auth implementation
+│   ├── HOUR_2-3_COMPLETE.md      # ✅ Social auth
+│   ├── FIXES_APPLIED.md          # ✅ Bug fixes log
+│   ├── GOOGLE_OAUTH_FIX.md       # ✅ OAuth troubleshooting
+│   ├── KNOWN_ISSUES.md           # ✅ Known issues tracker
+│   ├── QUICK_MVP_STATUS.md       # ✅ Quick status reference
+│   ├── SOCIAL_AUTH_MVP_DECISION.md # ✅ Social auth decisions
+│   ├── messaging_app_prd.md      # ✅ Product requirements
+│   ├── mvp_implementation_plan.md # ✅ Technical implementation
+│   ├── mvp_scope_summary.md      # ✅ MVP scope
+│   ├── mvp_task_list_part1.md    # ✅ Part 1 tasks (complete)
+│   ├── mvp_task_list_part2.md    # ⏳ Part 2 tasks (next)
+│   ├── architecture.md           # ✅ System architecture
+│   └── MessageAI.md              # ✅ Project overview
 │
-├── memory_bank/                  # ✅ Session memories (this folder)
+├── memory_bank/                  # ✅ AI session memories (updated)
 │   ├── 00_INDEX.md
 │   ├── 01_project_setup_complete.md
 │   ├── 02_tech_stack_architecture.md
 │   ├── 03_core_features_scope.md
 │   ├── 04_setup_issues_solutions.md
-│   └── 05_current_codebase_state.md
+│   ├── 05_current_codebase_state.md  # ✅ (this file)
+│   └── 06_active_context_progress.md # ✅ (updated)
 │
 ├── creds/                        # Firebase credentials (gitignored)
 │   ├── firebaseConfig.md
 │   ├── google-services.json
 │   └── GoogleService-Info.plist
 │
-├── assets/                       # ✅ App assets (Expo defaults)
+├── assets/                       # ✅ App assets
 │   ├── icon.png
 │   ├── splash-icon.png
 │   ├── adaptive-icon.png
 │   └── favicon.png
 │
 ├── .git/                         # ✅ Git repository
-├── .gitignore                    # ✅ Configured
+├── .gitignore                    # ✅ Git ignore rules
 ├── .firebase/                    # Firebase cache
 ├── .expo/                        # Expo cache
-├── node_modules/                 # Dependencies (1131 packages)
+├── node_modules/                 # Dependencies (1,262 packages)
 │
 ├── index.ts                      # ✅ App entry point
+├── babel.config.js               # ✅ Babel configuration
 ├── app.json                      # ✅ Expo configuration
 ├── package.json                  # ✅ Dependencies & scripts
-├── package-lock.json             # ✅ Locked dependency versions
-├── tsconfig.json                 # ✅ TypeScript configuration
-├── jest.config.js                # ✅ Jest test configuration
-├── jest.setup.js                 # ✅ Test mocks and setup
-├── firebase.json                 # ✅ Firebase project config
-├── .firebaserc                   # ✅ Firebase project alias
+├── package-lock.json             # ✅ Locked versions
+├── tsconfig.json                 # ✅ TypeScript config
+├── jest.config.js                # ✅ Jest configuration
+├── jest.setup.js                 # ✅ Test mocks
+├── firebase.json                 # ✅ Firebase config
+├── .firebaserc                   # ✅ Firebase project
 └── README.md                     # Project readme (empty)
 ```
 
 ---
 
-## 📝 Implemented Files
+## 📝 Key File Implementations
 
-### **index.ts** ✅
-**Purpose:** App entry point  
+### **services/authService.ts** ✅
+**Purpose:** Authentication service with email/password, Google, Apple  
 **Status:** Complete
 
-```typescript
-import 'expo-router/entry';
-```
+**Key Functions:**
+- `registerWithEmail(email, password, displayName, phoneNumber)`
+- `loginWithEmail(email, password)`
+- `loginWithGoogle()` (code complete, OAuth deferred)
+- `loginWithApple()` (code complete, requires dev build)
+- `signOut()`
+- `updateUserProfile(updates)`
+- `getUserProfile(userId)`
+- `normalizePhoneNumber(phone)` - E.164 format
+
+---
+
+### **services/contactService.ts** ✅
+**Purpose:** Contact import, matching, and search  
+**Status:** Complete
+
+**Key Functions:**
+- `requestContactsPermission()` - Request device contacts access
+- `importContacts(userId)` - Import and match contacts
+- `normalizePhoneNumber(phone)` - E.164 normalization
+- `matchPhoneNumbers(phoneNumbers)` - Batch match (handles 10-item limit)
+- `getUserContacts(userId)` - Fetch matched contacts
+- `searchUserByPhone(phoneNumber)` - Search user by phone
+
+---
+
+### **services/conversationService.ts** ✅
+**Purpose:** Conversation management and real-time sync  
+**Status:** Complete
+
+**Key Functions:**
+- `createOrGetConversation(participantIds)` - Create or get direct/group chat
+- `getUserConversations(userId)` - Real-time conversation list
+- `updateConversationLastMessage(conversationId, text, senderId)` - Update preview
+- `addParticipantToConversation(conversationId, userId)` - Add user to chat
+- `getConversation(conversationId)` - Fetch single conversation details
 
 **Notes:**
-- Imports Expo Router for file-based routing
-- Replaced traditional App.tsx pattern
-- No additional configuration needed
+- Direct chat IDs: Sorted UIDs joined with underscore (e.g., `uid1_uid2`)
+- Group chat IDs: Random UUID
+- Auto-converts to group at 3+ participants
+- Fetches participant details (displayName, photoURL) for UI
+
+---
+
+### **services/messageService.ts** ✅
+**Purpose:** Real-time messaging with delivery tracking  
+**Status:** Complete
+
+**Key Functions:**
+- `sendMessage(conversationId, text, senderId, localId, mediaUrl)` - Send message
+- `subscribeToMessages(conversationId, onUpdate)` - Real-time listener
+- `markMessagesAsRead(conversationId, userId, messageIds)` - Update read status
+- `markMessageAsDelivered(messageId, userId)` - Update delivery status
+
+**Notes:**
+- Optimistic UI: Local message shown instantly
+- Real-time delivery: onSnapshot listener
+- Read receipts: `readBy[]` array with UIDs
+- Delivery status: `deliveredTo[]` array
+
+---
+
+### **services/sqliteService.ts** ✅
+**Purpose:** Local caching for offline support  
+**Status:** Complete (updated API)
+
+**Key Functions:**
+- `initDB()` - Create messages and conversations tables
+- `cacheMessage(message)` - Cache message locally
+- `getCachedMessages(conversationId)` - Load cached messages
+- `cacheConversation(conversation)` - Cache conversation
+- `getCachedConversations(userId)` - Load cached conversations
+- `clearCache()` - Delete all cached data
+
+**Notes:**
+- Uses `openDatabaseSync()` (updated from old API)
+- Synchronous operations for better error handling
+- Tables: `messages` and `conversations`
+- Instant load on app start
+
+---
+
+### **services/offlineQueue.ts** ✅
+**Purpose:** Offline message queue with retry  
+**Status:** Complete
+
+**Key Functions:**
+- `queueMessage(message)` - Add failed message to queue
+- `getQueue()` - Get all queued messages
+- `processQueue()` - Retry all queued messages with backoff
+
+**Notes:**
+- Exponential backoff: 2s, 4s, 8s
+- Max 3 retries per message
+- Auto-processing on network reconnect
+- Failed messages marked after 3 attempts
+
+---
+
+### **app/chat/[id].tsx** ✅
+**Purpose:** Main chat screen with iMessage-style UI  
+**Status:** Complete (custom UI)
+
+**Key Features:**
+- Dynamic header title (participant name)
+- Custom message bubbles (blue/gray)
+- Read receipts (✓✓)
+- Timestamps
+- Offline indicator banner
+- Keyboard avoiding view
+- Optimistic UI
+- Real-time updates
+
+**Why Custom UI:**
+- `react-native-gifted-chat` caused dependency conflicts
+- Full control over iMessage styling
+- Simpler codebase without animation library conflicts
+
+---
+
+### **app/new-message.tsx** ✅
+**Purpose:** iMessage-style new message compose screen  
+**Status:** Complete
+
+**Key Features:**
+- "To:" field with inline search
+- Search by name or phone number
+- Multi-user selection (blue pills)
+- Real-time search with 300ms debounce
+- Message composition
+- Auto-navigate to chat after send
+
+**UX Flow:**
+1. Type name or phone in "To:" field
+2. Select user(s) from dropdown
+3. Selected users appear as blue pills
+4. Tap pill to remove
+5. Type message
+6. Tap "Send"
+7. Navigate to new chat
+
+---
+
+### **app/chat/add-participant.tsx** ✅
+**Purpose:** Add people to existing conversation  
+**Status:** Complete (matches new-message UX)
+
+**Key Features:**
+- Same UX as new-message screen
+- "To:" field with inline search
+- Multi-user selection
+- "Add" button in header
+- Success alert after adding
+
+**Implementation:**
+- Matches new-message.tsx exactly
+- Uses `addParticipantToConversation()` service
+- Can add multiple users at once
+- Auto-converts to group conversation
+
+---
+
+### **app/(tabs)/_layout.tsx** ✅
+**Purpose:** Bottom tab navigation  
+**Status:** Complete (iMessage style)
+
+**Key Features:**
+- "Messages" tab (renamed from "Chats")
+- "Contacts" tab
+- Large navigation titles (`headerLargeTitle: true`)
+- Compose button in Messages header (pencil icon)
+- iOS-style icons (Ionicons)
 
 ---
 
 ### **app/_layout.tsx** ✅
 **Purpose:** Root layout wrapper  
-**Status:** Basic implementation
-
-```typescript
-import { Stack } from 'expo-router';
-
-export default function RootLayout() {
-  return (
-    <Stack>
-      <Stack.Screen name="index" options={{ title: 'Home' }} />
-    </Stack>
-  );
-}
-```
-
-**To Be Added:**
-- Auth provider wrapper
-- Theme provider
-- Loading states
-- Error boundaries
-
----
-
-### **app/index.tsx** ✅
-**Purpose:** Home/splash screen  
-**Status:** Implemented for testing
-
-```typescript
-import { View, Text, StyleSheet } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-
-export default function HomeScreen() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>MessageAI MVP</Text>
-      <Text style={styles.subtitle}>WhatsApp-style Messaging App</Text>
-      <Text style={styles.status}>✅ Setup Complete!</Text>
-      <Text style={styles.info}>
-        Firebase Project: messageai-mlx93
-      </Text>
-      <StatusBar style="auto" />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 30,
-    textAlign: 'center',
-  },
-  status: {
-    fontSize: 24,
-    color: '#34C759',
-    marginBottom: 20,
-  },
-  info: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 20,
-  },
-});
-```
-
-**Next Steps:**
-- Replace with authentication flow
-- Add navigation to login/register
-- Add loading state during auth check
-
----
-
-### **services/firebase.ts** ✅
-**Purpose:** Firebase SDK initialization  
 **Status:** Complete
 
-```typescript
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import { getFunctions } from 'firebase/functions';
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBbPxZpMEjQCnGbXvZpJ39Vcaxhz6tiCkU",
-  authDomain: "messageai-mlx93.firebaseapp.com",
-  projectId: "messageai-mlx93",
-  storageBucket: "messageai-mlx93.firebasestorage.app",
-  messagingSenderId: "290630072291",
-  appId: "1:290630072291:web:f5d7dcd8c1fac7b7c892d6"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-// Initialize Firebase services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const functions = getFunctions(app);
-
-// Enable offline persistence for Firestore
-try {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('Firestore persistence failed: Multiple tabs open');
-    } else if (err.code === 'unimplemented') {
-      console.warn('Firestore persistence not supported in this environment');
-    }
-  });
-} catch (error) {
-  console.warn('Firestore persistence error:', error);
-}
-
-export default app;
-```
-
-**Notes:**
-- All Firebase services initialized
-- Offline persistence enabled
-- Error handling for persistence issues
-- Ready to be imported by other services
+**Key Features:**
+- Wraps app in `AuthProvider`
+- Initializes SQLite on app start
+- Network reconnect listener → process queue
+- iOS-style back buttons (partial arrow)
+- Registers all routes (auth, tabs, chat, new-message)
 
 ---
 
-### **functions/src/index.ts** ✅
-**Purpose:** Cloud Functions entry point  
-**Status:** Initialized (no functions yet)
-
-```typescript
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
-
-import {onRequest} from "firebase-functions/v2/https";
-import * as logger from "firebase-functions/logger";
-
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
-
-export const helloWorld = onRequest((request, response) => {
-  logger.info("Hello logs!", {structuredData: true});
-  response.send("Hello from Firebase!");
-});
-```
-
-**To Be Added:**
-- `sendNotification` - Send FCM push notifications
-- `onUserCreate` - Initialize user profile
-- `onMessageCreate` - Trigger notifications
-
----
-
-### **app.json** ✅
-**Purpose:** Expo app configuration  
+### **store/AuthContext.tsx** ✅
+**Purpose:** Global auth state management  
 **Status:** Complete
 
+**Key Features:**
+- Firebase `onAuthStateChanged` listener
+- User profile loading from Firestore
+- Session persistence
+- `useAuth()` hook for components
+- Loading and error states
+
+---
+
+### **types/index.ts** ✅
+**Purpose:** TypeScript type definitions  
+**Status:** Complete
+
+**Key Interfaces:**
+- `User` - User profile with phone, displayName, photoURL
+- `Message` - Message with text, senderId, timestamp, readBy, deliveredTo
+- `Conversation` - Conversation with participants, lastMessage, unreadCount
+- `Contact` - Contact with phone, name, isAppUser, appUserId
+
+---
+
+## 🎨 UI Design System
+
+### iMessage-Style Components ✅
+
+**Colors:**
+- Primary: `#007AFF` (iOS Blue)
+- Own Message Bubble: `#007AFF` (blue)
+- Other Message Bubble: `#E8E8E8` (light gray)
+- Text: `#000` (black) and `#fff` (white)
+- Borders: `#E8E8E8` (light gray)
+- Disabled: `#C0C0C0` (gray)
+
+**Typography:**
+- Header Title: 17px, Bold
+- Message Text: 15px, Regular
+- Timestamp: 12px, Regular
+- Pill Text: 15px, Regular
+
+**Navigation:**
+- Large titles in tab navigation
+- iOS-style back button (< arrow)
+- Header right buttons (blue text)
+
+**Message Bubbles:**
+- Border radius: 18px
+- Padding: 12px
+- Max width: 70%
+- Own messages: Right-aligned, blue
+- Other messages: Left-aligned, gray
+
+**Read Receipts:**
+- Single checkmark: Sent (✓)
+- Double checkmark: Delivered/Read (✓✓)
+- Color: Matches bubble text color
+
+**User Pills (New Message):**
+- Background: `#007AFF`
+- Text color: White
+- Border radius: 16px
+- X to remove
+
+---
+
+## 📦 Dependencies
+
+### Core Libraries
 ```json
 {
-  "expo": {
-    "name": "MessageAI",
-    "slug": "messageai-mlx93",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "scheme": "messageai",
-    "ios": {
-      "bundleIdentifier": "com.mlx93.messagingapp",
-      "googleServicesFile": "./creds/GoogleService-Info.plist",
-      "infoPlist": {
-        "NSCameraUsageDescription": "This app needs access to your camera to take photos for messages.",
-        "NSPhotoLibraryUsageDescription": "This app needs access to your photos to share images in messages.",
-        "NSContactsUsageDescription": "This app needs access to your contacts to help you find friends on the app.",
-        "NSMicrophoneUsageDescription": "This app needs access to your microphone for voice messages."
-      }
-    },
-    "android": {
-      "package": "com.mlx93.messagingapp",
-      "googleServicesFile": "./creds/google-services.json",
-      "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "READ_CONTACTS",
-        "NOTIFICATIONS",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE"
-      ]
-    },
-    "plugins": [
-      "expo-router",
-      "expo-web-browser",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/notification-icon.png",
-          "color": "#007AFF"
-        }
-      ]
-    ]
-  }
+  "expo": "~54.0.13",
+  "expo-router": "~6.0.12",
+  "react": "19.1.0",
+  "react-native": "0.81.4",
+  "firebase": "^12.4.0",
+  "expo-sqlite": "~16.0.1",
+  "expo-contacts": "~14.0.0",
+  "expo-notifications": "~0.28.0",
+  "@react-native-async-storage/async-storage": "2.1.1",
+  "@react-native-community/netinfo": "11.4.1",
+  "date-fns": "^4.1.0",
+  "react-native-get-random-values": "~1.11.0",
+  "uuid": "^11.0.5"
 }
 ```
 
----
-
-### **package.json** ✅
-**Purpose:** Project dependencies and scripts  
-**Status:** Complete
-
+### Dev Dependencies
 ```json
 {
-  "name": "messaging-app-mvp",
-  "version": "1.0.0",
-  "main": "index.ts",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
-  }
+  "typescript": "~5.9.2",
+  "jest": "^29.7.0",
+  "jest-expo": "^54.0.12",
+  "@testing-library/react-native": "^13.3.3",
+  "@types/jest": "^29.5.14",
+  "@types/uuid": "^10.0.0"
 }
 ```
 
-**Scripts:**
-- `npm start` - Start Expo dev server
-- `npm run android` - Start with Android
-- `npm run ios` - Start with iOS
-- `npm test` - Run tests
-- `npm run test:watch` - Watch mode
-- `npm run test:coverage` - Coverage report
+### Removed Dependencies
+- `react-native-gifted-chat` (replaced with custom UI)
+- `react-native-reanimated` (caused conflicts)
+- `react-native-worklets` (caused conflicts)
+- `react-native-keyboard-controller` (not needed)
 
 ---
 
-### **jest.config.js** ✅
-**Purpose:** Jest testing configuration  
-**Status:** Complete
+## 🔐 Firebase Configuration
 
-```javascript
-module.exports = {
-  preset: 'jest-expo',
-  transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|firebase|@firebase/.*)'
-  ],
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  collectCoverageFrom: [
-    'app/**/*.{ts,tsx}',
-    'services/**/*.{ts,tsx}',
-    'hooks/**/*.{ts,tsx}',
-    'components/**/*.{ts,tsx}',
-    'store/**/*.{ts,tsx}',
-    '!**/__tests__/**',
-    '!**/node_modules/**'
-  ],
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
-  testMatch: ['**/__tests__/**/*.(test|spec).(ts|tsx|js)']
-};
-```
+### Project Details
+- **Project ID:** messageai-mlx93
+- **Auth Domain:** messageai-mlx93.firebaseapp.com
+- **Storage Bucket:** messageai-mlx93.firebasestorage.app
+- **Region:** us-south1 (Firestore), us-central1 (Storage)
 
----
+### Enabled Services ✅
+- **Authentication:** Email/Password, Google (native), Apple (native)
+- **Cloud Firestore:** Real-time database with offline persistence
+- **Cloud Storage:** Image and media storage
+- **Cloud Functions:** TypeScript with Node.js 22
+- **Firebase Cloud Messaging:** Push notifications (not configured yet)
 
-### **jest.setup.js** ✅
-**Purpose:** Jest test setup with mocks  
-**Status:** Complete
+### Security Rules ✅ DEPLOYED
+- Email uniqueness enforcement
+- Phone uniqueness enforcement
+- Conversation participant access control
+- Message read/write permissions
+- User profile access control
 
-Includes mocks for:
-- Firebase (app, auth, firestore, storage)
-- Expo modules (notifications, contacts)
-- AsyncStorage
-- All native modules
+**Reference:** `docs/FIRESTORE_SETUP.md`
+
+### Firestore Indexes ✅ CREATED
+1. Conversations: `participants` (array-contains) + `updatedAt` (desc)
+2. Messages: `conversationId` (asc) + `timestamp` (asc)
+3. Additional auto-suggested indexes
 
 ---
 
-### **.gitignore** ✅
-**Purpose:** Git ignore configuration  
-**Status:** Complete
+## 🧪 Testing Setup
 
-Key entries:
-- `node_modules/`
-- `creds/` - Firebase credentials
-- `.expo/`
-- `.firebase/`
-- `functions/node_modules/`
-- `functions/lib/`
+### Jest Configuration ✅
+**File:** `jest.config.js`
+- Preset: `jest-expo`
+- Transform ignore patterns for React Native and Firebase
+- Setup file: `jest.setup.js`
+- Coverage collection from app, services, hooks, components
 
----
+### Test Files Created ✅
+- `services/__tests__/authService.test.ts` - Auth unit tests
+- `services/__tests__/socialAuth.test.ts` - Social auth tests
+- `utils/__tests__/messageHelpers.test.ts` - Utility tests (planned)
 
-## 🚧 Empty Directories (Ready for Implementation)
-
-These directories exist but contain no files yet:
-
-```
-app/
-├── auth/          # Login, Register, ForgotPassword screens
-├── (tabs)/        # Conversations, Contacts, Settings tabs
-└── chat/          # ChatScreen, ChatDetails
-
-components/
-├── chat/          # MessageBubble, InputBar, MediaPreview
-└── contacts/      # ContactList, ContactItem, SearchBar
-
-hooks/             # useAuth, useMessages, useContacts, useNetwork
-
-store/             # Context providers, state management
-
-utils/             # Phone normalization, date formatting, validators
-
-types/             # TypeScript interfaces and types
-```
-
----
-
-## 📈 Implementation Status
-
-### **Setup (Hour 0-1)** ✅ 100%
-- ✅ Expo project
-- ✅ Firebase configuration
-- ✅ Testing setup
-- ✅ Git repository
-- ✅ Documentation
-
-### **Authentication (Hour 1-4)** ⏳ 0%
-- ⏳ Type definitions
-- ⏳ Auth service
-- ⏳ Login screen
-- ⏳ Register screen
-- ⏳ Google Sign-In
-- ⏳ Apple Sign-In
-
-### **Contacts (Hour 4-6)** ⏳ 0%
-- ⏳ Contact service
-- ⏳ Import contacts
-- ⏳ Match users
-- ⏳ Contacts screen
-
-### **Messaging (Hour 6-12)** ⏳ 0%
-- ⏳ Message service
-- ⏳ Conversation service
-- ⏳ Chat screen
-- ⏳ Message sending
-- ⏳ Media sharing
-
-### **Real-time Features (Hour 12-16)** ⏳ 0%
-- ⏳ Read receipts
-- ⏳ Typing indicators
-- ⏳ Presence tracking
-
-### **Notifications (Hour 16-20)** ⏳ 0%
-- ⏳ FCM setup
-- ⏳ Cloud Function
-- ⏳ Notification handling
-
-### **Polish (Hour 20-24)** ⏳ 0%
-- ⏳ Bug fixes
-- ⏳ UI polish
-- ⏳ Testing
-
----
-
-## 🎯 Next Steps
-
-### **Immediate (Hour 1-2)**
-
-1. **Create Type Definitions** (`types/index.ts`)
-   - User interface
-   - Message interface
-   - Conversation interface
-   - Auth types
-
-2. **Build Auth Service** (`services/authService.ts`)
-   - signUp function
-   - login function
-   - logout function
-   - normalizePhoneNumber function
-   - getCurrentUser function
-
-3. **Create Auth Screens**
-   - `app/auth/login.tsx`
-   - `app/auth/register.tsx`
-
-4. **Update Root Layout**
-   - Add auth state management
-   - Conditional routing (auth vs main app)
+### Test Accounts
+- Email: Jodiedavidson92@gmail.com
+- Phone: +13059782428
+- Password: (testing password)
 
 ---
 
 ## 📊 Code Statistics
 
-**Files by Type:**
-- TypeScript (`.ts`/`.tsx`): 5 implemented
+### Files by Type
+- TypeScript (`.ts`/`.tsx`): 35+ implemented
 - JSON configuration: 8
-- Markdown documentation: 14
-- JavaScript (`.js`): 2
+- Markdown documentation: 20+
+- JavaScript (`.js`): 2 (babel, jest)
 
-**Code Metrics:**
-- Total LOC (excluding node_modules): ~500
-- Config files: ~300 LOC
-- Application code: ~100 LOC
-- Documentation: ~5000+ lines
+### Code Metrics
+- **Total LOC (excluding node_modules):** ~6,500+
+- **Application code:** ~4,500
+- **Config files:** ~500
+- **Test files:** ~500
+- **Documentation:** ~10,000+ lines
 
-**Test Coverage:**
-- Current: 0% (no tests written yet)
-- Target: 80%+ for services
-
----
-
-## 🔐 Environment Variables
-
-**Not using .env file currently** - all configuration is hardcoded in `services/firebase.ts`.
-
-**Future Improvement:**
-Create `.env` file:
-```bash
-FIREBASE_API_KEY=...
-FIREBASE_AUTH_DOMAIN=...
-FIREBASE_PROJECT_ID=...
-# etc.
-```
+### Test Coverage
+- **Current:** ~10% (basic unit tests)
+- **Target:** 80%+ for services
+- **Integration tests:** Pending
 
 ---
 
-## 📦 Key Dependencies
+## 🚧 Known Issues
 
-**Production:**
-- firebase: ^12.4.0
-- expo-router: ~6.0.12
-- react-native-gifted-chat: ^2.8.1
-- date-fns: ^4.1.0
+### 1. Social Auth Not Fully Testable (EXPECTED)
+- **Status:** Code complete, OAuth config too complex for Expo Go
+- **Impact:** Can only test email/password in Expo Go
+- **Severity:** Low (expected limitation)
+- **Resolution:** Test in production builds
 
-**Development:**
-- typescript: ~5.9.2
-- jest-expo: ^54.0.12
-- @testing-library/react-native: ^13.3.3
+### 2. Offline Queue Not Fully Tested (MANUAL TESTING NEEDED)
+- **Status:** Code complete, needs multi-device testing
+- **Impact:** Unknown if retry logic works in all scenarios
+- **Severity:** Medium
+- **Resolution:** Test with 2 simulators + airplane mode
 
----
+### 3. Group Conversations Not Tested (MANUAL TESTING NEEDED)
+- **Status:** Code complete, needs 3+ user testing
+- **Impact:** Unknown if participant details fetch works
+- **Severity:** Medium
+- **Resolution:** Create 3 test accounts, test group chat
 
-## 🎨 Design System
-
-**Colors (Placeholder):**
-- Primary: #007AFF (iOS Blue)
-- Success: #34C759 (Green)
-- Text: #666 (Gray)
-- Background: #fff (White)
-
-**Typography:**
-- Title: 32px, Bold
-- Subtitle: 18px, Regular
-- Body: 14px, Regular
-
-**To Be Defined:**
-- Component library
-- Spacing system
-- Icon set
-- Animation library
+### 4. Unread Count Placeholder (NOT IMPLEMENTED)
+- **Status:** Badge shown but not updated
+- **Impact:** Users can't see unread message count
+- **Severity:** Medium
+- **Resolution:** Implement in presence/typing phase
 
 ---
 
-## 🐛 Known Issues
+## 🎯 Completed Features (Part 1)
 
-**None** - Fresh setup with no bugs! 🎉
+### ✅ Task 1: Project Setup
+- Expo project with TypeScript
+- Firebase configuration
+- Git repository
+- Testing infrastructure
+
+### ✅ Task 2: Authentication
+- Email/password auth
+- Login/Register/Edit Profile screens
+- Auth context and routing
+- Profile persistence
+
+### ✅ Task 3: Social Auth
+- Google Sign-In (code complete)
+- Apple Sign-In (code complete)
+- OAuth config deferred
+
+### ✅ Task 4: Contacts
+- Contact import with expo-contacts
+- E.164 phone normalization
+- Batch phone matching
+- Search by phone number
+- Contacts screen
+
+### ✅ Task 5: Conversations
+- Create/get direct and group conversations
+- Real-time conversation list
+- Add participants
+- Conversation details with avatars
+- Unread count placeholders
+
+### ✅ Task 6: Messages
+- Send text messages
+- Real-time message delivery
+- Mark as delivered/read
+- Custom chat UI
+- Offline detection
+- Read receipts
+
+### ✅ Task 7: Offline Support
+- SQLite message caching
+- Offline message queue
+- Exponential backoff retry
+- Auto queue processing
+
+### ✅ Extra: iMessage UI
+- Dynamic header titles
+- iOS-style back buttons
+- Blue/gray message bubbles
+- New message compose screen
+- Add participant screen
+- Large navigation titles
 
 ---
 
-## 📝 TODO Comments in Code
+## 📋 Next Steps (Part 2)
 
-**None yet** - all implemented code is complete.
+### Phase 4: Presence System
+- `services/presenceService.ts`
+- Online/offline status
+- "Last seen" timestamps
+- Green dot indicators
+
+### Phase 5: Typing Indicators
+- `hooks/useTypingIndicator.ts`
+- "User is typing..." display
+- Auto-clear after 500ms
+- Typing status in Firestore
+
+### Phase 6: Image Upload
+- `services/imageService.ts`
+- Image picker
+- Image compression
+- Cloud Storage upload
+- Display images in chat
+
+### Phase 7: Push Notifications
+- FCM configuration
+- Cloud Functions for notifications
+- Notification handling
+- Background notifications
+
+### Phase 8: Testing & Polish
+- Multi-device testing
+- Offline resilience testing
+- Group chat testing
+- UI polish
+- Bug fixes
 
 ---
 
-**Ready for Feature Development!** 🚀
+**Status:** ✅ Part 1 Complete (Tasks 1-7 + iMessage UI)  
+**Next:** Part 2 (mvp_task_list_part2.md)  
+**Confidence:** Very High  
+**Blockers:** None
 
-**Next Session:** Start with Task 2.1 in `docs/mvp_task_list_part1.md`
+---
 
-**Last Updated:** October 20, 2024
-
+**Last Updated:** October 21, 2025 - Part 1 Complete + iMessage UI

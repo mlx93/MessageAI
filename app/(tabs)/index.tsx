@@ -1,23 +1,58 @@
-/**
- * Chats Screen (Main Tab)
- * 
- * Placeholder for conversations list
- * Shows welcome message and sign out button for now
- */
-
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../store/AuthContext';
+import { getUserConversations } from '../../services/conversationService';
+import { Conversation } from '../../types';
+import { router, useNavigation } from 'expo-router';
+import { formatTimestamp } from '../../utils/messageHelpers';
+import { Ionicons } from '@expo/vector-icons';
 
-export default function ChatsScreen() {
-  const { userProfile, signOut, user } = useAuth();
+export default function ConversationsScreen() {
+  const navigation = useNavigation();
+  const { user, userProfile, signOut } = useAuth();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  // Debug logging
-  React.useEffect(() => {
-    console.log('ChatsScreen - user:', user?.uid);
-    console.log('ChatsScreen - userProfile:', JSON.stringify(userProfile, null, 2));
-  }, [userProfile, user]);
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => router.push('/new-message')} style={{ marginRight: 8 }}>
+          <Ionicons name="create-outline" size={28} color="#007AFF" />
+        </TouchableOpacity>
+      ),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const unsubscribe = getUserConversations(user.uid, (convos) => {
+      setConversations(convos);
+    });
+    
+    return unsubscribe;
+  }, [user]);
+
+  const getConversationTitle = (conversation: Conversation) => {
+    if (conversation.type === 'direct') {
+      const otherUserId = conversation.participants.find(id => id !== user!.uid);
+      return conversation.participantDetails[otherUserId!]?.displayName || 'Unknown';
+    } else {
+      const names = conversation.participants
+        .filter(id => id !== user!.uid)
+        .map(id => conversation.participantDetails[id]?.displayName.split(' ')[0])
+        .slice(0, 3)
+        .join(', ');
+      return names + (conversation.participants.length > 4 ? '...' : '');
+    }
+  };
+
+  const getInitials = (conversation: Conversation) => {
+    if (conversation.type === 'direct') {
+      const otherUserId = conversation.participants.find(id => id !== user!.uid);
+      return conversation.participantDetails[otherUserId!]?.initials || '?';
+    }
+    return '👥';  // Group icon
+  };
 
   const handleSignOut = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -28,111 +63,209 @@ export default function ChatsScreen() {
         onPress: async () => {
           try {
             await signOut();
+            router.replace('/auth/login');
           } catch (error: any) {
-            Alert.alert('Error', error.message);
+            Alert.alert('Error', error.message || 'Failed to sign out');
           }
         },
       },
     ]);
   };
 
-  // Show loading if profile isn't loaded yet
-  if (!userProfile) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <Text style={styles.title}>Loading profile...</Text>
-          <Text style={styles.info}>User ID: {user?.uid || 'Unknown'}</Text>
-        </View>
-      </View>
-    );
-  }
-
   const handleEditProfile = () => {
-    router.push('/auth/complete-profile');
+    router.push('/auth/edit-profile');
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Welcome to MessageAI!</Text>
-        <Text style={styles.subtitle}>
-          Hello, {userProfile.firstName} {userProfile.lastName}!
+  const renderItem = ({ item }: { item: Conversation }) => {
+    const unreadCount = item.participantDetails[user!.uid]?.unreadCount || 0;
+    
+    return (
+      <TouchableOpacity 
+        style={styles.conversationItem}
+        onPress={() => router.push(`/chat/${item.id}`)}
+      >
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{getInitials(item)}</Text>
+        </View>
+        
+        <View style={styles.conversationDetails}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{getConversationTitle(item)}</Text>
+            <Text style={styles.timestamp}>
+              {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
+            </Text>
+          </View>
+          
+          <View style={styles.footer}>
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.lastMessage.text || 'No messages yet'}
+            </Text>
+            {unreadCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>{unreadCount}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderHeader = () => (
+    <View style={styles.headerContainer}>
+      <View style={styles.userInfo}>
+        <Text style={styles.userName}>
+          {userProfile?.firstName} {userProfile?.lastName}
         </Text>
-        <Text style={styles.info}>Email: {userProfile.email}</Text>
-        <Text style={styles.info}>Phone: {userProfile.phoneNumber}</Text>
-        <Text style={styles.info}>UID: {userProfile.uid.substring(0, 8)}...</Text>
-        <Text style={styles.status}>✅ Authentication Complete</Text>
-
-        <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
-          <Text style={styles.editButtonText}>Edit Profile</Text>
+        <Text style={styles.userEmail}>{userProfile?.email}</Text>
+      </View>
+      <View style={styles.headerButtons}>
+        <TouchableOpacity style={styles.headerButton} onPress={handleEditProfile}>
+          <Text style={styles.headerButtonText}>Edit</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity style={styles.button} onPress={handleSignOut}>
-          <Text style={styles.buttonText}>Sign Out</Text>
+        <TouchableOpacity style={[styles.headerButton, styles.signOutButton]} onPress={handleSignOut}>
+          <Text style={styles.headerButtonText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <FlatList
+        data={conversations}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>💬</Text>
+            <Text style={styles.emptyText}>No conversations yet</Text>
+            <Text style={styles.emptySubtext}>Go to Contacts to start chatting</Text>
+          </View>
+        }
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
+  headerContainer: {
+    backgroundColor: '#f8f8f8',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+  userInfo: {
+    marginBottom: 12,
   },
-  title: {
-    fontSize: 28,
+  userName: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 10,
-    textAlign: 'center',
+    color: '#000',
+    marginBottom: 4,
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#333',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  info: {
+  userEmail: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 8,
   },
-  status: {
-    fontSize: 16,
-    color: '#34C759',
-    marginTop: 20,
-    marginBottom: 40,
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
   },
-  editButton: {
+  headerButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
-    marginBottom: 10,
   },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  button: {
+  signOutButton: {
     backgroundColor: '#FF3B30',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
   },
-  buttonText: {
+  headerButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  conversationItem: { 
+    flexDirection: 'row', 
+    padding: 15, 
+    borderBottomWidth: 1, 
+    borderColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  avatar: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#007AFF', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 15 
+  },
+  avatarText: { 
+    color: 'white', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  conversationDetails: { 
+    flex: 1 
+  },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 5 
+  },
+  title: { 
+    fontSize: 16, 
+    fontWeight: '600',
+    color: '#000',
+  },
+  timestamp: { 
+    fontSize: 12, 
+    color: '#999' 
+  },
+  footer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center' 
+  },
+  lastMessage: { 
+    fontSize: 14, 
+    color: '#666', 
+    flex: 1 
+  },
+  unreadBadge: { 
+    backgroundColor: '#007AFF', 
+    borderRadius: 10, 
+    paddingHorizontal: 8, 
+    paddingVertical: 2, 
+    marginLeft: 10,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  unreadText: { 
+    color: 'white', 
+    fontSize: 12, 
+    fontWeight: 'bold' 
+  },
+  emptyState: {
+    padding: 60,
+    alignItems: 'center',
+  },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
   },
 });
-

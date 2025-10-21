@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { signUp } from '../../services/authService';
+import { useAuth } from '../../store/AuthContext';
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
@@ -27,6 +28,7 @@ export default function RegisterScreen() {
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const { refreshUserProfile } = useAuth();
 
   const validateInputs = () => {
     if (!email || !password || !firstName || !lastName || !phoneNumber) {
@@ -57,7 +59,8 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await signUp(email, password, firstName, lastName, phoneNumber);
-      // Navigation will happen automatically via AuthContext
+      await refreshUserProfile();
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message || 'An error occurred');
     } finally {
@@ -106,6 +109,8 @@ export default function RegisterScreen() {
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            autoComplete="off"
+            textContentType="none"
             keyboardType="email-address"
             editable={!loading}
           />
@@ -124,6 +129,8 @@ export default function RegisterScreen() {
             placeholder="Password (min 6 characters)"
             value={password}
             onChangeText={setPassword}
+            autoComplete="off"
+            textContentType="none"
             secureTextEntry
             editable={!loading}
           />

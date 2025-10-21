@@ -8,7 +8,7 @@
  * - Redirects to login if not logged in
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../store/AuthContext';
@@ -16,9 +16,10 @@ import { isProfileComplete } from '../services/authService';
 
 export default function IndexScreen() {
   const { user, userProfile, loading } = useAuth();
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && !hasRedirectedRef.current) {
       if (user) {
         // User is authenticated, check if profile is complete
         if (isProfileComplete(userProfile)) {
@@ -33,6 +34,7 @@ export default function IndexScreen() {
         // User is not authenticated, go to login
         router.replace('/auth/login');
       }
+      hasRedirectedRef.current = true;
     }
   }, [user, userProfile, loading]);
 

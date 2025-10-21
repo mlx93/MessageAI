@@ -15,6 +15,7 @@ interface AuthContextType {
   user: FirebaseUser | null;
   userProfile: User | null;
   loading: boolean;
+  refreshUserProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -24,6 +25,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const refreshUserProfile = React.useCallback(async () => {
+    if (!auth.currentUser) {
+      setUserProfile(null);
+      return;
+    }
+
+    try {
+      console.log('Refreshing user profile...');
+      const profile = await getUserProfile(auth.currentUser.uid);
+      setUserProfile(profile);
+    } catch (error) {
+      console.error('Failed to refresh user profile:', error);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -47,8 +63,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const handleSignOut = async () => {
-    const { signOut } = await import('../services/authService');
-    await signOut();
+    try {
+      const { signOut } = await import('../services/authService');
+      console.log('Signing out...');
+      await signOut();
+      console.log('Sign out successful');
+    } catch (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    }
   };
 
   return (
@@ -57,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         userProfile,
         loading,
+        refreshUserProfile,
         signOut: handleSignOut,
       }}
     >

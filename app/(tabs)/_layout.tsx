@@ -15,14 +15,27 @@ export default function TabsLayout() {
         tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: '#8E8E93',
         headerShown: true,
+        headerBackTitleVisible: false,
+        headerTintColor: '#007AFF',
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Chats',
+          title: 'Messages',
+          headerLargeTitle: true,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubbles" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="contacts"
+        options={{
+          title: 'Contacts',
+          headerLargeTitle: true,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people" size={size} color={color} />
           ),
         }}
       />

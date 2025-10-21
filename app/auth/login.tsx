@@ -20,6 +20,7 @@ import { router } from 'expo-router';
 import * as Google from 'expo-auth-session/providers/google';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
+import { Ionicons } from '@expo/vector-icons';
 import { signIn, signInWithGoogle, signInWithApple } from '../../services/authService';
 import PhonePromptModal from '../../components/PhonePromptModal';
 import { useAuth } from '../../store/AuthContext';
@@ -35,10 +36,13 @@ export default function LoginScreen() {
   const { user } = useAuth();
 
   // Google Sign-In configuration
+  // Use Expo's auth proxy for proper redirect handling
   const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: '290630072291-c5m9hc72nk0lvh6g9j9mfvb6fqjb0h8v.apps.googleusercontent.com',
-    androidClientId: '290630072291-8rfm0qk3vn9f4d0q5h5v8j5v8j5v8j5v.apps.googleusercontent.com',
-    webClientId: '290630072291-c5m9hc72nk0lvh6g9j9mfvb6fqjb0h8v.apps.googleusercontent.com',
+    expoClientId: '290630072291-c5m9hc72nk0lvh6g9j9mfvb6fqjb0h8v.apps.googleusercontent.com',
+    iosClientId: '290630072291-3ffc240ecv37hook9qproh8qual792e3.apps.googleusercontent.com',
+    androidClientId: undefined,
+    webClientId: '290630072291-n58ta6o7ec2kk4epojoihg2qfbcrooms.apps.googleusercontent.com',
+    selectAccount: true,
   });
 
   // Handle Google OAuth response
@@ -99,37 +103,53 @@ export default function LoginScreen() {
   };
 
   const handleAppleSignIn = async () => {
-    setLoading(true);
-    try {
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
+    // Note: Apple Sign-In has limitations in Expo Go due to bundle ID mismatch
+    // Show helpful message for MVP testing
+    Alert.alert(
+      'Apple Sign-In',
+      'Apple Sign-In requires a development build or physical device.\n\nFor MVP testing, please use:\n• Email/Password\n• Google Sign-In\n\nApple Sign-In will be tested before App Store submission.',
+      [
+        { text: 'OK', style: 'default' },
+        {
+          text: 'Try Anyway',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const credential = await AppleAuthentication.signInAsync({
+                requestedScopes: [
+                  AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                  AppleAuthentication.AppleAuthenticationScope.EMAIL,
+                ],
+              });
 
-      console.log('Signing in with Apple...');
-      await signInWithApple(credential.identityToken!, credential.fullName || undefined);
-      console.log('Apple sign-in successful');
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      console.error('Apple sign-in error:', error);
-      if (error.code === 'ERR_REQUEST_CANCELED') {
-        // User canceled, do nothing
-        return;
-      }
-      if (error.message === 'PHONE_REQUIRED') {
-        // Show phone prompt modal
-        if (user?.uid) {
-          setPendingUserId(user.uid);
-          setPhoneModalVisible(true);
+              console.log('Signing in with Apple...');
+              await signInWithApple(credential.identityToken!, credential.fullName || undefined);
+              console.log('Apple sign-in successful');
+              router.replace('/(tabs)');
+            } catch (error: any) {
+              console.error('Apple sign-in error:', error);
+              if (error.code === 'ERR_REQUEST_CANCELED') {
+                return;
+              }
+              if (error.message === 'PHONE_REQUIRED') {
+                if (user?.uid) {
+                  setPendingUserId(user.uid);
+                  setPhoneModalVisible(true);
+                }
+              } else {
+                Alert.alert(
+                  'Apple Sign-In Failed',
+                  'This is expected in Expo Go. The error is:\n\n' + (error.message || 'Unknown error') + '\n\nUse Google Sign-In or Email/Password for testing.'
+                );
+              }
+            } finally {
+              setLoading(false);
+            }
+          }
         }
-      } else {
-        Alert.alert('Sign In Failed', error.message || 'An error occurred with Apple Sign-In');
-      }
-    } finally {
-      setLoading(false);
-    }
+      ]
+    );
   };
 
   const handlePhoneComplete = () => {
@@ -161,6 +181,8 @@ export default function LoginScreen() {
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
+          autoComplete="off"
+          textContentType="none"
           keyboardType="email-address"
           editable={!loading}
         />
@@ -171,6 +193,8 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          autoComplete="off"
+          textContentType="none"
           editable={!loading}
         />
 
@@ -194,10 +218,11 @@ export default function LoginScreen() {
 
         <TouchableOpacity
           style={[styles.socialButton, styles.googleButton]}
-          onPress={() => promptAsync()}
+          onPress={() => promptAsync({ useProxy: true, showInRecents: true })}
           disabled={loading || !request}
         >
-          <Text style={styles.socialButtonText}>🔵 Continue with Google</Text>
+          <Ionicons name="logo-google" size={20} color="#4285F4" style={styles.socialIcon} />
+          <Text style={styles.socialButtonText}>Continue with Google</Text>
         </TouchableOpacity>
 
         {Platform.OS === 'ios' && (
@@ -206,8 +231,9 @@ export default function LoginScreen() {
             onPress={handleAppleSignIn}
             disabled={loading}
           >
+            <Ionicons name="logo-apple" size={20} color="#fff" style={styles.socialIcon} />
             <Text style={[styles.socialButtonText, styles.appleButtonText]}>
-              🍎 Continue with Apple
+              Continue with Apple
             </Text>
           </TouchableOpacity>
         )}
@@ -306,11 +332,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   socialButton: {
+    flexDirection: 'row',
     padding: 15,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
     borderWidth: 1,
+  },
+  socialIcon: {
+    marginRight: 10,
   },
   googleButton: {
     backgroundColor: '#fff',
