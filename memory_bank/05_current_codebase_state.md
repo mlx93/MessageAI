@@ -28,10 +28,9 @@ MessageAI/
 │   ├── (tabs)/                   # ✅ Tab navigation screens
 │   │   ├── _layout.tsx           # ✅ Bottom tabs (Messages, Contacts)
 │   │   ├── index.tsx             # ✅ Messages tab (conversation list)
-│   │   └── contacts.tsx          # ✅ Contacts tab (app users)
+│   │   └── contacts.tsx          # ✅ Contacts tab (re-import button)
 │   ├── chat/                     # ✅ Chat screens
-│   │   ├── [id].tsx              # ✅ Chat screen (custom iMessage UI)
-│   │   └── add-participant.tsx   # ✅ Add people to conversation
+│   │   └── [id].tsx              # ✅ Chat screen (custom UI + inline add mode)
 │   ├── new-message.tsx           # ✅ New message compose screen
 │   ├── _layout.tsx               # ✅ Root layout with AuthProvider
 │   └── index.tsx                 # ✅ Auth routing screen
@@ -238,8 +237,8 @@ MessageAI/
 ---
 
 ### **app/chat/[id].tsx** ✅
-**Purpose:** Main chat screen with iMessage-style UI  
-**Status:** Complete (custom UI)
+**Purpose:** Main chat screen with iMessage-style UI + inline add mode  
+**Status:** Complete (custom UI with inline add participant)
 
 **Key Features:**
 - Dynamic header title (participant name)
@@ -251,10 +250,27 @@ MessageAI/
 - Optimistic UI
 - Real-time updates
 
+**Inline Add Participant Mode (NEW):**
+- Tap "Add" → Header transforms to search interface
+- Shows existing participants as gray pills (scrollable)
+- Inline search by name or phone number
+- Dropdown results (max 5 users)
+- Add multiple users without navigation
+- Success alert on add
+- Tap "Cancel" to exit mode
+- No separate screen needed
+
 **Why Custom UI:**
 - `react-native-gifted-chat` caused dependency conflicts
 - Full control over iMessage styling
 - Simpler codebase without animation library conflicts
+
+**Why Inline Add Mode:**
+- Faster UX (no screen navigation)
+- See chat context while adding
+- Add multiple users in sequence
+- WhatsApp-style experience
+- Reduced code complexity
 
 ---
 
@@ -281,22 +297,40 @@ MessageAI/
 
 ---
 
-### **app/chat/add-participant.tsx** ✅
-**Purpose:** Add people to existing conversation  
-**Status:** Complete (matches new-message UX)
+### **app/chat/add-participant.tsx** ❌ DELETED
+**Previous Purpose:** Add people to existing conversation  
+**Status:** Removed - Replaced with inline add mode in `chat/[id].tsx`
+
+**Why Deleted:**
+- Inline add mode in chat header is faster and more intuitive
+- No navigation needed - add users directly in chat
+- Simpler codebase with ~35 fewer lines
+- Better UX - see conversation context while adding
+- Matches WhatsApp/Signal patterns
+
+**Replacement:** See inline add mode in `app/chat/[id].tsx` above
+
+---
+
+### **app/(tabs)/contacts.tsx** ✅
+**Purpose:** Browse app users from device contacts  
+**Status:** Complete (with re-import button)
 
 **Key Features:**
-- Same UX as new-message screen
-- "To:" field with inline search
-- Multi-user selection
-- "Add" button in header
-- Success alert after adding
+- List of matched contacts who are app users
+- Search by phone number to start chat
+- "🔄 Import Contacts" button (always visible)
+- Loading state: "Importing Contacts..." with subtitle
+- Auto-import on first screen load
+- Re-import anytime to find newly registered friends
+- Contact avatars with initials
+- Direct chat button for each contact
 
-**Implementation:**
-- Matches new-message.tsx exactly
-- Uses `addParticipantToConversation()` service
-- Can add multiple users at once
-- Auto-converts to group conversation
+**Re-Import Enhancement (NEW):**
+- Button always visible (not hidden after first import)
+- Shows "Scanning your contacts for app users..." during import
+- Allows users to refresh contact list anytime
+- Handles permission denied gracefully
 
 ---
 

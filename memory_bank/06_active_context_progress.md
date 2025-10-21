@@ -40,16 +40,35 @@
 - **Read Receipts:** Double checkmark (✓✓) for delivered/read
 - **Compose Button:** Pencil icon in Messages tab header
 - **New Message Screen:** Inline search with blue pills for selected users
-- **Add Participant Screen:** Matches New Message UX exactly
+- **Inline Add Participant:** Header transforms to show search input (NEW!)
+
+### Inline Add Participant Feature ✅
+- **No Separate Screen:** Add mode directly in chat header
+- **Tap "Add":** Header shows existing participants + search input
+- **Real-Time Search:** Search by name or phone with dropdown
+- **Gray Pills:** Current participants shown as gray pills (scrollable)
+- **Multiple Adds:** Add several users without leaving chat
+- **Cancel Mode:** Tap "Cancel" to exit add mode
+- **Success Alert:** Confirmation when participant added
+
+### Contacts Re-Import ✅
+- **Import Button:** "🔄 Import Contacts" button always visible
+- **Loading State:** "Importing Contacts..." with scanning subtitle
+- **Anytime Refresh:** Users can re-import to find new app users
 
 ### Key Files Modified
-- `app/chat/[id].tsx` - Custom chat UI (replaced GiftedChat)
+- `app/chat/[id].tsx` - Custom chat UI + inline add mode
 - `app/new-message.tsx` - iMessage-style compose screen
-- `app/chat/add-participant.tsx` - iMessage-style add people flow
+- `app/(tabs)/contacts.tsx` - Enhanced import button
 - `app/(tabs)/_layout.tsx` - Large titles, "Messages" tab name
 - `app/_layout.tsx` - Global iOS-style back button config
 
-**Documentation:** `docs/UI_IMPROVEMENTS_IMESSAGE_STYLE.md`
+### Files Deleted
+- `app/chat/add-participant.tsx` - Replaced with inline mode
+
+**Documentation:** 
+- `docs/UI_IMPROVEMENTS_IMESSAGE_STYLE.md`
+- `docs/INLINE_ADD_PARTICIPANT_FEATURE.md` (NEW)
 
 ---
 
