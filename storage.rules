@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for MessageAI
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Images folder - organized by conversation
+    match /images/{conversationId}/{imageId} {
+      // Allow authenticated users to upload images (max 50MB)
+      allow create: if isAuthenticated() 
+                    && request.resource.size < 50 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*');
+      
+      // Allow authenticated users to read images
+      allow read: if isAuthenticated();
+      
+      // Allow users to delete their own uploaded images
+      allow delete: if isAuthenticated();
+    }
+    
+    // Profile pictures
+    match /profile-pictures/{userId}/{imageId} {
+      // Allow users to upload their own profile picture (max 10MB)
+      allow create, update: if isAuthenticated() 
+                            && request.auth.uid == userId
+                            && request.resource.size < 10 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*');
+      
+      // Anyone authenticated can read profile pictures
+      allow read: if isAuthenticated();
+      
+      // Allow users to delete their own profile picture
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Deny all other paths by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
