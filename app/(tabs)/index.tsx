@@ -564,39 +564,51 @@ export default function ConversationsScreen() {
                 </View>
               </View>
             ) : (
-              /* View Mode: Same layout as edit mode with labels, but non-editable */
+              /* View Mode: Tap any field to enter edit mode */
               <View style={styles.appleEditFieldsContainer}>
                 {/* First Name */}
-                <View style={styles.appleEditFieldGroup}>
+                <TouchableOpacity 
+                  style={styles.appleEditFieldGroup}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.6}
+                >
                   <Text style={styles.appleEditFieldLabel}>First name</Text>
                   <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
                     <Text style={styles.appleViewFieldText}>
                       {userProfile?.firstName || 'Not set'}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 {/* Last Name */}
-                <View style={styles.appleEditFieldGroup}>
+                <TouchableOpacity 
+                  style={styles.appleEditFieldGroup}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.6}
+                >
                   <Text style={styles.appleEditFieldLabel}>Last name</Text>
                   <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
                     <Text style={styles.appleViewFieldText}>
                       {userProfile?.lastName || 'Not set'}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 {/* Email */}
-                <View style={styles.appleEditFieldGroup}>
+                <TouchableOpacity 
+                  style={styles.appleEditFieldGroup}
+                  onPress={() => setIsEditingProfile(true)}
+                  activeOpacity={0.6}
+                >
                   <Text style={styles.appleEditFieldLabel}>Email</Text>
                   <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
                     <Text style={[styles.appleViewFieldText, !userProfile?.email && styles.appleViewFieldPlaceholder]}>
                       {userProfile?.email || 'Not set'}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
 
-                {/* Phone (read-only) */}
+                {/* Phone (read-only - not tappable) */}
                 <View style={styles.appleEditFieldGroup}>
                   <Text style={styles.appleEditFieldLabel}>Mobile</Text>
                   <View style={[styles.appleEditFieldInput, styles.appleReadOnlyField]}>
