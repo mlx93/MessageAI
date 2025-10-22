@@ -1,25 +1,136 @@
 # Active Context & Progress
 
-**Last Updated:** October 22, 2025 (Session 8 - Rubric Readiness P1-P5 Implementation)  
-**Current Phase:** 🎉 MVP Complete + 95% Testing Confidence + Production Ready  
+**Last Updated:** October 22, 2025 (Session 9 - iPhone Production Readiness)  
+**Current Phase:** 🎉 MVP Complete + iPhone Ready + Production Ready  
 **Next Phase:** Production Deployment
 
 ---
 
 ## 🎯 Current Status Summary
 
-**Development Status:** ✅ **PRODUCTION READY - 95% TESTING CONFIDENCE ACHIEVED**  
+**Development Status:** ✅ **PRODUCTION READY - IPHONE TESTED & WORKING**  
 **Features Complete:** 10 of 10 core MVP features (100%) + Bonus Features + Foundation Hardening  
-**Implementation Status:** 100% functional, rock-solid reliability with A-level rubric scores  
+**Implementation Status:** 100% functional, rock-solid reliability, iPhone tested  
 **Code Quality:** Clean codebase, zero linter errors, optimized performance  
 **Cloud Functions:** ✅ Deployed (auto-reappear deleted conversations)  
 **Testing Readiness:** 🎯 **95% CONFIDENCE** (A-level rubric scores expected)  
 **Foundation:** ✅ Force-quit persistence, FlatList performance, multi-device conflicts resolved  
-**Latest Session:** P1-P5 implementation (force-quit, multi-device, performance, media, network UI)
+**Image Uploads:** ✅ Working on iPhone with proper permissions and Firebase Storage  
+**Latest Session:** iPhone production fixes (clipboard, worklets, image picker, Firebase Storage)
 
 ---
 
-## 🆕 October 22, 2025 - Session 8: Rubric Readiness P1-P5 Implementation ✅ ⭐ MAJOR
+## 🆕 October 22, 2025 - Session 9: iPhone Production Readiness ✅ ⭐ CRITICAL
+
+### **Session Overview - iPhone App Fully Functional**
+Fixed all Expo Go compatibility issues preventing iPhone testing. Resolved clipboard native module error, worklets version mismatch, image picker crashes, and enabled Firebase Storage. iPhone app now works flawlessly with all features including image uploads.
+
+### **Critical Fixes (5 commits):**
+
+#### **1. Profile Fields Tap-to-Edit** ✅
+**Commit:** `77562c6`
+
+**Issue:** Users had to tap "Edit" button before editing profile fields
+
+**Fix:**
+- Wrapped First Name, Last Name, and Email fields in TouchableOpacity
+- onPress={() => setIsEditingProfile(true)}
+- activeOpacity={0.6} for visual feedback
+- Phone field remains non-tappable (read-only, unchangeable)
+
+**File:** app/(tabs)/index.tsx
+
+**Result:** One less tap, faster UX, matches iOS Settings patterns
+
+---
+
+#### **2. Clipboard Compatibility** ✅
+**Commit:** `995a93e`
+
+**Issue:** @react-native-clipboard/clipboard requires native module (RNCClipboard) not in Expo Go
+
+**Fix:**
+- Replaced `@react-native-clipboard/clipboard` → `expo-clipboard`
+- Updated API: `setString()` → `setStringAsync()`
+- Changed imports in services/otpService.ts and services/devOtpHelper.ts
+
+**Result:** Clipboard now works in Expo Go without custom dev build
+
+---
+
+#### **3. Worklets Version Mismatch** ✅
+**Commit:** `983da37`
+
+**Issue:** JavaScript had worklets 0.6.1, Expo Go native had 0.5.1 → WorkletsError
+
+**Fix:**
+- Downgraded react-native-worklets from 0.6.1 → 0.5.1
+- Used --save-exact to lock version
+- Now matches Expo Go SDK 54 built-in version
+
+**Result:** Swipe gestures and animations work perfectly
+
+---
+
+#### **4. Image Picker Crash Fix** ✅
+**Commit:** `f7bf352`
+
+**Issue:** Dynamic import triggered PushNotificationIOS loading → "Cannot read property 'default' of undefined"
+
+**Fix:**
+- Moved Alert import to top of services/imageService.ts (static import)
+- Removed `const { Alert } = await import('react-native');`
+- Prevents React Native from loading deprecated modules
+
+**Result:** Image picker works without crashes
+
+---
+
+#### **5. Firebase Storage Setup** ✅
+**Commit:** `d3ebaed`
+
+**Issue:** Firebase Storage not enabled → "An unknown error occurred" on image upload
+
+**Fix:**
+- Created storage.rules with secure permissions:
+  - Authenticated users only
+  - 50MB limit for conversation images
+  - 10MB limit for profile pictures
+  - Image MIME types only
+- Updated firebase.json to include storage config
+- Enabled Storage in Firebase Console (us-central1)
+- Deployed production rules
+
+**Files:** storage.rules, firebase.json
+
+**Result:** Image uploads work perfectly (6.88MB → 0.66MB compression, then successful upload)
+
+---
+
+### **Session Results:**
+
+✅ **iPhone App Fully Functional**
+- Profile editing works with tap-to-edit
+- OTP codes can be copied
+- Swipe gestures smooth
+- Image picker opens without crashes
+- Image uploads with compression (6.88MB → 0.66MB)
+- All core features tested and working
+
+✅ **Expo Go Compatible**
+- No native modules required
+- All dependencies work in Expo Go
+- Ready for testing on any device
+
+✅ **Firebase Storage Ready**
+- Production-ready security rules
+- 50MB image limit
+- Authenticated uploads only
+- Organized by conversation
+
+---
+
+## 📅 October 22, 2025 - Session 8: Rubric Readiness P1-P5 Implementation ✅ ⭐ MAJOR
 
 ### **Session Overview - 95% Testing Confidence Achieved**
 Implemented all 5 critical priorities from RUBRIC_READINESS_PLAN_UPDATED.md to achieve production-ready foundation. Fixed force-quit persistence, multi-device conflicts, rapid-fire performance, image upload robustness, and slow network UI feedback. Testing confidence increased from 85% → 95%.

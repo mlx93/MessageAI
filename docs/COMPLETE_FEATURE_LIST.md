@@ -1101,28 +1101,55 @@ Pill text:     15px regular
 
 ### 8.1 Image Sharing
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete (iPhone Tested & Working)
 
-**Key File:** `services/imageService.ts`
+**Key Files:** 
+- `services/imageService.ts` - Image picking, compression, upload
+- `storage.rules` - Firebase Storage security rules
+- `firebase.json` - Storage configuration
 
 #### **Image Picker:**
 - expo-image-picker integration
 - Select from gallery
 - Take photo with camera
 - Permission handling (camera + photos)
+- **iPhone:** User-friendly permission dialogs
+- **Android:** Native permission flow
+- Graceful denial handling with Settings guidance
 
-#### **Image Compression:**
+#### **Image Compression (Progressive):**
 - expo-image-manipulator
-- Compress to max 1024x1024
-- Quality: 0.7
+- **Tier 1 (>10MB):** 1280px, 60% quality
+- **Tier 2 (>20MB):** 1024px, 50% quality  
+- **Tier 3 (>50MB):** 800px, 40% quality
 - Maintain aspect ratio
 - Convert to JPEG
+- **Real compression:** 6.88MB → 0.66MB ✅
 
 #### **Cloud Storage Upload:**
 - Firebase Storage integration
+- **Enabled:** us-central1 region
 - Path: `images/{conversationId}/{timestamp}.jpg`
 - Get download URL
 - Progress tracking
+- 15-second timeout with retry
+- **Security:** Authenticated users only, 50MB limit
+
+#### **Firebase Storage Security Rules:**
+```javascript
+// storage.rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /images/{conversationId}/{imageId} {
+      allow create: if isAuthenticated() 
+                    && request.resource.size < 50 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*');
+      allow read: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+  }
+}
+```
 
 #### **Display in Chat:**
 - Show thumbnail in message bubble
@@ -1130,13 +1157,24 @@ Pill text:     15px regular
 - Tap to view full size
 - Message type: "image"
 - Notification text: "📷 Image"
+- **iPhone:** Image picker with photo library permissions
 
 **API:**
 ```typescript
-pickImage()
-takePhoto()
-compressImage(uri)
-uploadImage(uri, conversationId)
+pickImage()                          // Returns URI or null
+takePhoto()                          // Camera capture
+compressImage(uri)                   // Basic compression
+compressImageProgressive(uri, size)  // Smart tiered compression
+uploadImage(uri, conversationId)     // Upload to Storage
+uploadImageWithTimeout(uri, id)      // With retry logic
+pickAndUploadImage(conversationId)   // Complete flow
+getMimeType(uri)                     // Detect MIME type
+```
+
+**Storage Setup:**
+```bash
+# Enable in Firebase Console
+# Deploy rules: firebase deploy --only storage
 ```
 
 ### 8.2 New Message Composition
