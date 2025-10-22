@@ -8,6 +8,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
+import { Alert } from 'react-native';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
 
@@ -28,9 +29,6 @@ export const pickImage = async (): Promise<string | null> => {
       
       if (status !== 'granted') {
         console.log(`Permission to access photos denied (status: ${status}, canAskAgain: ${canAskAgain})`);
-        
-        // Import Alert dynamically to avoid circular dependency
-        const { Alert } = await import('react-native');
         
         if (!canAskAgain) {
           Alert.alert(
