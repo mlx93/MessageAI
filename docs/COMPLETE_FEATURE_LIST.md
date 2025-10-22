@@ -24,7 +24,8 @@ This document contains a **complete, prioritized list of all features** currentl
 ## 🎯 How to Use This Document
 
 ### For Rebuilding:
-Follow the phases in order (1 → 10). Each phase builds on the previous one.
+**See `docs/REBUILD_GUIDE.md` for complete step-by-step instructions.**  
+This document provides the feature list; the rebuild guide provides the "how-to."
 
 ### For Understanding:
 Each feature includes:
