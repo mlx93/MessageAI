@@ -1,20 +1,176 @@
 # Active Context & Progress
 
-**Last Updated:** October 21, 2025 (Testing Evaluation Complete)  
-**Current Phase:** ⚠️ MVP Features Complete + Resilience Fixes Needed  
-**Next Phase:** Implement 5 Resilience Priorities (4-6 hours)
+**Last Updated:** October 22, 2025 (Major UX & Resilience Improvements)  
+**Current Phase:** 🎉 MVP Complete + UI/UX Polish + Critical Fixes Applied  
+**Next Phase:** Final Testing & Potential Deployment Prep
 
 ---
 
 ## 🎯 Current Status Summary
 
-**Development Status:** ⚠️ **FEATURES 100%, TESTING READINESS 60%**  
-**Features Complete:** 10 of 10 core MVP features (100%) + Bonus Features + Final Polish  
-**Implementation Status:** 100% functional, iMessage-quality UX with all fixes applied  
-**Testing Evaluation:** COMPLETE - Identified 5 priorities for resilience (4-6 hours)  
-**Blocking Issues:** ❌ App lifecycle handling (CRITICAL - 1 hour fix)  
-**Testing Confidence:** 60% → Target 95% after fixes  
-**Latest Discovery:** Background message handling will fail MVP testing without AppState
+**Development Status:** ✅ **FEATURES 100%, UX POLISHED, CRITICAL FIXES DEPLOYED**  
+**Features Complete:** 10 of 10 core MVP features (100%) + Bonus Features + UI Polish  
+**Implementation Status:** 100% functional, iMessage-quality UX with all October 22 improvements  
+**Cloud Functions:** ✅ Deployed (auto-reappear deleted conversations)  
+**Testing Readiness:** Significantly improved with gesture fixes and conversation management  
+**Latest Improvements:** Swipe gestures, status indicators, group chat fixes, conversation reappearance
+
+---
+
+## 🆕 October 22, 2025 - Major UX & Resilience Improvements
+
+### **Session Overview**
+Fixed 10+ UI/UX issues and critical bugs including swipe gestures, status indicators, group chat errors, and conversation management. All changes committed, pushed, and Cloud Functions deployed.
+
+### **1. Swipe-to-Delete Gestures Fixed** 🎯
+**Problem:** Delete button flashed during normal taps and navigation  
+**Solution:**
+- Added gesture constraints: `activeOffsetX([-10, 10])`, `failOffsetY([-10, 10])`
+- Requires 10px horizontal movement before activating
+- Prevents accidental triggers on taps
+- Lowered threshold from -80px to -40px for easier access
+- Added white background to animated view to cover delete button
+- Fixed for both conversations list and contacts list
+
+**Files:** `app/(tabs)/index.tsx`, `app/(tabs)/contacts.tsx`
+
+### **2. Status Indicators (Yellow/Green)** 🟢🟡
+**Problem:** Only showed online/offline, not whether user was actively in app  
+**Solution:**
+- **Green indicator (●)** - User is online AND actively in the app (`online: true, inApp: true`)
+- **Yellow indicator (●)** - User is logged in with internet but app in background (`online: true, inApp: false`)
+- **No indicator** - User is offline or signed out
+- Added `inApp` field to Firestore presence tracking
+- `AuthContext` monitors `AppState` changes (foreground/background)
+- New function: `setUserInApp(userId, inApp)` in `presenceService.ts`
+- Status shows in conversations list (avatar badge) and chat header (next to name)
+
+**Files:** `services/presenceService.ts`, `store/AuthContext.tsx`, `app/(tabs)/index.tsx`, `app/chat/[id].tsx`
+
+### **3. Edit Profile UI Improvements** ✨
+**Problem:** Buttons were too small/unclear  
+**Solution:**
+- Changed "Cancel" to "Done" in header
+- Converted tiny "Sign Out" link to prominent red button
+- Added "Save Changes" button when editing (blue, prominent)
+- Better visual hierarchy and touch targets
+
+**Files:** `app/(tabs)/index.tsx`
+
+### **4. Delete Button Visibility Fix** 👀
+**Problem:** Delete button visible behind non-contact items (invited users, search results)  
+**Solution:**
+- Only show delete button for contacts actually in user's list (`canDelete = item.isInContacts !== false`)
+- Can delete app users AND non-app users (invited contacts)
+- Cannot delete search results not yet added to contacts
+- Added white background to swipeable content to hide button when not swiped
+
+**Files:** `app/(tabs)/contacts.tsx`
+
+### **5. Search Bar Clears After Adding Contact** 🔍
+**Problem:** Search text remained after adding user  
+**Solution:** Added `setSearchText('')` in `handleAddSearchedUserToContacts`
+
+**Files:** `app/(tabs)/contacts.tsx`
+
+### **6. Group Chat Permission Errors Fixed** 🔧
+**Critical Bug:** `FirebaseError: Missing or insufficient permissions` when creating groups  
+**Root Cause:** Querying conversations by `sorted[0]` (first participant alphabetically) instead of current user  
+**Solution:**
+- Changed `createOrGetConversation` to require `currentUserId` parameter
+- Query: `where('participants', 'array-contains', currentUserId)` - only reads conversations user is in
+- Added validation: throws error if `currentUserId` is undefined
+- Added check: ensures `currentUserId` is in participant list before querying
+- Updated all call sites to pass `user.uid`
+
+**Files:** `services/conversationService.ts`, `app/(tabs)/contacts.tsx`, `app/new-message.tsx`
+
+### **7. Duplicate Group Prevention** ✅
+**Problem:** Creating "Bob, Jodie" then "Jodie, Bob" created two different conversations  
+**Solution:**
+- Sort participant IDs before comparing: `const sorted = [...participantIds].sort()`
+- Query existing groups for current user, then filter locally for exact match
+- Returns existing conversation ID if found
+
+**Files:** `services/conversationService.ts`
+
+### **8. Deleted Conversations Reappear with New Messages** 💬
+**Problem:** Deleted group chats stayed hidden even when new messages arrived  
+**Solution:**
+- **Client-side:** `updateConversationLastMessage` sets `deletedBy: []`
+- **Cloud Function:** `sendMessageNotification` updates conversation and clears `deletedBy` array
+- Works for messages from ANY user (not just you)
+- Conversation automatically reappears in message list
+- Matches WhatsApp/iMessage behavior
+
+**Files:** `services/conversationService.ts`, `functions/src/index.ts` (deployed)
+
+### **9. New Message UX Improvements** 🎨
+**Problem:** Auto-navigated immediately when selecting one user, preventing group creation  
+**Solution:**
+- Removed auto-navigation when selecting users
+- Added "Open Chat" / "Continue to Group" button with checkmark icon
+- Button appears for ANY number of selected users (1+)
+- Users can build recipient list freely, then proceed when ready
+- Finds existing conversations before creating new ones
+- Shows message history when conversation exists
+
+**Files:** `app/new-message.tsx`
+
+### **10. iPhone Back Button Navigation Fixed** 📱
+**Problem:** Back button from chats wasn't working consistently  
+**Solution:** Added `animation: 'slide_from_right'` to `chat/[id]` screen options
+
+**Files:** `app/_layout.tsx`
+
+### **11. Image Icon Improvements** 🖼️
+**Problem:** Image upload icon was cut off and blue (confusing)  
+**Solution:**
+- Made icon visible in dark grey (`#999`)
+- Disabled the button (`disabled={true}`)
+- Adjusted padding and margins for proper display
+- Indicates feature is not yet available
+
+**Files:** `app/chat/[id].tsx`
+
+### **12. Conversation History Preservation** 📜
+**Problem:** Split conversations showed "Start a conversation" instead of history  
+**Solution:**
+- Improved `lastMessage` display logic
+- Shows "Photo" for image messages with valid timestamps
+- Shows "Start a conversation" only for truly empty chats (timestamp < 2015)
+- Better handling of epoch timestamps (`new Date(0)`)
+
+**Files:** `app/(tabs)/index.tsx`, `services/conversationService.ts`
+
+---
+
+## 📊 Technical Improvements Summary
+
+### **Cloud Functions Deployed** ☁️
+- `sendMessageNotification` - Now updates `lastMessage` and clears `deletedBy` array
+- Automatically makes deleted conversations reappear for all users
+- Deployed successfully to Firebase (all 5 functions)
+
+### **Presence System Enhanced** 👥
+- New `inApp` boolean field in user presence documents
+- `AppState` listener in `AuthContext` monitors foreground/background
+- `setUserInApp(userId, inApp)` function for fine-grained control
+- Yellow/green indicators throughout app
+
+### **Gesture Handling** 👆
+- React Native Reanimated for smooth animations
+- Gesture Handler with proper constraints
+- Defensive checks to prevent accidental triggers
+- Consistent behavior across iOS and Android
+
+### **Conversation Management** 💬
+- Deterministic IDs for direct chats (`user1_user2` sorted)
+- UUID for group chats with duplicate detection
+- Soft delete with `deletedBy` array (per-user)
+- Auto-reappear on new messages (client + server)
+
+---
 
 ### ✅ All Core Features Complete
 1. **Email/Password Authentication** ✅

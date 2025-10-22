@@ -37,7 +37,15 @@ export function setupEmulator() {
   }
 
   // Clean up existing apps
-  getApps().forEach(app => deleteApp(app));
+  try {
+    const apps = getApps();
+    if (apps && apps.length > 0) {
+      apps.forEach(app => deleteApp(app));
+    }
+  } catch (error) {
+    // getApps might not be available in test environment, continue anyway
+    console.warn('Could not clean up existing Firebase apps:', error);
+  }
 
   // Initialize new test app
   testApp = initializeApp(firebaseConfig, 'test-app');
