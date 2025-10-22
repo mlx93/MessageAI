@@ -121,7 +121,9 @@ const startHeartbeat = (userId: string) => {
 - ✅ Single navigation push, single back tap
 - ✅ No old banners on app launch
 - ✅ Offline detection within ~30 seconds of force-quit
+- ✅ No unread count flicker on return to Messages (clears on chat exit)
 - ✅ Zero linter errors
+- ✅ Clean console logs (heartbeat logging removed)
 
 ### **Files Modified (4 files, ~140 lines):**
 - `store/AuthContext.tsx` - Heartbeat mechanism (~80 lines)
@@ -132,9 +134,17 @@ const startHeartbeat = (userId: string) => {
 ### **Production Readiness:**
 - ✅ All critical bugs resolved
 - ✅ Accurate presence system with heartbeat
-- ✅ Professional UX (30s offline detection)
+- ✅ Professional UX (30s offline detection, no flicker)
 - ✅ Cost-effective (15s heartbeat)
+- ✅ Clean console output (no verbose logging)
 - ✅ Ready for deployment
+
+**Final Polish Applied:**
+- Removed heartbeat console logs (was too verbose)
+- Fixed unread count flicker by clearing on chat exit instead of Messages entry
+- Unread count now updates BEFORE Messages screen displays (no flicker)
+
+**Git Commit:** `ace575f` - Session 7 complete, pushed to GitHub
 
 **Documentation:** `docs/session-notes/bug_fixes_oct22_session7_heartbeat.md`
 

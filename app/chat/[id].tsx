@@ -9,7 +9,7 @@ import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
 import { updateConversationLastMessage, addParticipantToConversation, removeParticipantFromConversation, resetUnreadCount } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
-import { queueMessage } from '../../services/offlineQueue';
+import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
 import { searchAllUsers, getUserContacts } from '../../services/contactService';
 import { subscribeToUserPresence } from '../../services/presenceService';
 import { pickAndUploadImage } from '../../services/imageService';
@@ -385,53 +385,63 @@ export default function ChatScreen() {
       deliveredTo: []
     };
 
-    // Optimistic UI
+    // 1. QUEUE FIRST (pessimistic - guarantees persistence)
+    await queueMessage({
+      conversationId,
+      text: tempMessage.text,
+      senderId: user.uid,
+      localId
+    });
+    console.log('📦 Message queued first for persistence');
+
+    // 2. Show optimistically in UI
     setMessages(prev => [...prev, tempMessage]);
     setInputText('');
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
-    try {
-      if (isOnline) {
+    // 3. Cache immediately
+    await cacheMessage(tempMessage);
+
+    // 4. Try to send (only if online)
+    if (isOnline) {
+      try {
         // Use timeout version (10 second limit)
-        await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId);
+        await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId, undefined, 10000);
         await updateConversationLastMessage(conversationId, tempMessage.text, user.uid);
-      } else {
-        await queueMessage({
-          conversationId,
-          text: tempMessage.text,
-          senderId: user.uid,
-          localId
-        });
-        console.log('📤 Message queued for offline sending');
-      }
-    } catch (error: any) {
-      if (error.message && error.message.includes('timeout')) {
-        // Timeout - queue for retry
-        console.log('⏱️ Send timed out - queuing for retry');
         
-        await queueMessage({
-          conversationId,
-          text: tempMessage.text,
-          senderId: user.uid,
-          localId
-        });
+        // 5. SUCCESS: Remove from queue
+        await removeFromQueue(localId);
+        console.log(`✅ Message sent and removed from queue: ${localId}`);
         
-        // Update message status to "queued"
+        // Update UI to show "sent" status
+        setMessages(prev => prev.map(m => 
+          m.localId === localId ? { ...m, status: 'sent' } : m
+        ));
+        
+      } catch (error: any) {
+        console.log(`⚠️ Send failed, message stays in queue: ${localId}`);
+        // Message stays in queue for automatic retry on reconnect
+        
+        // Update UI to show "queued" status
         setMessages(prev => prev.map(m => 
           m.localId === localId ? { ...m, status: 'queued' } : m
         ));
         
-        // Show user feedback
-        Alert.alert(
-          'Slow Connection',
-          'Message will send when connection improves',
-          [{ text: 'OK' }]
-        );
-      } else {
-        console.error('Failed to send message:', error);
-        // Remove optimistic message on error
-        setMessages(prev => prev.filter(m => m.id !== localId));
+        // Show user feedback for timeout
+        if (error.message && error.message.includes('timeout')) {
+          Alert.alert(
+            'Slow Connection',
+            'Message will send when connection improves',
+            [{ text: 'OK' }]
+          );
+        }
       }
+    } else {
+      // Offline - message already queued, just update status
+      console.log('📤 Offline: Message queued for later sending');
+      setMessages(prev => prev.map(m => 
+        m.localId === localId ? { ...m, status: 'queued' } : m
+      ));
     }
   }, [inputText, conversationId, user, isOnline]);
 

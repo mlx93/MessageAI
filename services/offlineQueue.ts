@@ -35,12 +35,25 @@ export const getQueue = async (): Promise<QueuedMessage[]> => {
 };
 
 /**
+ * Remove a message from the queue (called after successful send)
+ */
+export const removeFromQueue = async (localId: string): Promise<void> => {
+  try {
+    const queue = await getQueue();
+    const filtered = queue.filter(msg => msg.localId !== localId);
+    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(filtered));
+    console.log(`✅ Removed message ${localId} from queue`);
+  } catch (error) {
+    console.error('Failed to remove from queue:', error);
+  }
+};
+
+/**
  * Process queue and return success metrics
  * Uses timeout version of sendMessage to handle slow connections
  */
 export const processQueue = async (): Promise<{ sent: number; failed: number }> => {
   const queue = await getQueue();
-  const remaining: QueuedMessage[] = [];
   let sentCount = 0;
   let failedCount = 0;
   
@@ -59,6 +72,9 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
         5000
       );
       await updateConversationLastMessage(msg.conversationId, msg.text, msg.senderId);
+      
+      // Remove from queue on successful send
+      await removeFromQueue(msg.localId);
       console.log('✅ Sent queued message:', msg.localId);
       sentCount++;
     } catch (error) {
@@ -68,16 +84,22 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
         // Retry with exponential backoff
         const delay = Math.pow(2, msg.retryCount + 1) * 1000; // 2s, 4s, 8s
         await new Promise(resolve => setTimeout(resolve, delay));
-        remaining.push({ ...msg, retryCount: msg.retryCount + 1 });
+        
+        // Update retry count in queue
+        const currentQueue = await getQueue();
+        const updatedQueue = currentQueue.map(m => 
+          m.localId === msg.localId ? { ...m, retryCount: m.retryCount + 1 } : m
+        );
+        await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(updatedQueue));
       } else {
-        // Mark as failed after 3 retries
-        console.log('❌ Message failed after 3 retries:', msg.localId);
+        // Remove from queue after 3 failed retries
+        await removeFromQueue(msg.localId);
+        console.log('❌ Message failed after 3 retries, removed from queue:', msg.localId);
         failedCount++;
       }
     }
   }
   
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
   return { sent: sentCount, failed: failedCount };
 };
 
