@@ -1,10 +1,10 @@
 import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations, deleteConversation } from '../../services/conversationService';
 import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
 import { Conversation } from '../../types';
-import { router, useNavigation } from 'expo-router';
+import { router, useNavigation, useFocusEffect } from 'expo-router';
 import { formatTimestamp } from '../../utils/messageHelpers';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ export default function ConversationsScreen() {
   const [editedFirstName, setEditedFirstName] = useState('');
   const [editedLastName, setEditedLastName] = useState('');
   const [editedEmail, setEditedEmail] = useState('');
+  const lastViewedConversationRef = useRef<string | null>(null);
 
   useEffect(() => {
     navigation.setOptions({
@@ -65,6 +66,36 @@ export default function ConversationsScreen() {
       setLoading(false);
     }
   }, [user]);
+
+  // Optimistically clear unread count when returning from a conversation
+  useFocusEffect(
+    useCallback(() => {
+      if (!user || !lastViewedConversationRef.current) return;
+
+      const conversationId = lastViewedConversationRef.current;
+      
+      // Optimistically clear the unread count in local state
+      setConversations(prevConvos => 
+        prevConvos.map(conv => {
+          if (conv.id === conversationId) {
+            return {
+              ...conv,
+              unreadCounts: {
+                ...conv.unreadCounts,
+                [user.uid]: 0
+              }
+            };
+          }
+          return conv;
+        })
+      );
+
+      console.log(`✅ Optimistically cleared unread count for conversation: ${conversationId}`);
+
+      // Clear the ref after handling
+      lastViewedConversationRef.current = null;
+    }, [user])
+  );
 
   // Subscribe to presence for all participants
   useEffect(() => {
@@ -248,6 +279,9 @@ export default function ConversationsScreen() {
       } else if (!isNavigating) {
         // Ensure swipe is fully closed before navigating
         translateX.value = 0;
+        
+        // Store conversation ID for optimistic unread clearing when returning
+        lastViewedConversationRef.current = item.id;
         
         // Prevent double navigation
         setIsNavigating(true);
