@@ -7,7 +7,8 @@
 
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
-import { Alert, Clipboard } from 'react-native';
+import { Alert } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 /**
  * Wait for OTP code to be generated and fetch it from Firestore

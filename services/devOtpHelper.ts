@@ -5,7 +5,8 @@
  * ONLY works in development mode - not available in production
  */
 
-import { Alert, Clipboard } from 'react-native';
+import { Alert } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
