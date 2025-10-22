@@ -21,6 +21,7 @@ import {
 import { router } from 'expo-router';
 import { updateUserProfile } from '../../services/authService';
 import { useAuth } from '../../store/AuthContext';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 
 export default function EditProfileScreen() {
   const { user, userProfile, refreshUserProfile } = useAuth();
@@ -106,8 +107,9 @@ export default function EditProfileScreen() {
             />
 
             <TextInput
-              style={styles.input}
-              placeholder="Email (optional)"
+              style={[styles.input, !email && styles.inputPlaceholder]}
+              placeholder="Email"
+              placeholderTextColor="#999"
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -115,6 +117,15 @@ export default function EditProfileScreen() {
               editable={!loading}
               autoFocus={false}
             />
+
+            <View style={styles.phoneContainer}>
+              <TextInput
+                style={[styles.input, styles.phoneInput]}
+                value={userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : ''}
+                editable={false}
+              />
+              <Text style={styles.phoneLabel}>Phone (unchangeable)</Text>
+            </View>
 
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
@@ -179,6 +190,25 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 15,
     fontSize: 16,
+  },
+  inputPlaceholder: {
+    color: '#999',
+  },
+  phoneContainer: {
+    position: 'relative',
+    marginBottom: 15,
+  },
+  phoneInput: {
+    backgroundColor: '#f8f8f8',
+    color: '#000',
+    fontWeight: '500',
+  },
+  phoneLabel: {
+    position: 'absolute',
+    bottom: 20,
+    right: 15,
+    fontSize: 12,
+    color: '#999',
   },
   button: {
     backgroundColor: '#007AFF',

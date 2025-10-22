@@ -663,8 +663,6 @@ export default function ChatScreen() {
                     setSearchResults([]);
                     setPendingParticipants([]);
                     setParticipantsToRemove([]);
-                    
-                    Alert.alert('Success', 'New conversation created');
                   } catch (error: any) {
                     Alert.alert('Error', error.message);
                   }
@@ -1052,9 +1050,9 @@ export default function ChatScreen() {
       <View style={styles.inputContainer}>
         <TouchableOpacity 
           style={styles.imageButton}
-          disabled={true}
+          onPress={handlePickImage}
         >
-          <Ionicons name="image-outline" size={26} color="#999" />
+          <Ionicons name="image-outline" size={26} color="#007AFF" />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
