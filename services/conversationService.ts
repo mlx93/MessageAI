@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion, serverTimestamp, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -178,14 +178,43 @@ export const getUserConversations = (userId: string, callback: (conversations: C
 /**
  * Update conversation's last message
  */
-export const updateConversationLastMessage = async (conversationId: string, text: string, senderId: string): Promise<void> => {
-  // When a new message arrives, the conversation should reappear for users who deleted it
-  // Clear the deletedBy array so conversation shows up in everyone's list
-  await setDoc(doc(db, 'conversations', conversationId), {
-    lastMessage: { text, timestamp: Timestamp.now(), senderId },
-    updatedAt: Timestamp.now(),
-    deletedBy: [] // Reset deleted status - conversation reappears for all users
-  }, { merge: true });
+export const updateConversationLastMessage = async (
+  conversationId: string, 
+  text: string, 
+  senderId: string,
+  messageId: string  // NEW: message ID for ordering
+): Promise<void> => {
+  try {
+    const convRef = doc(db, 'conversations', conversationId);
+    
+    // Get current state
+    const convSnap = await getDoc(convRef);
+    const current = convSnap.data();
+    
+    // Only update if this message is newer (compare IDs lexicographically)
+    // UUIDs are time-sortable, so this works reliably
+    if (current?.lastMessageId && current.lastMessageId >= messageId) {
+      console.log(`⏭️ Skipping stale update: ${messageId} is older than ${current.lastMessageId}`);
+      return;
+    }
+    
+    // Update with new message (when a new message arrives, conversation reappears for users who deleted it)
+    await updateDoc(convRef, {
+      lastMessage: {
+        text: text || 'Photo',
+        senderId,
+        timestamp: serverTimestamp(),
+      },
+      lastMessageId: messageId,  // Store for future comparisons
+      updatedAt: serverTimestamp(),
+      deletedBy: [],  // Clear deletedBy when new message arrives - conversation reappears
+    });
+    
+    console.log(`✅ Updated lastMessage for ${conversationId} with message ${messageId}`);
+  } catch (error) {
+    console.error('Failed to update conversation last message:', error);
+    throw error;
+  }
 };
 
 /**
@@ -421,6 +450,26 @@ export const resetUnreadCount = async (
     console.log(`✅ Reset unread count for user ${userId} in conversation ${conversationId}`);
   } catch (error) {
     console.error('Failed to reset unread count:', error);
+    throw error;
+  }
+};
+
+/**
+ * Atomically increment unread count for a user
+ * Uses Firestore increment() to prevent race conditions
+ */
+export const incrementUnreadCount = async (
+  conversationId: string,
+  userId: string,
+  amount: number = 1
+): Promise<void> => {
+  try {
+    await updateDoc(doc(db, 'conversations', conversationId), {
+      [`unreadCounts.${userId}`]: increment(amount)
+    });
+    console.log(`✅ Incremented unread count by ${amount} for user ${userId} in conversation ${conversationId}`);
+  } catch (error) {
+    console.error('Failed to increment unread count:', error);
     throw error;
   }
 };

@@ -407,7 +407,7 @@ export default function ChatScreen() {
       try {
         // Use timeout version (10 second limit)
         await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId, undefined, 10000);
-        await updateConversationLastMessage(conversationId, tempMessage.text, user.uid);
+        await updateConversationLastMessage(conversationId, tempMessage.text, user.uid, localId);
         
         // 5. SUCCESS: Remove from queue
         await removeFromQueue(localId);
@@ -549,7 +549,7 @@ export default function ChatScreen() {
       // Send to server
       if (isOnline) {
         await sendImageMessage(conversationId, imageUrl, user.uid, localId);
-        await updateConversationLastMessage(conversationId, '📷 Image', user.uid);
+        await updateConversationLastMessage(conversationId, '📷 Image', user.uid, localId);
       } else {
         await queueMessage({
           conversationId,

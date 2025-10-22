@@ -71,7 +71,7 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
         undefined,
         5000
       );
-      await updateConversationLastMessage(msg.conversationId, msg.text, msg.senderId);
+      await updateConversationLastMessage(msg.conversationId, msg.text, msg.senderId, msg.localId);
       
       // Remove from queue on successful send
       await removeFromQueue(msg.localId);

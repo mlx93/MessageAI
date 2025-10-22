@@ -102,7 +102,7 @@ export default function NewMessageScreen() {
       // Send the first message
       const localId = uuidv4();
       await sendMessage(conversationId, messageText.trim(), user.uid, localId);
-      await updateConversationLastMessage(conversationId, messageText.trim(), user.uid);
+      await updateConversationLastMessage(conversationId, messageText.trim(), user.uid, localId);
       
       // Navigate to the chat
       router.replace(`/chat/${conversationId}`);
