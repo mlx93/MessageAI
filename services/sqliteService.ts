@@ -76,6 +76,66 @@ export const cacheMessage = (message: Message): Promise<void> => {
 };
 
 /**
+ * Batched version of cacheMessage
+ * Buffers messages and writes them in batches to reduce main thread blocking
+ */
+let writeBuffer: Message[] = [];
+let writeTimer: NodeJS.Timeout | null = null;
+
+export const cacheMessageBatched = (message: Message) => {
+  writeBuffer.push(message);
+  
+  // Clear existing timer
+  if (writeTimer) clearTimeout(writeTimer);
+  
+  // Flush after 500ms of no new messages
+  writeTimer = setTimeout(async () => {
+    if (writeBuffer.length > 0) {
+      const batch = [...writeBuffer];
+      writeBuffer = [];
+      
+      console.log(`💾 Batching ${batch.length} SQLite writes`);
+      
+      // Write all at once
+      try {
+        batch.forEach(msg => {
+          db.runSync(
+            'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+              msg.id,
+              msg.conversationId,
+              msg.text,
+              msg.senderId,
+              msg.timestamp.getTime(),
+              msg.status,
+              msg.type,
+              msg.localId,
+              msg.mediaURL || null,
+              JSON.stringify(msg.readBy),
+              JSON.stringify(msg.deliveredTo)
+            ]
+          );
+        });
+      } catch (error) {
+        console.error('Batched SQLite write failed:', error);
+      }
+    }
+  }, 500);
+};
+
+/**
+ * Flush cache buffer immediately (e.g., on app close)
+ */
+export const flushCacheBuffer = async () => {
+  if (writeTimer) clearTimeout(writeTimer);
+  if (writeBuffer.length > 0) {
+    const batch = [...writeBuffer];
+    writeBuffer = [];
+    batch.forEach(msg => cacheMessage(msg));
+  }
+};
+
+/**
  * Get cached messages for a conversation
  */
 export const getCachedMessages = (conversationId: string): Promise<Message[]> => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
@@ -54,7 +54,7 @@ export default function ChatScreen() {
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const conversationId = id as string;
-  const scrollViewRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList>(null);
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -207,7 +207,7 @@ export default function ChatScreen() {
     getCachedMessages(conversationId).then(cachedMsgs => {
       if (cachedMsgs.length > 0) {
         setMessages(cachedMsgs);
-        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: false }), 100);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
       }
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
@@ -232,7 +232,7 @@ export default function ChatScreen() {
     // Subscribe to real-time messages
     const unsubscribeMessages = subscribeToMessages(conversationId, (msgs) => {
       setMessages(msgs);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       
       // Cache messages
       msgs.forEach(m => {
@@ -397,7 +397,7 @@ export default function ChatScreen() {
     // 2. Show optimistically in UI
     setMessages(prev => [...prev, tempMessage]);
     setInputText('');
-    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
     // 3. Cache immediately
     await cacheMessage(tempMessage);
@@ -500,8 +500,8 @@ export default function ChatScreen() {
     transform: [{ translateX: blueBubblesTranslateX.value }],
   }));
 
-  // Get sender info for group chats
-  const getSenderInfo = (senderId: string) => {
+  // Get sender info for group chats (memoized)
+  const getSenderInfo = useCallback((senderId: string) => {
     const details = participantDetailsMap[senderId];
     if (!details) return null;
     
@@ -509,7 +509,7 @@ export default function ChatScreen() {
     const initials = details.initials || displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     
     return { displayName, initials };
-  };
+  }, [participantDetailsMap]);
 
   const handlePickImage = async () => {
     if (!user) return;
@@ -544,7 +544,7 @@ export default function ChatScreen() {
 
       // Add to messages
       setMessages(prev => [...prev, tempMessage]);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
       // Send to server
       if (isOnline) {
@@ -707,6 +707,116 @@ export default function ChatScreen() {
     }
   };
 
+  // Memoized MessageRow component for FlatList performance
+  const MessageRow = memo(({ item: message, index }: { item: Message; index: number }) => {
+    const isOwnMessage = message.senderId === user!.uid;
+    const isImageMessage = message.type === 'image' && message.mediaURL;
+    const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
+    const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
+    const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== message.senderId;
+    const formattedTime = format(message.timestamp, 'h:mm a');
+    
+    // Get sender info for group chats
+    const senderInfo = !isOwnMessage && isGroupChat ? getSenderInfo(message.senderId) : null;
+    
+    return (
+      <View style={styles.messageRow}>
+        {isOwnMessage ? (
+          // Blue bubbles: All move together with container gesture
+          <GestureDetector gesture={containerPanGesture}>
+            <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
+              <View style={styles.messageContainer}>
+                <View 
+                  style={[
+                    styles.messageBubble,
+                    styles.ownMessage,
+                    isImageMessage && styles.imageMessageBubble
+                  ]}
+                >
+                  {isImageMessage ? (
+                    <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                      <Image 
+                        source={{ uri: message.mediaURL }} 
+                        style={styles.messageImage}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={[styles.messageText, { color: '#fff' }]}>
+                      {message.text}
+                    </Text>
+                  )}
+                </View>
+                
+                {/* Read receipt below bubble - always visible */}
+                {readReceipt && isLastInGroup && (
+                  <Text style={[styles.readReceipt, styles.readReceiptOwn]}>
+                    {readReceipt}
+                  </Text>
+                )}
+              </View>
+              
+              {/* Timestamp revealed on swipe */}
+              <View style={styles.timestampRevealContainer}>
+                <Text style={styles.timestampRevealText}>{formattedTime}</Text>
+              </View>
+            </Animated.View>
+          </GestureDetector>
+        ) : (
+          // Grey bubbles: Fixed, no swipe
+          <View style={styles.otherMessageWrapper}>
+            {/* Avatar - only show for group chats and first message in group */}
+            {isGroupChat && isFirstInGroup && senderInfo && (
+              <View style={styles.senderAvatar}>
+                <Text style={styles.senderAvatarText}>{senderInfo.initials}</Text>
+              </View>
+            )}
+            {/* Spacer when not showing avatar */}
+            {isGroupChat && !isFirstInGroup && (
+              <View style={styles.avatarSpacer} />
+            )}
+            
+            <View style={styles.messageContainer}>
+              {/* Sender name - only for group chats and first message in group */}
+              {isGroupChat && isFirstInGroup && senderInfo && (
+                <Text style={styles.senderName}>{senderInfo.displayName}</Text>
+              )}
+              
+              <View 
+                style={[
+                  styles.messageBubble,
+                  styles.otherMessage,
+                  isImageMessage && styles.imageMessageBubble
+                ]}
+              >
+                {isImageMessage ? (
+                  <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                    <Image 
+                      source={{ uri: message.mediaURL }} 
+                      style={styles.messageImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.messageText, { color: '#000' }]}>
+                    {message.text}
+                  </Text>
+                )}
+              </View>
+              
+              {/* Read receipt below bubble */}
+              {readReceipt && isLastInGroup && (
+                <Text style={styles.readReceipt}>
+                  {readReceipt}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  });
+
   if (!user || !userProfile) {
     return (
       <View style={styles.loadingContainer}>
@@ -823,139 +933,37 @@ export default function ChatScreen() {
       )}
 
       <View style={styles.messagesWrapper}>
-        <ScrollView 
-          ref={scrollViewRef}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item, index }) => <MessageRow item={item} index={index} />}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={true}
-          scrollEnabled={true}
-          bounces={true}
-          alwaysBounceVertical={false}
-        >
-          {messages.map((message, index) => {
-            const isOwnMessage = message.senderId === user.uid;
-            const isImageMessage = message.type === 'image' && message.mediaURL;
-            const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
-            const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
-            const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== message.senderId;
-            const formattedTime = format(message.timestamp, 'h:mm a');
-            
-            // Get sender info for group chats
-            const senderInfo = !isOwnMessage && isGroupChat ? getSenderInfo(message.senderId) : null;
-            
-            return (
-              <View key={`${message.id}-${index}`} style={styles.messageRow}>
-                {isOwnMessage ? (
-                  // Blue bubbles: All move together with container gesture
-                  <GestureDetector gesture={containerPanGesture}>
-                    <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
-                      <View style={styles.messageContainer}>
-                        <View 
-                          style={[
-                            styles.messageBubble,
-                            styles.ownMessage,
-                            isImageMessage && styles.imageMessageBubble
-                          ]}
-                        >
-                          {isImageMessage ? (
-                            <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
-                              <Image 
-                                source={{ uri: message.mediaURL }} 
-                                style={styles.messageImage}
-                                resizeMode="cover"
-                              />
-                            </TouchableOpacity>
-                          ) : (
-                            <Text style={[styles.messageText, { color: '#fff' }]}>
-                              {message.text}
-                            </Text>
-                          )}
-                        </View>
-                        
-                        {/* Read receipt below bubble - always visible */}
-                        {readReceipt && isLastInGroup && (
-                          <Text style={[styles.readReceipt, styles.readReceiptOwn]}>
-                            {readReceipt}
-                          </Text>
-                        )}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={20}
+          windowSize={21}
+          initialNumToRender={20}
+          ListFooterComponent={() => (
+            <>
+              {/* Typing Indicator - inline with messages */}
+              {typingText && (
+                <View style={styles.messageRow}>
+                  <View style={styles.messageContainer}>
+                    <View style={styles.typingBubble}>
+                      <View style={styles.typingDotsContainer}>
+                        <View style={[styles.typingDot, styles.typingDot1]} />
+                        <View style={[styles.typingDot, styles.typingDot2]} />
+                        <View style={[styles.typingDot, styles.typingDot3]} />
                       </View>
-                      
-                      {/* Timestamp revealed on swipe */}
-                      <View style={styles.timestampRevealContainer}>
-                        <Text style={styles.timestampRevealText}>{formattedTime}</Text>
-                      </View>
-                    </Animated.View>
-                  </GestureDetector>
-                ) : (
-                  // Grey bubbles: Fixed, no swipe
-                  <View style={styles.otherMessageWrapper}>
-                    {/* Avatar - only show for group chats and first message in group */}
-                    {isGroupChat && isFirstInGroup && senderInfo && (
-                      <View style={styles.senderAvatar}>
-                        <Text style={styles.senderAvatarText}>{senderInfo.initials}</Text>
-                      </View>
-                    )}
-                    {/* Spacer when not showing avatar */}
-                    {isGroupChat && !isFirstInGroup && (
-                      <View style={styles.avatarSpacer} />
-                    )}
-                    
-                    <View style={styles.messageContainer}>
-                      {/* Sender name - only for group chats and first message in group */}
-                      {isGroupChat && isFirstInGroup && senderInfo && (
-                        <Text style={styles.senderName}>{senderInfo.displayName}</Text>
-                      )}
-                      
-                      <View 
-                        style={[
-                          styles.messageBubble,
-                          styles.otherMessage,
-                          isImageMessage && styles.imageMessageBubble
-                        ]}
-                      >
-                        {isImageMessage ? (
-                          <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
-                            <Image 
-                              source={{ uri: message.mediaURL }} 
-                              style={styles.messageImage}
-                              resizeMode="cover"
-                            />
-                          </TouchableOpacity>
-                        ) : (
-                          <Text style={[styles.messageText, { color: '#000' }]}>
-                            {message.text}
-                          </Text>
-                        )}
-                      </View>
-                      
-                      {/* Read receipt below bubble */}
-                      {readReceipt && isLastInGroup && (
-                        <Text style={styles.readReceipt}>
-                          {readReceipt}
-                        </Text>
-                      )}
                     </View>
                   </View>
-                )}
-              </View>
-            );
-          })}
-
-          {/* Typing Indicator - inline with messages */}
-          {typingText && (
-            <View style={styles.messageRow}>
-              <View style={styles.messageContainer}>
-                <View style={styles.typingBubble}>
-                  <View style={styles.typingDotsContainer}>
-                    <View style={[styles.typingDot, styles.typingDot1]} />
-                    <View style={[styles.typingDot, styles.typingDot2]} />
-                    <View style={[styles.typingDot, styles.typingDot3]} />
-                  </View>
                 </View>
-              </View>
-            </View>
+              )}
+            </>
           )}
-        </ScrollView>
+        />
       </View>
 
       <View style={styles.inputContainer}>

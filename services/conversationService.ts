@@ -218,6 +218,39 @@ export const updateConversationLastMessage = async (
 };
 
 /**
+ * Batched version of updateConversationLastMessage
+ * Debounces rapid updates to reduce Firestore writes
+ */
+let updateTimer: NodeJS.Timeout | null = null;
+let pendingUpdate: { conversationId: string, text: string, senderId: string, messageId: string } | null = null;
+
+export const updateConversationLastMessageBatched = (
+  conversationId: string,
+  text: string,
+  senderId: string,
+  messageId: string
+) => {
+  // Store the latest update
+  pendingUpdate = { conversationId, text, senderId, messageId };
+  
+  // Clear existing timer
+  if (updateTimer) clearTimeout(updateTimer);
+  
+  // Set new timer (300ms debounce)
+  updateTimer = setTimeout(async () => {
+    if (pendingUpdate) {
+      await updateConversationLastMessage(
+        pendingUpdate.conversationId,
+        pendingUpdate.text,
+        pendingUpdate.senderId,
+        pendingUpdate.messageId
+      );
+      pendingUpdate = null;
+    }
+  }, 300);
+};
+
+/**
  * Add a participant to a conversation (converts to group if 3+)
  */
 export const addParticipantToConversation = async (conversationId: string, userId: string): Promise<void> => {
