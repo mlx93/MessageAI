@@ -99,6 +99,34 @@ export const markMessageAsDelivered = async (
 };
 
 /**
+ * Send message with timeout
+ * Throws error if operation takes > 10 seconds
+ * 
+ * @param conversationId - Conversation ID
+ * @param text - Message text
+ * @param senderId - Sender user ID
+ * @param localId - Local message ID for deduplication
+ * @param mediaURL - Optional media URL
+ * @param timeoutMs - Timeout in milliseconds (default: 10000)
+ * @returns Message ID
+ */
+export const sendMessageWithTimeout = async (
+  conversationId: string, 
+  text: string, 
+  senderId: string, 
+  localId: string,
+  mediaURL?: string,
+  timeoutMs: number = 10000
+): Promise<string> => {
+  return Promise.race([
+    sendMessage(conversationId, text, senderId, localId, mediaURL),
+    new Promise<string>((_, reject) => 
+      setTimeout(() => reject(new Error('Send timeout - poor connection')), timeoutMs)
+    )
+  ]);
+};
+
+/**
  * Send an image message
  */
 export const sendImageMessage = async (

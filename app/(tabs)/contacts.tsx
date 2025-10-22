@@ -391,8 +391,7 @@ export default function ContactsScreen() {
                 }
               }}
               style={[styles.contactItem, !item.isAppUser && styles.contactItemDisabled]}
-              disabled={!item.isAppUser}
-              activeOpacity={0.7}
+              activeOpacity={item.isAppUser ? 0.7 : 1}
             >
               <View style={[styles.contactAvatar, !item.isAppUser && styles.contactAvatarDisabled]}>
                 <Text style={styles.contactInitials}>

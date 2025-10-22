@@ -40,6 +40,7 @@ export interface Conversation {
   type: 'direct' | 'group';
   participants: string[]; // Array of user IDs
   deletedBy?: string[]; // Array of user IDs who deleted this conversation (per-user deletion)
+  unreadCounts?: { [userId: string]: number }; // Per-user unread message count
   lastMessage: {
     text: string;
     timestamp: Date;

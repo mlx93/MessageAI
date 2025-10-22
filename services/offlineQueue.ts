@@ -35,17 +35,32 @@ export const getQueue = async (): Promise<QueuedMessage[]> => {
 };
 
 /**
- * Process the offline queue (send all queued messages)
+ * Process queue and return success metrics
+ * Uses timeout version of sendMessage to handle slow connections
  */
-export const processQueue = async (): Promise<void> => {
+export const processQueue = async (): Promise<{ sent: number; failed: number }> => {
   const queue = await getQueue();
   const remaining: QueuedMessage[] = [];
+  let sentCount = 0;
+  let failedCount = 0;
   
   for (const msg of queue) {
     try {
-      await sendMessage(msg.conversationId, msg.text, msg.senderId, msg.localId);
+      // Import timeout version dynamically to avoid circular dependency
+      const { sendMessageWithTimeout } = await import('./messageService');
+      
+      // Use 5 second timeout for retries (shorter than initial send)
+      await sendMessageWithTimeout(
+        msg.conversationId, 
+        msg.text, 
+        msg.senderId, 
+        msg.localId,
+        undefined,
+        5000
+      );
       await updateConversationLastMessage(msg.conversationId, msg.text, msg.senderId);
       console.log('✅ Sent queued message:', msg.localId);
+      sentCount++;
     } catch (error) {
       console.error('❌ Failed to send queued message:', error);
       
@@ -57,11 +72,13 @@ export const processQueue = async (): Promise<void> => {
       } else {
         // Mark as failed after 3 retries
         console.log('❌ Message failed after 3 retries:', msg.localId);
+        failedCount++;
       }
     }
   }
   
   await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  return { sent: sentCount, failed: failedCount };
 };
 
 /**

@@ -391,3 +391,48 @@ export const shouldSplitOnParticipantAdd = async (conversationId: string): Promi
   }
 };
 
+/**
+ * Reset unread count for a user in a conversation
+ * Called when user opens a chat
+ * 
+ * @param conversationId - ID of the conversation
+ * @param userId - ID of the user whose unread count to reset
+ */
+export const resetUnreadCount = async (
+  conversationId: string, 
+  userId: string
+): Promise<void> => {
+  try {
+    await updateDoc(doc(db, 'conversations', conversationId), {
+      [`unreadCounts.${userId}`]: 0
+    });
+    console.log(`✅ Reset unread count for user ${userId} in conversation ${conversationId}`);
+  } catch (error) {
+    console.error('Failed to reset unread count:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get unread count for a user in a conversation
+ * 
+ * @param conversationId - ID of the conversation
+ * @param userId - ID of the user
+ * @returns Unread count or 0 if not set
+ */
+export const getUnreadCount = async (
+  conversationId: string,
+  userId: string
+): Promise<number> => {
+  try {
+    const convSnap = await getDoc(doc(db, 'conversations', conversationId));
+    if (!convSnap.exists()) return 0;
+    
+    const data = convSnap.data() as Conversation;
+    return data.unreadCounts?.[userId] || 0;
+  } catch (error) {
+    console.error('Failed to get unread count:', error);
+    return 0;
+  }
+};
+

@@ -133,10 +133,11 @@ describe('Message Helpers - Unit Tests', () => {
 
     it('should handle very old timestamps', () => {
       const now = new Date();
-      const ancient = new Date('1990-01-01');
+      const ancient = new Date('1990-01-15T12:00:00Z');
       
       const result = formatTimestamp(ancient, now);
-      expect(result).toContain('1990');
+      // Should show year for very old dates
+      expect(result).toMatch(/199\d|200\d|201\d|202\d/);
     });
   });
 

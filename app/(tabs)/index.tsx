@@ -208,7 +208,7 @@ export default function ConversationsScreen() {
     
     const translateX = useSharedValue(0);
     const [isNavigating, setIsNavigating] = useState(false);
-    const unreadCount = item.participantDetails[user.uid]?.unreadCount || 0;
+    const unreadCount = item.unreadCounts?.[user.uid] || 0;
     const otherUserId = item.type === 'direct' 
       ? item.participants.find(id => id !== user.uid)
       : null;
@@ -290,6 +290,13 @@ export default function ConversationsScreen() {
               <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>{getInitials(item)}</Text>
+                  {unreadCount > 0 && (
+                    <View style={styles.avatarUnreadBadge}>
+                      <Text style={styles.avatarUnreadText}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 {item.type === 'direct' && isOnline && (
                   <View 
@@ -304,9 +311,14 @@ export default function ConversationsScreen() {
               <View style={styles.conversationDetails}>
                 <View style={styles.header}>
                   <Text style={styles.title}>{getConversationTitle(item)}</Text>
-                  <Text style={styles.timestamp}>
-                    {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
-                  </Text>
+                  <View style={styles.rightColumn}>
+                    <Text style={styles.timestamp}>
+                      {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
+                    </Text>
+                    {unreadCount > 0 && (
+                      <View style={styles.blueDot} />
+                    )}
+                  </View>
                 </View>
                 
                 <View style={styles.footer}>
@@ -778,9 +790,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
+  rightColumn: {
+    alignItems: 'flex-end',
+  },
   timestamp: { 
     fontSize: 12, 
     color: '#999' 
+  },
+  blueDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#007AFF',
+    marginTop: 4,
+  },
+  avatarUnreadBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  avatarUnreadText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   footer: { 
     flexDirection: 'row', 

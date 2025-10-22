@@ -6,14 +6,15 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { subscribeToMessages, sendMessage, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
-import { updateConversationLastMessage, addParticipantToConversation, removeParticipantFromConversation } from '../../services/conversationService';
+import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
+import { updateConversationLastMessage, addParticipantToConversation, removeParticipantFromConversation, resetUnreadCount } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
 import { queueMessage } from '../../services/offlineQueue';
 import { searchAllUsers, getUserContacts } from '../../services/contactService';
 import { subscribeToUserPresence } from '../../services/presenceService';
 import { pickAndUploadImage } from '../../services/imageService';
-import { setActiveConversation } from '../../services/notificationService';
+import { setActiveConversation as setFirestoreActiveConversation } from '../../services/notificationService';
+import { setActiveConversation as setLocalActiveConversation } from '../../services/globalMessageListener';
 import { useTypingIndicator, useTypingStatus } from '../../hooks/useTypingIndicator';
 import { v4 as uuidv4 } from 'uuid';
 import NetInfo from '@react-native-community/netinfo';
@@ -41,6 +42,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isOnline, setIsOnline] = useState(true);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [isAddMode, setIsAddMode] = useState(false);
   const [addSearchText, setAddSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -194,8 +196,19 @@ export default function ChatScreen() {
     });
 
     // Network status
-    const unsubscribeNet = NetInfo.addEventListener(state => {
-      setIsOnline(state.isConnected || false);
+    const unsubscribeNet = NetInfo.addEventListener(async (state) => {
+      const wasOnline = isOnline;
+      setIsOnline(!!state.isConnected);
+      
+      if (state.isConnected && !wasOnline) {
+        // Just reconnected
+        setIsReconnecting(true);
+        
+        // Give Firestore time to sync (2 seconds)
+        setTimeout(() => {
+          setIsReconnecting(false);
+        }, 2000);
+      }
     });
 
     // Subscribe to real-time messages
@@ -228,7 +241,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserInApp, otherUserLastSeen, pendingParticipants, participantsToRemove]);
+  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserInApp, otherUserLastSeen, pendingParticipants, participantsToRemove, isOnline]);
 
   // Subscribe to presence for direct conversations
   useEffect(() => {
@@ -263,20 +276,29 @@ export default function ChatScreen() {
     };
   }, [conversationId, user]);
 
-  // Set active conversation for smart notifications
+  // Set active conversation for smart notifications and reset unread count
   useEffect(() => {
     if (!user) return;
 
-    // Set this conversation as active
-    setActiveConversation(user.uid, conversationId).catch(error => {
-      console.error('Failed to set active conversation:', error);
+    // Reset unread count when entering chat
+    resetUnreadCount(conversationId, user.uid).catch(error => {
+      console.error('Failed to reset unread count:', error);
     });
+
+    // Set this conversation as active in Firestore (for Cloud Functions)
+    setFirestoreActiveConversation(user.uid, conversationId).catch(error => {
+      console.error('Failed to set Firestore active conversation:', error);
+    });
+
+    // Set this conversation as active locally (for in-app notifications)
+    setLocalActiveConversation(conversationId);
 
     // Clear on unmount
     return () => {
-      setActiveConversation(user.uid, null).catch(error => {
-        console.error('Failed to clear active conversation:', error);
+      setFirestoreActiveConversation(user.uid, null).catch(error => {
+        console.error('Failed to clear Firestore active conversation:', error);
       });
+      setLocalActiveConversation(null);
     };
   }, [conversationId, user]);
 
@@ -336,7 +358,8 @@ export default function ChatScreen() {
 
     try {
       if (isOnline) {
-        await sendMessage(conversationId, tempMessage.text, user.uid, localId);
+        // Use timeout version (10 second limit)
+        await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId);
         await updateConversationLastMessage(conversationId, tempMessage.text, user.uid);
       } else {
         await queueMessage({
@@ -348,9 +371,33 @@ export default function ChatScreen() {
         console.log('📤 Message queued for offline sending');
       }
     } catch (error: any) {
-      console.error('Failed to send message:', error);
-      // Remove optimistic message on error
-      setMessages(prev => prev.filter(m => m.id !== localId));
+      if (error.message && error.message.includes('timeout')) {
+        // Timeout - queue for retry
+        console.log('⏱️ Send timed out - queuing for retry');
+        
+        await queueMessage({
+          conversationId,
+          text: tempMessage.text,
+          senderId: user.uid,
+          localId
+        });
+        
+        // Update message status to "queued"
+        setMessages(prev => prev.map(m => 
+          m.localId === localId ? { ...m, status: 'queued' } : m
+        ));
+        
+        // Show user feedback
+        Alert.alert(
+          'Slow Connection',
+          'Message will send when connection improves',
+          [{ text: 'OK' }]
+        );
+      } else {
+        console.error('Failed to send message:', error);
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(m => m.id !== localId));
+      }
     }
   }, [inputText, conversationId, user, isOnline]);
 
@@ -721,7 +768,9 @@ export default function ChatScreen() {
 
       {!isOnline && (
         <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>Offline - Messages will send when connected</Text>
+          <Text style={styles.offlineText}>
+            {isReconnecting ? '🔄 Reconnecting...' : '📡 No Internet Connection'}
+          </Text>
         </View>
       )}
 

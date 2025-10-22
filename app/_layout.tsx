@@ -5,7 +5,8 @@
  * Initializes SQLite, offline queue processing, and push notifications
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -15,11 +16,26 @@ import {
   registerForPushNotifications, 
   addNotificationResponseListener 
 } from '../services/notificationService';
+import { 
+  subscribeToAllConversations, 
+  registerInAppNotificationCallback,
+  markOffline 
+} from '../services/globalMessageListener';
+import InAppNotificationBanner from '../components/InAppNotificationBanner';
 import NetInfo from '@react-native-community/netinfo';
 
 function AppContent() {
   const router = useRouter();
   const { user } = useAuth();
+  const wasOffline = useRef(false);
+  const [inAppNotification, setInAppNotification] = useState<{
+    id: string;
+    conversationId: string;
+    senderName: string;
+    messageText: string;
+    senderInitials: string;
+    timestamp: number;
+  } | null>(null);
 
   useEffect(() => {
     // Initialize SQLite database
@@ -28,11 +44,36 @@ function AppContent() {
     });
     
     // Process offline queue when network reconnects
-    const unsubscribeNet = NetInfo.addEventListener(state => {
-      if (state.isConnected) {
-        processQueue().catch(error => {
+    const unsubscribeNet = NetInfo.addEventListener(async (state) => {
+      if (state.isConnected && wasOffline.current) {
+        // Just reconnected
+        console.log('🌐 Reconnected - processing queue...');
+        
+        try {
+          const { sent, failed } = await processQueue();
+          
+          if (sent > 0) {
+            Alert.alert(
+              'Back Online',
+              `${sent} message${sent === 1 ? '' : 's'} sent successfully`,
+              [{ text: 'OK' }]
+            );
+          }
+          
+          if (failed > 0) {
+            console.log(`⚠️ ${failed} message${failed === 1 ? '' : 's'} failed to send`);
+          }
+        } catch (error) {
           console.error('Failed to process offline queue:', error);
-        });
+        }
+        
+        wasOffline.current = false;
+      } else if (!state.isConnected) {
+        // Mark as offline for catch-up notifications
+        if (user) {
+          markOffline(user.uid);
+        }
+        wasOffline.current = true;
       }
     });
     
@@ -58,8 +99,42 @@ function AppContent() {
     };
   }, [user]);
 
+  // Global message listener for all conversations
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('🔔 Setting up global message listener');
+
+    // Register callback for in-app notifications
+    registerInAppNotificationCallback((conversationId, senderName, messageText, senderInitials) => {
+      setInAppNotification({
+        id: `${conversationId}_${Date.now()}`,
+        conversationId,
+        senderName,
+        messageText,
+        senderInitials,
+        timestamp: Date.now(),
+      });
+    });
+
+    // Subscribe to all conversations
+    const unsubscribe = subscribeToAllConversations(user.uid);
+
+    return () => {
+      console.log('🔕 Cleaning up global message listener');
+      unsubscribe();
+    };
+  }, [user]);
+
   return (
-    <Stack screenOptions={{ 
+    <>
+      {/* In-app notification banner */}
+      <InAppNotificationBanner 
+        notification={inAppNotification}
+        onDismiss={() => setInAppNotification(null)}
+      />
+      
+      <Stack screenOptions={{ 
       headerShown: false,
       headerBackTitleVisible: false,
       headerTintColor: '#007AFF',
@@ -105,6 +180,7 @@ function AppContent() {
         }} 
       />
     </Stack>
+    </>
   );
 }
 

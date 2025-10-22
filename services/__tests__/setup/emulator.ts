@@ -8,6 +8,8 @@
  * - Auth: 9099
  * - Firestore: 8080
  * - Functions: 5001
+ * 
+ * Note: Uses FIRESTORE_EMULATOR_HOST environment variable to bypass security rules
  */
 
 import { connectAuthEmulator, getAuth } from 'firebase/auth';
@@ -15,6 +17,10 @@ import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 import { connectStorageEmulator, getStorage } from 'firebase/storage';
 import { initializeApp, getApps, deleteApp } from 'firebase/app';
+
+// Set environment variable to bypass Firestore security rules in emulator
+process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+process.env.FIREBASE_AUTH_EMULATOR_HOST = 'localhost:9099';
 
 const firebaseConfig = {
   apiKey: "test-api-key",

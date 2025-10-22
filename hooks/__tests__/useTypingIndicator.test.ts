@@ -6,15 +6,18 @@ import { renderHook, act } from '@testing-library/react-hooks';
 import { useTypingIndicator, useTypingStatus } from '../useTypingIndicator';
 
 // Mock Firebase
-jest.mock('../services/firebase', () => ({
+jest.mock('../../services/firebase', () => ({
   db: {},
 }));
 
 jest.mock('firebase/firestore', () => ({
-  doc: jest.fn(),
-  setDoc: jest.fn(),
-  collection: jest.fn(),
-  onSnapshot: jest.fn(),
+  doc: jest.fn(() => ({ id: 'mock-doc' })),
+  setDoc: jest.fn(() => Promise.resolve()),
+  collection: jest.fn(() => ({ id: 'mock-collection' })),
+  onSnapshot: jest.fn((ref, callback) => {
+    // Return unsubscribe function
+    return jest.fn();
+  }),
   serverTimestamp: jest.fn(() => new Date()),
 }));
 
@@ -25,41 +28,53 @@ describe('useTypingIndicator', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('should set typing status to true when startTyping is called', async () => {
+  it('should update typing status when hasText changes to true', async () => {
     const { setDoc } = require('firebase/firestore');
     
-    const { result } = renderHook(() =>
-      useTypingIndicator(mockConversationId, mockUserId, mockDisplayName)
+    const { result, rerender } = renderHook(
+      ({ hasText }) => useTypingIndicator(mockConversationId, mockUserId, mockDisplayName, hasText),
+      { initialProps: { hasText: false } }
     );
 
+    // Initially no typing
+    expect(setDoc).toHaveBeenCalledTimes(1);
+    expect(setDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ isTyping: false })
+    );
+
+    // User starts typing
     await act(async () => {
-      result.current.startTyping();
+      rerender({ hasText: true });
     });
 
-    expect(setDoc).toHaveBeenCalled();
+    expect(setDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ isTyping: true, displayName: mockDisplayName })
+    );
   });
 
-  it('should clear typing status after 500ms', async () => {
+  it('should update typing status when hasText changes to false', async () => {
     const { setDoc } = require('firebase/firestore');
     
-    const { result } = renderHook(() =>
-      useTypingIndicator(mockConversationId, mockUserId, mockDisplayName)
+    const { rerender } = renderHook(
+      ({ hasText }) => useTypingIndicator(mockConversationId, mockUserId, mockDisplayName, hasText),
+      { initialProps: { hasText: true } }
     );
 
+    jest.clearAllMocks();
+
+    // User clears text
     await act(async () => {
-      result.current.startTyping();
-      jest.advanceTimersByTime(500);
+      rerender({ hasText: false });
     });
 
-    // Should be called twice: once to set typing, once to clear
-    expect(setDoc).toHaveBeenCalledTimes(2);
+    expect(setDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ isTyping: false })
+    );
   });
 });
 

@@ -644,3 +644,80 @@ export const cleanupExpiredVerifications = onSchedule(
     }
   }
 );
+
+/**
+ * Increment unread counts when a new message is created
+ * Triggers on every message creation in any conversation
+ */
+export const onMessageCreate = onDocumentCreated(
+  "conversations/{conversationId}/messages/{messageId}",
+  async (event) => {
+    const message = event.data?.data();
+    const {conversationId} = event.params;
+
+    if (!message) {
+      console.error("No message data in onCreate trigger");
+      return;
+    }
+
+    const senderId = message.senderId;
+
+    try {
+      // Get conversation document
+      const convRef = admin.firestore().doc(`conversations/${conversationId}`);
+      const convSnap = await convRef.get();
+
+      if (!convSnap.exists) {
+        console.error(`Conversation ${conversationId} not found`);
+        return;
+      }
+
+      const conversation = convSnap.data();
+      if (!conversation) {
+        console.error(`Conversation ${conversationId} has no data`);
+        return;
+      }
+      const participants = conversation.participants as string[];
+
+      // Get all recipients (everyone except sender)
+      const recipients = participants.filter(
+        (id: string) => id !== senderId
+      );
+
+      if (recipients.length === 0) {
+        console.log("No recipients to notify");
+        return;
+      }
+
+      // Build update object
+      const updates: Record<string, unknown> = {
+        lastMessage: {
+          text: message.text || "Photo",
+          timestamp: message.timestamp,
+          senderId: senderId,
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedBy: [], // Clear deletedBy so conversation reappears
+      };
+
+      // Increment unread count for each recipient
+      recipients.forEach((recipientId: string) => {
+        updates[`unreadCounts.${recipientId}`] =
+          admin.firestore.FieldValue.increment(1);
+      });
+
+      // Update conversation
+      await convRef.update(updates);
+
+      console.log(
+        `✅ Incremented unread counts for ${recipients.length} ` +
+        `recipients in ${conversationId}`
+      );
+    } catch (error) {
+      console.error(
+        `Failed to increment unread counts for ${conversationId}:`,
+        error
+      );
+    }
+  }
+);

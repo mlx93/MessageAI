@@ -176,25 +176,33 @@ export const addNotificationResponseListener = (
 };
 
 /**
- * Schedule a local notification (for testing)
+ * Schedule a local notification
+ * Used for background notifications when app is not in foreground
  * 
- * @param title - Notification title
- * @param body - Notification body
- * @param data - Optional data to attach to notification
+ * @param title - Notification title (sender name)
+ * @param body - Notification body (message text)
+ * @param data - Optional data to attach to notification (conversationId, etc.)
  */
 export const scheduleLocalNotification = async (
   title: string,
   body: string,
   data?: any
 ): Promise<void> => {
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title,
-      body,
-      data,
-    },
-    trigger: null, // Show immediately
-  });
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data,
+        sound: true,
+      },
+      trigger: null, // Show immediately
+    });
+    console.log(`📬 Local notification scheduled: ${title}`);
+  } catch (error) {
+    console.error('Failed to schedule local notification:', error);
+    throw error;
+  }
 };
 
 /**

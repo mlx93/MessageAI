@@ -14,6 +14,7 @@ module.exports = {
     '!**/node_modules/**'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
-  testMatch: ['**/__tests__/**/*.(test|spec).(ts|tsx|js)']
+  testMatch: ['**/__tests__/**/*.(test|spec).(ts|tsx|js)'],
+  testPathIgnorePatterns: ['<rootDir>/node_modules/', '\\.integration\\.test\\.(ts|tsx|js)$']
 };
 

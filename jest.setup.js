@@ -1,6 +1,11 @@
 // Jest setup file
 import '@testing-library/react-native/pure';
 
+// Mock uuid (ES module)
+jest.mock('uuid', () => ({
+  v4: jest.fn(() => 'test-uuid-1234'),
+}));
+
 // Mock Firebase services for testing
 jest.mock('firebase/app', () => ({
   initializeApp: jest.fn(),
@@ -8,6 +13,8 @@ jest.mock('firebase/app', () => ({
 
 jest.mock('firebase/auth', () => ({
   getAuth: jest.fn(),
+  initializeAuth: jest.fn(() => ({})),
+  getReactNativePersistence: jest.fn(),
   createUserWithEmailAndPassword: jest.fn(),
   signInWithEmailAndPassword: jest.fn(),
   signOut: jest.fn(),
