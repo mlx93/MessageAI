@@ -62,8 +62,14 @@ export default function InAppNotificationBanner({ notification, onDismiss }: InA
     if (notification) {
       handleDismiss();
       // Navigate to conversation after animation completes
+      // Use router.replace to avoid nesting - always go through Messages page
       setTimeout(() => {
-        router.push(`/chat/${notification.conversationId}`);
+        // First navigate to Messages tab, then to the conversation
+        // This ensures back button always goes to Messages, not the previous conversation
+        router.replace('/(tabs)');
+        setTimeout(() => {
+          router.push(`/chat/${notification.conversationId}`);
+        }, 100);
       }, 350);
     }
   };

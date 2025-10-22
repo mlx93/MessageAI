@@ -1027,10 +1027,20 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
+          initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
+          onScrollToIndexFailed={(info) => {
+            // Fallback if initialScrollIndex fails
+            const wait = new Promise(resolve => setTimeout(resolve, 100));
+            wait.then(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+            });
+          }}
           onContentSizeChange={() => {
-            // Scroll to end immediately on first load (no animation)
-            if (!hasScrolledToEnd.current && messages.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: false });
+            // Only scroll on subsequent updates (new messages), not initial load
+            if (hasScrolledToEnd.current && messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            } else if (messages.length > 0) {
+              // Mark as scrolled on first load (initialScrollIndex handles position)
               hasScrolledToEnd.current = true;
             }
           }}
