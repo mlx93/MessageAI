@@ -707,6 +707,70 @@ export default function ChatScreen() {
     }
   };
 
+  // Manual retry handler for queued messages
+  const handleRetryMessage = useCallback(async (localId: string) => {
+    try {
+      const { getQueue } = await import('../services/offlineQueue');
+      const queue = await getQueue();
+      const message = queue.find(m => m.localId === localId);
+      
+      if (!message) {
+        Alert.alert('Error', 'Message not found in queue');
+        return;
+      }
+      
+      // Show loading
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.localId === localId || msg.id === localId
+            ? { ...msg, status: 'sending' }
+            : msg
+        )
+      );
+      
+      // Try to send with timeout
+      await sendMessageWithTimeout(
+        message.conversationId,
+        message.text,
+        message.senderId,
+        localId,
+        undefined,
+        10000
+      );
+      
+      // Success: remove from queue
+      await removeFromQueue(localId);
+      
+      // Update UI
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.localId === localId || msg.id === localId
+            ? { ...msg, status: 'sent' }
+            : msg
+        )
+      );
+      
+      Alert.alert('✅ Sent', 'Message sent successfully');
+      
+    } catch (error) {
+      console.error('Manual retry failed:', error);
+      
+      // Update UI back to queued
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.localId === localId || msg.id === localId
+            ? { ...msg, status: 'queued' }
+            : msg
+        )
+      );
+      
+      Alert.alert(
+        'Retry Failed',
+        'Message will be retried automatically when online'
+      );
+    }
+  }, []);
+
   // Memoized MessageRow component for FlatList performance
   const MessageRow = memo(({ item: message, index }: { item: Message; index: number }) => {
     const isOwnMessage = message.senderId === user!.uid;
@@ -753,6 +817,25 @@ export default function ChatScreen() {
                   <Text style={[styles.readReceipt, styles.readReceiptOwn]}>
                     {readReceipt}
                   </Text>
+                )}
+                
+                {/* Queued status chip */}
+                {message.status === 'queued' && (
+                  <View style={styles.queuedChip}>
+                    <Ionicons name="time-outline" size={14} color="#FF9800" style={{ marginRight: 4 }} />
+                    <Text style={styles.queuedText}>Queued</Text>
+                    <TouchableOpacity 
+                      onPress={() => {
+                        // Call handleRetryMessage from parent scope
+                        if (user) {
+                          handleRetryMessage(message.localId || message.id);
+                        }
+                      }}
+                      style={styles.retryButton}
+                    >
+                      <Text style={styles.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
               
@@ -1330,5 +1413,29 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
+  },
+  queuedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  queuedText: {
+    fontSize: 12,
+    color: '#FF9800',
+    marginRight: 8,
+  },
+  retryButton: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  retryText: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });
