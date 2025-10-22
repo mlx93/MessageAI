@@ -7,8 +7,8 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
-import { updateConversationLastMessage, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
-import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
+import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
+import { cacheMessage, cacheMessageBatched, getCachedMessages, flushCacheBuffer } from '../../services/sqliteService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
 import { searchAllUsers, getUserContacts } from '../../services/contactService';
 import { subscribeToUserPresence } from '../../services/presenceService';
@@ -20,6 +20,7 @@ import { v4 as uuidv4 } from 'uuid';
 import NetInfo from '@react-native-community/netinfo';
 import { Message } from '../../types';
 import { Ionicons } from '@expo/vector-icons';
+import ImageViewer from '../../components/ImageViewer';
 
 interface Participant {
   uid: string;
@@ -53,6 +54,7 @@ export default function ChatScreen() {
   const [otherUserInApp, setOtherUserInApp] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null); // Image viewer state
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
@@ -238,11 +240,9 @@ export default function ChatScreen() {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       }
       
-      // Cache messages
+      // Cache messages (batched for performance)
       msgs.forEach(m => {
-        cacheMessage(m).catch(error => {
-          console.error('Failed to cache message:', error);
-        });
+        cacheMessageBatched(m);
       });
       
       // Mark messages as delivered
@@ -325,6 +325,11 @@ export default function ChatScreen() {
     return () => {
       clearTimeout(setupTimeout);
       
+      // Flush any pending cache writes before leaving
+      flushCacheBuffer().catch(error => {
+        console.error('Failed to flush cache buffer:', error);
+      });
+      
       // Clear Firestore active conversation
       setFirestoreActiveConversation(user.uid, null).catch(error => {
         console.error('Failed to clear Firestore active conversation:', error);
@@ -336,7 +341,7 @@ export default function ChatScreen() {
         console.error('Failed to reset unread count on exit:', error);
       });
       
-      console.log('✅ Cleared active conversation and unread count');
+      if (__DEV__) console.log('✅ Flushed cache, cleared active conversation and unread count');
     };
   }, [conversationId, user]);
 
@@ -411,7 +416,7 @@ export default function ChatScreen() {
       try {
         // Use timeout version (10 second limit)
         await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId, undefined, 10000);
-        await updateConversationLastMessage(conversationId, tempMessage.text, user.uid, localId);
+        updateConversationLastMessageBatched(conversationId, tempMessage.text, user.uid, localId);
         
         // 5. SUCCESS: Remove from queue
         await removeFromQueue(localId);
@@ -553,7 +558,7 @@ export default function ChatScreen() {
       // Send to server
       if (isOnline) {
         await sendImageMessage(conversationId, imageUrl, user.uid, localId);
-        await updateConversationLastMessage(conversationId, '📷 Image', user.uid, localId);
+        updateConversationLastMessageBatched(conversationId, '📷 Image', user.uid, localId);
       } else {
         await queueMessage({
           conversationId,
@@ -737,6 +742,9 @@ export default function ChatScreen() {
         10000
       );
       
+      // Update conversation preview (batched)
+      updateConversationLastMessageBatched(message.conversationId, message.text, message.senderId, localId);
+      
       // Success: remove from queue
       await removeFromQueue(localId);
       
@@ -797,7 +805,7 @@ export default function ChatScreen() {
                   ]}
                 >
                   {isImageMessage ? (
-                    <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                    <TouchableOpacity onPress={() => setViewerImageUrl(message.mediaURL!)}>
                       <Image 
                         source={{ uri: message.mediaURL }} 
                         style={styles.messageImage}
@@ -872,7 +880,7 @@ export default function ChatScreen() {
                 ]}
               >
                 {isImageMessage ? (
-                  <TouchableOpacity onPress={() => Alert.alert('Image', 'Image viewer would open here')}>
+                  <TouchableOpacity onPress={() => setViewerImageUrl(message.mediaURL!)}>
                     <Image 
                       source={{ uri: message.mediaURL }} 
                       style={styles.messageImage}
@@ -1088,6 +1096,15 @@ export default function ChatScreen() {
           <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Image Viewer Modal */}
+      {viewerImageUrl && (
+        <ImageViewer
+          visible={true}
+          imageUrl={viewerImageUrl}
+          onClose={() => setViewerImageUrl(null)}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
