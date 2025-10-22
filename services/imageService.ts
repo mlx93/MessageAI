@@ -18,12 +18,35 @@ import { storage } from './firebase';
  */
 export const pickImage = async (): Promise<string | null> => {
   try {
-    // Request permission to access media library
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    // Check current permission status first
+    const permissionResult = await ImagePicker.getMediaLibraryPermissionsAsync();
     
-    if (status !== 'granted') {
-      console.log('Permission to access photos denied');
-      return null;
+    // If we don't have permission, request it
+    if (permissionResult.status !== 'granted') {
+      console.log('Requesting media library permissions...');
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        console.log(`Permission to access photos denied (status: ${status}, canAskAgain: ${canAskAgain})`);
+        
+        // Import Alert dynamically to avoid circular dependency
+        const { Alert } = await import('react-native');
+        
+        if (!canAskAgain) {
+          Alert.alert(
+            'Photo Access Required',
+            'Please enable photo access for aiMessage in your device Settings app to share images.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Photo Access Required',
+            'aiMessage needs permission to access your photos to share images in conversations.',
+            [{ text: 'OK' }]
+          );
+        }
+        return null;
+      }
     }
 
     // Launch image picker
