@@ -223,6 +223,19 @@ export const cancelAllNotifications = async (): Promise<void> => {
 };
 
 /**
+ * Dismiss all delivered notifications
+ * Useful for clearing stale notifications when user logs in
+ */
+export const dismissAllDeliveredNotifications = async (): Promise<void> => {
+  try {
+    await Notifications.dismissAllNotificationsAsync();
+    console.log('🧹 Cleared all delivered notifications');
+  } catch (error) {
+    console.error('Failed to dismiss notifications:', error);
+  }
+};
+
+/**
  * Get notification permission status
  * 
  * @returns Permission status: 'granted', 'denied', or 'undetermined'

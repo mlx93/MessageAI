@@ -14,7 +14,8 @@ import { initDB } from '../services/sqliteService';
 import { processQueue } from '../services/offlineQueue';
 import { 
   registerForPushNotifications, 
-  addNotificationResponseListener 
+  addNotificationResponseListener,
+  dismissAllDeliveredNotifications
 } from '../services/notificationService';
 import { 
   subscribeToAllConversations, 
@@ -104,6 +105,11 @@ function AppContent() {
     if (!user) return;
 
     console.log('🔔 Setting up global message listener');
+
+    // Clear any stale notifications from deleted conversations
+    dismissAllDeliveredNotifications().catch(error => {
+      console.error('Failed to dismiss notifications:', error);
+    });
 
     // Register callback for in-app notifications
     registerInAppNotificationCallback((conversationId, senderName, messageText, senderInitials) => {

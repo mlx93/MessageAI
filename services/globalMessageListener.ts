@@ -164,6 +164,19 @@ export const subscribeToAllConversations = (
       const conversationData = change.doc.data();
 
       if (change.type === 'added' || change.type === 'modified') {
+        // Skip conversations that the current user has deleted
+        const deletedBy = conversationData.deletedBy || [];
+        if (deletedBy.includes(userId)) {
+          console.log(`🚫 Skipping deleted conversation ${conversationId}`);
+          // Unsubscribe if we were previously subscribed
+          const existingUnsubscribe = conversationUnsubscribes.get(conversationId);
+          if (existingUnsubscribe) {
+            existingUnsubscribe();
+            conversationUnsubscribes.delete(conversationId);
+          }
+          return;
+        }
+
         // Subscribe to messages in this conversation if not already subscribed
         if (!conversationUnsubscribes.has(conversationId)) {
           const messagesQuery = query(
