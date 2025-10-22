@@ -103,8 +103,10 @@ export default function ChatScreen() {
             const otherUserId = conversation.participants.find(id => id !== user.uid);
             title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
             // Add presence status
-            if (otherUserOnline) {
-              subtitle = 'Online';
+            if (otherUserOnline && otherUserInApp) {
+              subtitle = 'online'; // Green indicator
+            } else if (otherUserOnline && !otherUserInApp) {
+              subtitle = 'background'; // Yellow indicator
             } else if (otherUserLastSeen) {
               const minutesAgo = Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 60000);
               if (minutesAgo < 1) {
