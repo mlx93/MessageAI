@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -38,12 +38,28 @@ function AppContent() {
     timestamp: number;
   } | null>(null);
 
-  // Clear all notifications on app launch (runs once)
+  // Clear all notifications on app launch and every time app comes to foreground
   useEffect(() => {
     console.log('🧹 Clearing stale notifications on app launch');
     dismissAllDeliveredNotifications().catch(error => {
       console.error('Failed to dismiss notifications on launch:', error);
     });
+
+    // Also clear notifications every time app comes to foreground
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        console.log('🧹 App became active - clearing stale notifications');
+        dismissAllDeliveredNotifications().catch(error => {
+          console.error('Failed to dismiss notifications on foreground:', error);
+        });
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription?.remove();
+    };
   }, []);
 
   useEffect(() => {

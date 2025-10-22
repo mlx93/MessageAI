@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -54,7 +54,6 @@ export default function ChatScreen() {
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const conversationId = id as string;
-  const hasMarkedRead = useRef(false);
   const scrollViewRef = useRef<ScrollView>(null);
   
   // Container-level swipe for all blue bubbles
@@ -102,14 +101,23 @@ export default function ChatScreen() {
           if (conversation.type === 'direct') {
             const otherUserId = conversation.participants.find(id => id !== user.uid);
             title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
-            // Add presence status
-            if (otherUserOnline && otherUserInApp) {
-              subtitle = 'online'; // Green indicator
-            } else if (otherUserOnline && !otherUserInApp) {
-              subtitle = 'background'; // Yellow indicator
+            
+            // Add presence status with staleness detection
+            // If lastSeen is older than 22 seconds, consider user offline (handles force-quit)
+            // 22s = 1.5x heartbeat interval (15s) for reliable detection
+            const secondsAgo = otherUserLastSeen 
+              ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+              : Infinity;
+            const isStale = secondsAgo >= 22;
+            
+            if (otherUserOnline && otherUserInApp && !isStale) {
+              subtitle = 'online'; // Green indicator - actively using app
+            } else if (otherUserOnline && !otherUserInApp && !isStale) {
+              subtitle = 'background'; // Yellow indicator - app in background but still connected
             } else if (otherUserLastSeen) {
-              const minutesAgo = Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 60000);
-              if (minutesAgo < 1) {
+              // Offline or stale - show last seen
+              const minutesAgo = Math.floor(secondsAgo / 60);
+              if (secondsAgo < 60) {
                 subtitle = 'Last seen just now';
               } else if (minutesAgo < 60) {
                 subtitle = `Last seen ${minutesAgo}m ago`;
@@ -142,16 +150,24 @@ export default function ChatScreen() {
                   <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
                     {title}
                   </Text>
-                  {otherUserOnline && (
-                    <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if online but not in app
-                      }}
-                    />
-                  )}
+                  {(() => {
+                    // Check staleness before showing indicator (22s threshold)
+                    const secondsAgo = otherUserLastSeen 
+                      ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+                      : Infinity;
+                    const isStale = secondsAgo >= 22;
+                    
+                    return otherUserOnline && !isStale && (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if background
+                        }}
+                      />
+                    );
+                  })()}
                 </View>
                 {subtitle && (
                   <Text style={{ fontSize: 12, color: '#666' }}>
@@ -229,13 +245,15 @@ export default function ChatScreen() {
       msgs.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
         .forEach(m => markMessageAsDelivered(conversationId, m.id, user!.uid));
       
-      // Mark as read
-      if (!hasMarkedRead.current) {
-        const unreadIds = msgs.filter(m => m.senderId !== user!.uid && !m.readBy.includes(user!.uid)).map(m => m.id);
-        if (unreadIds.length > 0) {
-          markMessagesAsRead(conversationId, user!.uid, unreadIds);
-          hasMarkedRead.current = true;
-        }
+      // Mark all unread messages as read (no flag - being in chat = messages are read)
+      const unreadMessages = msgs.filter(m => 
+        m.senderId !== user!.uid &&           // Not from me
+        !m.readBy.includes(user!.uid)         // I haven't read it yet
+      );
+      
+      if (unreadMessages.length > 0) {
+        markMessagesAsRead(conversationId, user!.uid, unreadMessages.map(m => m.id));
+        console.log(`✅ Marked ${unreadMessages.length} message(s) as read in active chat`);
       }
     });
 
@@ -299,14 +317,22 @@ export default function ChatScreen() {
       console.log(`✅ Set active conversation: ${conversationId}`);
     }, 100);
 
-    // Clear on unmount
+    // Clear on unmount (when leaving this chat)
     return () => {
       clearTimeout(setupTimeout);
+      
+      // Clear Firestore active conversation
       setFirestoreActiveConversation(user.uid, null).catch(error => {
         console.error('Failed to clear Firestore active conversation:', error);
       });
       setLocalActiveConversation(null);
-      console.log('✅ Cleared active conversation');
+      
+      // Reset unread count again on exit to ensure it's cleared before Messages page shows
+      resetUnreadCount(conversationId, user.uid).catch(error => {
+        console.error('Failed to reset unread count on exit:', error);
+      });
+      
+      console.log('✅ Cleared active conversation and unread count');
     };
   }, [conversationId, user]);
 
@@ -786,9 +812,8 @@ export default function ChatScreen() {
         </View>
       )}
 
-      <TouchableWithoutFeedback onPress={() => isAddMode && handleCancelAdd()}>
-        <View style={styles.messagesWrapper}>
-          <ScrollView 
+      <View style={styles.messagesWrapper}>
+        <ScrollView 
           ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
@@ -922,7 +947,6 @@ export default function ChatScreen() {
           )}
         </ScrollView>
       </View>
-      </TouchableWithoutFeedback>
 
       <View style={styles.inputContainer}>
         <TouchableOpacity 

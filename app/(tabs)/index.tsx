@@ -276,22 +276,27 @@ export default function ConversationsScreen() {
       if (translateX.value < -10) {
         // Close if swiped - don't navigate
         translateX.value = withSpring(0);
-      } else if (!isNavigating) {
-        // Ensure swipe is fully closed before navigating
-        translateX.value = 0;
-        
-        // Store conversation ID for optimistic unread clearing when returning
-        lastViewedConversationRef.current = item.id;
-        
-        // Prevent double navigation
-        setIsNavigating(true);
-        router.push(`/chat/${item.id}`);
-        
-        // Reset flag after navigation completes
-        setTimeout(() => {
-          setIsNavigating(false);
-        }, 1000);
+        return;
       }
+      
+      if (isNavigating) return; // Early return if already navigating
+      
+      // Ensure swipe is fully closed before navigating
+      translateX.value = 0;
+      
+      // Store conversation ID for backup clearing
+      lastViewedConversationRef.current = item.id;
+      
+      // Prevent double navigation
+      setIsNavigating(true);
+      
+      // Navigate (unread count will be cleared when leaving chat screen)
+      router.push(`/chat/${item.id}`);
+      
+      // Reset navigation guard after 1.5s (increased from 1s)
+      setTimeout(() => {
+        setIsNavigating(false);
+      }, 1500);
     };
 
     return (
@@ -319,14 +324,27 @@ export default function ConversationsScreen() {
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>{getInitials(item)}</Text>
                 </View>
-                {item.type === 'direct' && isOnline && (
-                  <View 
-                    style={[
-                      styles.onlineIndicator, 
-                      { backgroundColor: isInApp ? '#34C759' : '#FFD60A' }
-                    ]} 
-                  />
-                )}
+                {(() => {
+                  if (item.type !== 'direct' || !isOnline) return null;
+                  
+                  // Check staleness before showing indicator (22s threshold, handles force-quit)
+                  const lastSeen = otherUserId ? presenceMap[otherUserId]?.lastSeen : undefined;
+                  const secondsAgo = lastSeen 
+                    ? Math.floor((new Date().getTime() - lastSeen.getTime()) / 1000)
+                    : Infinity;
+                  const isStale = secondsAgo >= 22;
+                  
+                  if (isStale) return null; // Don't show indicator if stale
+                  
+                  return (
+                    <View 
+                      style={[
+                        styles.onlineIndicator, 
+                        { backgroundColor: isInApp ? '#34C759' : '#FFD60A' }
+                      ]} 
+                    />
+                  );
+                })()}
               </View>
               
               <View style={styles.conversationDetails}>

@@ -6,12 +6,12 @@
  * Manages presence status (online/offline)
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
 import { AppState, AppStateStatus } from 'react-native';
 import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
-import { setUserOnline, setUserOffline, setUserInApp } from '../services/presenceService';
+import { setUserOnline, setUserOffline, setUserInApp, updateLastSeen } from '../services/presenceService';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -28,6 +28,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const refreshUserProfile = React.useCallback(async () => {
     if (!auth.currentUser) {
@@ -41,6 +42,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUserProfile(profile);
     } catch (error) {
       console.error('Failed to refresh user profile:', error);
+    }
+  }, []);
+
+  // Start heartbeat to update lastSeen every 15 seconds
+  const startHeartbeat = React.useCallback((userId: string) => {
+    // Clear any existing heartbeat
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+    }
+
+    // Update lastSeen every 15 seconds while app is active
+    heartbeatIntervalRef.current = setInterval(async () => {
+      if (auth.currentUser) {
+        await updateLastSeen(auth.currentUser.uid);
+      }
+    }, 15000); // 15 seconds
+  }, []);
+
+  // Stop heartbeat when app backgrounds or user logs out
+  const stopHeartbeat = React.useCallback(() => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
     }
   }, []);
 
@@ -63,17 +87,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
           console.error('Failed to set user online:', error);
         }
+
+        // Start heartbeat to keep presence fresh
+        startHeartbeat(firebaseUser.uid);
       } else {
         setUserProfile(null);
+        // Stop heartbeat on logout
+        stopHeartbeat();
       }
       
       setLoading(false);
     });
 
-    return unsubscribe;
-  }, []);
+    return () => {
+      unsubscribe();
+      // Clean up heartbeat on unmount
+      stopHeartbeat();
+    };
+  }, [startHeartbeat, stopHeartbeat]);
 
-  // Monitor app state to update inApp status
+  // Monitor app state to update inApp status and heartbeat
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (!auth.currentUser) return;
@@ -85,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await setUserInApp(auth.currentUser.uid, true);
           console.log('User set to inApp: true');
+          // Resume heartbeat when app comes to foreground
+          startHeartbeat(auth.currentUser.uid);
         } catch (error) {
           console.error('Failed to set user inApp:', error);
         }
@@ -93,6 +128,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await setUserInApp(auth.currentUser.uid, false);
           console.log('User set to inApp: false');
+          // Stop heartbeat when app goes to background
+          stopHeartbeat();
         } catch (error) {
           console.error('Failed to set user inApp:', error);
         }
@@ -104,10 +141,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription?.remove();
     };
-  }, []);
+  }, [startHeartbeat, stopHeartbeat]);
 
   const handleSignOut = async () => {
     try {
+      // Stop heartbeat before signing out
+      stopHeartbeat();
+      
       // Set user offline before signing out
       if (auth.currentUser) {
         await setUserOffline(auth.currentUser.uid);

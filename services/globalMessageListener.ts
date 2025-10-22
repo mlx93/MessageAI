@@ -85,6 +85,15 @@ const handleNewMessage = async (
     return;
   }
 
+  // Check message recency - only process truly NEW messages (< 10 seconds old)
+  // This prevents showing banners for old messages when app launches
+  const messageAge = Date.now() - message.timestamp.getTime();
+  if (messageAge > 10000) {  // 10 seconds
+    console.log(`📬 Skipping old message (${Math.floor(messageAge / 1000)}s old)`);
+    lastSeenMessageIds.add(message.id);  // Mark as seen so we don't process it again
+    return;
+  }
+
   // Mark as seen
   lastSeenMessageIds.add(message.id);
 

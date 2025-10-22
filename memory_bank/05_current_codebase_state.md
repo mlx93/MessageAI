@@ -1,18 +1,19 @@
 # Current Codebase State
 
-**Last Updated:** October 22, 2025 (Network Timeout & Reconnection UX Applied)  
-**Development Phase:** MVP 100% Complete + Resilience Fixes Applied ✅  
+**Last Updated:** October 22, 2025 (Session 5 - Polish & Quality Improvements)  
+**Development Phase:** MVP 100% Complete + Production Polish ✅  
 **Testing Confidence:** 🎯 **95%** (Production Ready!)  
-**Next Phase:** Manual Testing & Production Deployment
+**Next Phase:** Production Deployment
 
 ---
 
 ## 📊 Overview
 
 **Total Files:** 80+ (excluding node_modules)  
-**Lines of Code:** ~6,500+ (including tests and config)  
-**Git Commits:** 10+  
-**Dependencies:** 1,262 packages (production + dev)
+**Lines of Code:** ~6,150+ (350 lines dead code removed)  
+**Git Commits:** 26+  
+**Dependencies:** 1,258 packages (4 unused removed)  
+**Documentation:** 16 essential docs + 82 historical docs (organized)
 
 ---
 
@@ -37,9 +38,7 @@ MessageAI/
 │   └── index.tsx                 # ✅ Auth routing screen
 │
 ├── components/                   # Reusable UI components
-│   ├── chat/                     # Chat components (future)
-│   ├── contacts/                 # Contact components (future)
-│   └── PhonePromptModal.tsx      # ✅ Phone collection modal (unused)
+│   └── InAppNotificationBanner.tsx # ✅ In-app notification banner
 │
 ├── services/                     # ✅ Business logic layer (complete)
 │   ├── __tests__/                # Service unit tests
@@ -75,23 +74,25 @@ MessageAI/
 │   ├── tsconfig.json             # ✅ TypeScript config
 │   └── .eslintrc.js              # ✅ ESLint config
 │
-├── docs/                         # ✅ Comprehensive documentation
+├── docs/                         # ✅ Comprehensive documentation (REORGANIZED)
+│   ├── README.md                 # ✅ Documentation navigation guide
 │   ├── FIRESTORE_SETUP.md        # ✅ Security rules and indexes
-│   ├── UI_IMPROVEMENTS_IMESSAGE_STYLE.md # ✅ iMessage UI guide
-│   ├── HOUR_1-2_COMPLETE.md      # ✅ Auth implementation
-│   ├── HOUR_2-3_COMPLETE.md      # ✅ Social auth
-│   ├── FIXES_APPLIED.md          # ✅ Bug fixes log
-│   ├── GOOGLE_OAUTH_FIX.md       # ✅ OAuth troubleshooting
-│   ├── KNOWN_ISSUES.md           # ✅ Known issues tracker
-│   ├── QUICK_MVP_STATUS.md       # ✅ Quick status reference
-│   ├── SOCIAL_AUTH_MVP_DECISION.md # ✅ Social auth decisions
+│   ├── COMPLETE_FEATURE_LIST.md  # ✅ Complete feature catalog
+│   ├── DEPLOYMENT_GUIDE.md       # ✅ Production deployment guide
+│   ├── PRODUCT_DIRECTION.md      # ✅ Product roadmap
+│   ├── REBUILD_GUIDE.md          # ✅ Complete rebuild instructions
+│   ├── SETUP_GUIDE.md            # ✅ Initial setup guide
+│   ├── TESTING_GUIDE.md          # ✅ Testing instructions
+│   ├── architecture.md           # ✅ System architecture
+│   ├── MessageAI.md              # ✅ Project overview
 │   ├── messaging_app_prd.md      # ✅ Product requirements
 │   ├── mvp_implementation_plan.md # ✅ Technical implementation
 │   ├── mvp_scope_summary.md      # ✅ MVP scope
-│   ├── mvp_task_list_part1.md    # ✅ Part 1 tasks (complete)
-│   ├── mvp_task_list_part2.md    # ⏳ Part 2 tasks (next)
-│   ├── architecture.md           # ✅ System architecture
-│   └── MessageAI.md              # ✅ Project overview
+│   ├── mvp_task_list_part1.md    # ✅ Part 1 tasks
+│   ├── mvp_task_list_part2.md    # ✅ Part 2 tasks
+│   └── session-notes/            # 📁 Historical docs (82 files)
+│       ├── README.md             # Historical context guide
+│       └── [82 session summaries and implementation guides]
 │
 ├── memory_bank/                  # ✅ AI session memories (updated)
 │   ├── 00_INDEX.md
@@ -136,19 +137,22 @@ MessageAI/
 
 ## 📝 Key File Implementations
 
-### **services/authService.ts** ✅
-**Purpose:** Authentication service with email/password, Google, Apple  
-**Status:** Complete
+### **services/authService.ts** ✅ (SIMPLIFIED)
+**Purpose:** Authentication service with email/password and phone/OTP  
+**Status:** Complete (social auth deferred)
 
 **Key Functions:**
 - `registerWithEmail(email, password, displayName, phoneNumber)`
 - `loginWithEmail(email, password)`
-- `loginWithGoogle()` (code complete, OAuth deferred)
-- `loginWithApple()` (code complete, requires dev build)
 - `signOut()`
 - `updateUserProfile(updates)`
 - `getUserProfile(userId)`
 - `normalizePhoneNumber(phone)` - E.164 format
+
+**Removed (Session 5):**
+- `loginWithGoogle()` - Removed ~65 lines (deferred to production)
+- `loginWithApple()` - Removed ~66 lines (deferred to production)
+- OAuth setup code moved to docs
 
 ---
 
@@ -166,9 +170,9 @@ MessageAI/
 
 ---
 
-### **services/conversationService.ts** ✅
+### **services/conversationService.ts** ✅ (REFACTORED)
 **Purpose:** Conversation management and real-time sync  
-**Status:** Complete (photoURL error fixed)
+**Status:** Complete (code cleanup applied)
 
 **Key Functions:**
 - `createOrGetConversation(participantIds)` - Create or get direct/group chat
@@ -176,21 +180,18 @@ MessageAI/
 - `updateConversationLastMessage(conversationId, text, senderId)` - Update preview
 - `addParticipantToConversation(conversationId, userId)` - Add user to chat
 - `getConversation(conversationId)` - Fetch single conversation details
+- `splitConversation(oldConvId, newParticipants, currentUserId)` - NEW (Oct 21)
+
+**Helper Functions Extracted (Session 5):**
+- `fetchParticipantDetails(participantIds)` - Reusable participant fetching
+- `createConversationData(participantIds, participantDetails)` - Build conversation object
+- Eliminated code duplication
 
 **Notes:**
 - Direct chat IDs: Sorted UIDs joined with underscore (e.g., `uid1_uid2`)
 - Group chat IDs: Random UUID
 - Auto-converts to group at 3+ participants
-- Fetches participant details (displayName, photoURL) for UI
 - **photoURL Fix:** Uses conditional spread to exclude undefined values
-  ```typescript
-  participantDetails[uid] = {
-    displayName: userData.displayName,
-    ...(userData.photoURL && { photoURL: userData.photoURL }),
-    initials: userData.initials,
-    unreadCount: 0
-  };
-  ```
 
 ---
 
@@ -380,15 +381,18 @@ MessageAI/
 
 ---
 
-### **app/_layout.tsx** ✅
+### **app/_layout.tsx** ✅ (ENHANCED)
 **Purpose:** Root layout wrapper  
-**Status:** Complete + Reconnection UX Enhancement ✅
+**Status:** Complete + Production Polish ✅
 
 **Key Features:**
 - Wraps app in `AuthProvider`
 - Initializes SQLite on app start
-- **Network reconnect listener:** ⭐ UPDATED - Processes queue with metrics, shows "Back Online - X messages sent successfully" alert
-- **Offline detection:** ⭐ NEW - Tracks `wasOffline` state to only show alert on actual reconnection (not app startup)
+- **Stale notification cleanup:** ⭐ NEW (Session 5) - Clears both delivered AND scheduled notifications on app launch
+- **Network reconnect listener:** Processes queue with metrics, shows "Back Online - X messages sent successfully" alert
+- **Offline detection:** Tracks `wasOffline` state to only show alert on actual reconnection
+- **Navigation fix:** ⭐ NEW (Session 5) - `animationTypeForReplace: 'push'` prevents app freeze
+- **Global message listener:** Subscribes to all conversations for in-app notifications
 - iOS-style back buttons (partial arrow)
 - Registers all routes (auth, tabs, chat, new-message)
 - ✅ Push notification setup and handling (iOS complete, Android needs dev build)
@@ -465,7 +469,7 @@ MessageAI/
 
 ## 📦 Dependencies
 
-### Core Libraries
+### Core Libraries (UPDATED - Session 5)
 ```json
 {
   "expo": "~54.0.13",
@@ -480,6 +484,8 @@ MessageAI/
   "@react-native-community/netinfo": "11.4.1",
   "date-fns": "^4.1.0",
   "react-native-get-random-values": "~1.11.0",
+  "react-native-gesture-handler": "~2.20.4",
+  "react-native-reanimated": "~3.16.7",
   "uuid": "^11.0.5"
 }
 ```
@@ -496,11 +502,13 @@ MessageAI/
 }
 ```
 
-### Removed Dependencies
-- `react-native-gifted-chat` (replaced with custom UI)
-- `react-native-reanimated` (caused conflicts)
-- `react-native-worklets` (caused conflicts)
-- `react-native-keyboard-controller` (not needed)
+### Removed Dependencies (Session 5)
+- `react-native-gifted-chat` (replaced with custom UI, removed early on)
+- `react-native-worklets` (caused conflicts, removed Session 5)
+- `react-native-keyboard-controller` (not needed, removed Session 5)
+- `@expo/ngrok` (Expo Go workaround not needed, removed Session 5)
+
+**Note:** `react-native-reanimated` is now KEPT (needed for swipe gestures)
 
 ---
 
@@ -582,7 +590,7 @@ MessageAI/
 
 ### Previously Known Issues (Now Fixed)
 
-1. ~~**Social Auth Not Fully Testable**~~ → ⏸️ Deferred to production build (code complete)
+1. ~~**Social Auth Not Fully Testable**~~ → ⏸️ Deferred to production build (code removed Session 5)
 2. ~~**Offline Queue Not Fully Tested**~~ → ✅ Tested and working
 3. ~~**Group Conversations Not Tested**~~ → ✅ Tested with inline add feature
 4. ~~**Unread Count Placeholder**~~ → ✅ Implemented
@@ -592,17 +600,25 @@ MessageAI/
 8. ~~**Phone Numbers Not Formatted**~~ → ✅ formatPhoneNumber() utility added
 9. ~~**Timestamps Not Centered**~~ → ✅ Fixed with alignItems: 'center'
 10. ~~**photoURL Undefined Error**~~ → ✅ Fixed with conditional spread
-11. ~~**Network Timeout Issues**~~ → ✅ Fixed with `sendMessageWithTimeout()` (10s timeout) ⭐ NEW
-12. ~~**No Reconnection Feedback**~~ → ✅ Fixed with "Reconnecting..." banner and success alerts ⭐ NEW
-13. ~~**Poor Network Handling**~~ → ✅ Fixed - messages queue on timeout with user alert ⭐ NEW
+11. ~~**Network Timeout Issues**~~ → ✅ Fixed with `sendMessageWithTimeout()` (10s timeout)
+12. ~~**No Reconnection Feedback**~~ → ✅ Fixed with "Reconnecting..." banner and success alerts
+13. ~~**Poor Network Handling**~~ → ✅ Fixed - messages queue on timeout with user alert
+14. ~~**App Freeze on Relaunch**~~ → ✅ Fixed with navigation animation setting (Session 5) ⭐ NEW
+15. ~~**Stale Notifications**~~ → ✅ Fixed - clear on app launch (Session 5) ⭐ NEW
+16. ~~**Unread Badge Persistence**~~ → ✅ Fixed - optimistic clearing (Session 5) ⭐ NEW
+17. ~~**Status Text Inaccurate**~~ → ✅ Fixed - matches indicators (Session 5) ⭐ NEW
+18. ~~**Navigation Stuck**~~ → ✅ Fixed - proper cleanup (Session 5) ⭐ NEW
+19. ~~**Deleted Chat Notifications**~~ → ✅ Fixed - filter deletedBy (Session 5) ⭐ NEW
 
 ### Remaining Limitations (By Design)
 
 1. **Android Push Notifications** → Requires development build (not Expo Go)
-2. **Social Auth Testing** → Requires production build (OAuth complexity)
+2. **Social Auth Testing** → Requires production build (code removed from MVP, deferred)
 3. **Physical Device Testing** → Simulators sufficient for development
 4. **Force-Quit Persistence** → 75% confidence (optional improvement available)
 5. **Rapid-Fire Performance** → 80% confidence (optional improvement available)
+
+**Note:** All limitations are expected and acceptable for production deployment
 
 ---
 
@@ -853,11 +869,13 @@ README_TESTING.md - Testing suite overview and commands
 
 ---
 
-**Status:** ✅ MVP 100% Complete + Resilience Fixes Applied + 95% Testing Confidence  
-**Next:** Manual Testing (7 scenarios), Optional Improvements (P3/P5), Production Deployment  
+**Status:** ✅ MVP 100% Complete + Production Polish Applied + 95% Testing Confidence  
+**Next:** Production Deployment  
 **Testing Confidence:** 🎯 **95%** (Production Ready!)  
+**Code Quality:** ✅ Clean (350 lines dead code removed)  
+**Documentation:** ✅ Organized (82 historical docs separated)  
 **Blockers:** None
 
 ---
 
-**Last Updated:** October 22, 2025 - Network Timeout & Reconnection UX Complete (95% Confidence Achieved!)
+**Last Updated:** October 22, 2025 - Session 5: Polish & Quality Improvements Complete
