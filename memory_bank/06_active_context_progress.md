@@ -224,6 +224,50 @@ Implemented all 5 critical priorities from RUBRIC_READINESS_PLAN_UPDATED.md to a
 
 ---
 
+### **Session 8 Continuation: Additional UX & Critical Fixes** ✅
+
+#### **Round 2: Participant Removal & Scroll Animation** (Commit: `267afad`)
+
+**Bug 1: Participant Removal Error** ✅
+- **Problem:** `removeParticipantFromConversation is not a function` error when removing participants
+- **Root Cause:** Function was imported but never implemented in conversationService
+- **Fix:** Always use `splitConversation` when removing participants (creates new conversation or finds existing one)
+- **Result:** Removing participants now works correctly, matches WhatsApp behavior
+
+**Bug 2: Awkward Scroll Animation** ✅
+- **Problem:** Visible scroll animation when opening conversation from Messages page
+- **Root Cause:** `subscribeToMessages` callback scrolled with animation on first load
+- **Fix:** 
+  - Added `hasScrolledToEnd` ref to track initial scroll state
+  - Added `onContentSizeChange` to scroll without animation on first load
+  - Only animate scroll after initial load
+- **Result:** Conversations now open instantly at bottom (no visible scroll)
+
+**Files:** `app/chat/[id].tsx`  
+**Documentation:** `docs/session-notes/bug_fixes_oct22_session8_participant_scroll.md`
+
+---
+
+#### **Round 1: Image Button, Edit Profile, Toast** (Commit: `8270004`)
+
+**Bug 1: Image Button Inactive** ✅
+- Enabled image button (blue #007AFF, clickable)
+- Connected to `handlePickImage` handler
+
+**Bug 2: Edit Profile Incomplete** ✅
+- Added read-only phone number field with "unchangeable" label
+- Fixed null email to show placeholder "Email" in grey
+- Phone displayed in black text on light grey background
+
+**Bug 3: Unnecessary Success Toast** ✅
+- Removed "Success" toast after conversation creation
+- Seamless navigation to new/existing conversation
+
+**Files:** `app/chat/[id].tsx`, `app/auth/edit-profile.tsx`  
+**Documentation:** `docs/session-notes/bug_fixes_oct22_session8_ux.md`
+
+---
+
 ## 🆕 October 22, 2025 - Session 7: Heartbeat & Core Bug Fixes ✅ ⭐ MAJOR
 
 ### **Session Overview - Heartbeat Mechanism Implemented**
