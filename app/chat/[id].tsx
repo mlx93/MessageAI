@@ -797,27 +797,29 @@ export default function ChatScreen() {
           <GestureDetector gesture={containerPanGesture}>
             <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
               <View style={styles.messageContainer}>
-                <View 
-                  style={[
-                    styles.messageBubble,
-                    styles.ownMessage,
-                    isImageMessage && styles.imageMessageBubble
-                  ]}
-                >
-                  {isImageMessage ? (
-                    <TouchableOpacity onPress={() => setViewerImageUrl(message.mediaURL!)}>
-                      <Image 
-                        source={{ uri: message.mediaURL }} 
-                        style={styles.messageImage}
-                        resizeMode="cover"
-                      />
-                    </TouchableOpacity>
-                  ) : (
+                {isImageMessage ? (
+                  <TouchableOpacity 
+                    onPress={() => setViewerImageUrl(message.mediaURL!)}
+                    style={styles.imageMessageContainer}
+                  >
+                    <Image 
+                      source={{ uri: message.mediaURL }} 
+                      style={[styles.messageImage, styles.ownMessageImage]}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <View 
+                    style={[
+                      styles.messageBubble,
+                      styles.ownMessage,
+                    ]}
+                  >
                     <Text style={[styles.messageText, { color: '#fff' }]}>
                       {message.text}
                     </Text>
-                  )}
-                </View>
+                  </View>
+                )}
                 
                 {/* Read receipt below bubble - always visible */}
                 {readReceipt && isLastInGroup && (
@@ -872,27 +874,29 @@ export default function ChatScreen() {
                 <Text style={styles.senderName}>{senderInfo.displayName}</Text>
               )}
               
-              <View 
-                style={[
-                  styles.messageBubble,
-                  styles.otherMessage,
-                  isImageMessage && styles.imageMessageBubble
-                ]}
-              >
-                {isImageMessage ? (
-                  <TouchableOpacity onPress={() => setViewerImageUrl(message.mediaURL!)}>
-                    <Image 
-                      source={{ uri: message.mediaURL }} 
-                      style={styles.messageImage}
-                      resizeMode="cover"
-                    />
-                  </TouchableOpacity>
-                ) : (
+              {isImageMessage ? (
+                <TouchableOpacity 
+                  onPress={() => setViewerImageUrl(message.mediaURL!)}
+                  style={styles.imageMessageContainer}
+                >
+                  <Image 
+                    source={{ uri: message.mediaURL }} 
+                    style={[styles.messageImage, styles.otherMessageImage]}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              ) : (
+                <View 
+                  style={[
+                    styles.messageBubble,
+                    styles.otherMessage,
+                  ]}
+                >
                   <Text style={[styles.messageText, { color: '#000' }]}>
                     {message.text}
                   </Text>
-                )}
-              </View>
+                </View>
+              )}
               
               {/* Read receipt below bubble */}
               {readReceipt && isLastInGroup && (
@@ -1311,8 +1315,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 2,
   },
-  imageMessageBubble: {
-    padding: 4,
+  imageMessageContainer: {
+    maxWidth: '80%',
+    marginBottom: 2,
   },
   ownMessage: {
     backgroundColor: '#007AFF',
@@ -1359,7 +1364,14 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 12,
-    marginBottom: 4,
+  },
+  ownMessageImage: {
+    borderWidth: 0,
+    // No border for own images - clean look
+  },
+  otherMessageImage: {
+    borderWidth: 0,
+    // No border for received images - clean look
   },
   messageText: {
     fontSize: 16,
