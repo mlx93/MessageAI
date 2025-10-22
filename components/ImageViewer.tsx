@@ -5,7 +5,7 @@
  * Features: Swipe to dismiss, zoom gestures, minimal UI
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal, View, Image, StyleSheet, TouchableOpacity, StatusBar, Dimensions, ActivityIndicator, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -21,6 +21,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function ImageViewer({ visible, imageUrl, onClose }: ImageViewerProps) {
   const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   
   // Animation values
   const scale = useSharedValue(1);
@@ -39,7 +40,20 @@ export default function ImageViewer({ visible, imageUrl, onClose }: ImageViewerP
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
     setIsLoading(true);
+    setHasError(false);
   };
+
+  // Safety timeout - auto-hide loading after 5 seconds if still showing
+  useEffect(() => {
+    if (!visible) return;
+    
+    const timeout = setTimeout(() => {
+      console.log('Safety timeout: Auto-hiding loading indicator');
+      setIsLoading(false);
+    }, 5000); // 5 seconds
+    
+    return () => clearTimeout(timeout);
+  }, [visible]);
 
   // Pinch gesture for zoom
   const pinchGesture = Gesture.Pinch()
@@ -141,11 +155,35 @@ export default function ImageViewer({ visible, imageUrl, onClose }: ImageViewerP
               source={{ uri: imageUrl }}
               style={styles.image}
               resizeMode="contain"
-              onLoadEnd={() => setIsLoading(false)}
+              onLoadStart={() => {
+                console.log('📸 Image loading started:', imageUrl);
+                setIsLoading(true);
+                setHasError(false);
+              }}
+              onLoad={(event) => {
+                console.log('✅ Image loaded successfully', event.nativeEvent);
+                setIsLoading(false);
+              }}
+              onLoadEnd={() => {
+                // iOS sometimes only fires onLoadEnd, not onLoad
+                console.log('🏁 Image load ended');
+                setIsLoading(false);
+              }}
+              onError={(error) => {
+                console.error('❌ Image load error:', error.nativeEvent);
+                setIsLoading(false);
+                setHasError(true);
+              }}
             />
-            {isLoading && (
+            {isLoading && !hasError && (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#FFF" />
+                <Text style={styles.loadingText}>Loading...</Text>
+              </View>
+            )}
+            {hasError && (
+              <View style={styles.loadingContainer}>
+                <Text style={styles.errorText}>Failed to load image</Text>
               </View>
             )}
           </Animated.View>
@@ -203,6 +241,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    color: '#FFF',
+    fontSize: 16,
+    marginTop: 12,
+  },
+  errorText: {
+    color: '#FFF',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 40,
   },
   instructions: {
     position: 'absolute',
