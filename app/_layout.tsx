@@ -38,6 +38,14 @@ function AppContent() {
     timestamp: number;
   } | null>(null);
 
+  // Clear all notifications on app launch (runs once)
+  useEffect(() => {
+    console.log('🧹 Clearing stale notifications on app launch');
+    dismissAllDeliveredNotifications().catch(error => {
+      console.error('Failed to dismiss notifications on launch:', error);
+    });
+  }, []);
+
   useEffect(() => {
     // Initialize SQLite database
     initDB().catch(error => {
@@ -106,11 +114,6 @@ function AppContent() {
 
     console.log('🔔 Setting up global message listener');
 
-    // Clear any stale notifications from deleted conversations
-    dismissAllDeliveredNotifications().catch(error => {
-      console.error('Failed to dismiss notifications:', error);
-    });
-
     // Register callback for in-app notifications
     registerInAppNotificationCallback((conversationId, senderName, messageText, senderInitials) => {
       setInAppNotification({
@@ -173,6 +176,8 @@ function AppContent() {
           presentation: 'card',
           gestureEnabled: true,
           animation: 'slide_from_right',
+          // Force full gesture handler reset on unmount
+          animationTypeForReplace: 'push',
         }} 
       />
       <Stack.Screen 

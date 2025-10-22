@@ -225,11 +225,15 @@ export const cancelAllNotifications = async (): Promise<void> => {
 /**
  * Dismiss all delivered notifications
  * Useful for clearing stale notifications when user logs in
+ * Also cancels any scheduled notifications
  */
 export const dismissAllDeliveredNotifications = async (): Promise<void> => {
   try {
+    // Clear delivered notifications (in notification center)
     await Notifications.dismissAllNotificationsAsync();
-    console.log('🧹 Cleared all delivered notifications');
+    // Also cancel any scheduled/pending notifications
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    console.log('🧹 Cleared all delivered and scheduled notifications');
   } catch (error) {
     console.error('Failed to dismiss notifications:', error);
   }
