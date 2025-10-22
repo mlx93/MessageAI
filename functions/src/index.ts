@@ -405,7 +405,8 @@ export const sendMessageNotification = onDocumentCreated(
             senderId: message.senderId,
           },
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          deletedBy: [], // Clear deleted status - conversation reappears for all users
+          // Clear deleted status - conversation reappears for all
+          deletedBy: [],
         });
 
       console.log("✅ Updated conversation lastMessage and cleared deletedBy");
