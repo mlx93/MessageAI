@@ -13,7 +13,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 export default function ConversationsScreen() {
   const navigation = useNavigation();
-  const { user, userProfile, signOut } = useAuth();
+  const { user, userProfile, signOut, refreshUserProfile } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; inApp: boolean; lastSeen?: Date }>>({});
   const [loading, setLoading] = useState(true);
@@ -179,20 +179,42 @@ export default function ConversationsScreen() {
   const handleSaveProfile = useCallback(async () => {
     if (!user) return;
     
+    if (!editedFirstName.trim() || !editedLastName.trim()) {
+      Alert.alert('Error', 'First and last name are required');
+      return;
+    }
+    
     try {
       const { updateUserProfile } = await import('../../services/authService');
-      await updateUserProfile(user.uid, {
+      
+      // Build update object, only include email if it has a value
+      const updates: any = {
         firstName: editedFirstName.trim(),
         lastName: editedLastName.trim(),
-        email: editedEmail.trim() || undefined,
-      });
+        displayName: `${editedFirstName.trim()} ${editedLastName.trim()}`,
+      };
       
+      // Only include email field if it's not empty (allows saving null/empty email)
+      if (editedEmail.trim()) {
+        updates.email = editedEmail.trim();
+      } else {
+        // Explicitly set to empty string (Firestore accepts this, but not undefined)
+        updates.email = '';
+      }
+      
+      await updateUserProfile(user.uid, updates);
+      
+      // Refresh the profile to show updated values immediately
+      await refreshUserProfile();
+      
+      // Exit edit mode
       setIsEditingProfile(false);
-      Alert.alert('Success', 'Profile updated successfully');
+      
     } catch (error: any) {
+      console.error('Profile update error:', error);
       Alert.alert('Error', error.message || 'Failed to update profile');
     }
-  }, [user, editedFirstName, editedLastName, editedEmail]);
+  }, [user, editedFirstName, editedLastName, editedEmail, refreshUserProfile]);
 
   const handleCancelEdit = useCallback(() => {
     // Revert to original values
@@ -542,33 +564,46 @@ export default function ConversationsScreen() {
                 </View>
               </View>
             ) : (
-              /* View Mode: Only values, no labels - clickable to edit */
-              <View style={styles.appleViewFieldsContainer}>
-                <TouchableOpacity 
-                  style={styles.appleViewFieldRow}
-                  onPress={() => setIsEditingProfile(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.appleViewFieldValue}>{userProfile?.firstName || 'Not set'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.appleViewFieldRow}
-                  onPress={() => setIsEditingProfile(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.appleViewFieldValue}>{userProfile?.lastName || 'Not set'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.appleViewFieldRow}
-                  onPress={() => setIsEditingProfile(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.appleViewFieldValue}>{userProfile?.email || 'Not set'}</Text>
-                </TouchableOpacity>
-                <View style={styles.appleViewFieldRow}>
-                  <Text style={[styles.appleViewFieldValue, styles.appleViewFieldReadOnly]}>
-                    {userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : 'Not set'}
-                  </Text>
+              /* View Mode: Same layout as edit mode with labels, but non-editable */
+              <View style={styles.appleEditFieldsContainer}>
+                {/* First Name */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>First name</Text>
+                  <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
+                    <Text style={styles.appleViewFieldText}>
+                      {userProfile?.firstName || 'Not set'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Last Name */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Last name</Text>
+                  <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
+                    <Text style={styles.appleViewFieldText}>
+                      {userProfile?.lastName || 'Not set'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Email */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Email</Text>
+                  <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
+                    <Text style={[styles.appleViewFieldText, !userProfile?.email && styles.appleViewFieldPlaceholder]}>
+                      {userProfile?.email || 'Not set'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Phone (read-only) */}
+                <View style={styles.appleEditFieldGroup}>
+                  <Text style={styles.appleEditFieldLabel}>Mobile</Text>
+                  <View style={[styles.appleEditFieldInput, styles.appleReadOnlyField]}>
+                    <Text style={styles.appleReadOnlyFieldText}>
+                      {userProfile?.phoneNumber ? formatPhoneNumber(userProfile.phoneNumber) : 'Not set'}
+                    </Text>
+                  </View>
                 </View>
               </View>
             )}
@@ -692,7 +727,19 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#666',
   },
-  // View Mode Styles
+  // View Mode Styles (same as edit mode but non-editable)
+  appleViewFieldAsInput: {
+    backgroundColor: '#F2F2F7',  // Lighter background to indicate read-only
+    justifyContent: 'center',
+  },
+  appleViewFieldText: {
+    fontSize: 17,
+    color: '#000',
+  },
+  appleViewFieldPlaceholder: {
+    color: '#999',  // Lighter color for "Not set" text
+  },
+  // Old View Mode Styles (kept for backwards compatibility if needed)
   appleViewFieldsContainer: {
     backgroundColor: '#fff',
     borderTopWidth: 0.5,
