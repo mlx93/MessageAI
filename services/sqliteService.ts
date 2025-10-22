@@ -94,7 +94,7 @@ export const cacheMessageBatched = (message: Message) => {
       const batch = [...writeBuffer];
       writeBuffer = [];
       
-      console.log(`💾 Batching ${batch.length} SQLite writes`);
+      if (__DEV__) console.log(`💾 Batching ${batch.length} SQLite writes`);
       
       // Write all at once
       try {
@@ -116,6 +116,7 @@ export const cacheMessageBatched = (message: Message) => {
             ]
           );
         });
+        if (__DEV__) console.log(`✅ Successfully wrote ${batch.length} messages to SQLite`);
       } catch (error) {
         console.error('Batched SQLite write failed:', error);
       }
@@ -131,6 +132,7 @@ export const flushCacheBuffer = async () => {
   if (writeBuffer.length > 0) {
     const batch = [...writeBuffer];
     writeBuffer = [];
+    if (__DEV__) console.log(`💾 Flushing ${batch.length} messages from cache buffer`);
     batch.forEach(msg => cacheMessage(msg));
   }
 };

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sendMessage } from './messageService';
-import { updateConversationLastMessage } from './conversationService';
+import { updateConversationLastMessage, updateConversationLastMessageBatched } from './conversationService';
 
 const QUEUE_KEY = 'offline_messages';
 
@@ -56,6 +56,9 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
   const queue = await getQueue();
   let sentCount = 0;
   let failedCount = 0;
+  let totalRetries = 0;
+  
+  if (__DEV__) console.log(`📤 Processing queue: ${queue.length} messages`);
   
   for (const msg of queue) {
     try {
@@ -71,11 +74,11 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
         undefined,
         5000
       );
-      await updateConversationLastMessage(msg.conversationId, msg.text, msg.senderId, msg.localId);
+      updateConversationLastMessageBatched(msg.conversationId, msg.text, msg.senderId, msg.localId);
       
       // Remove from queue on successful send
       await removeFromQueue(msg.localId);
-      console.log('✅ Sent queued message:', msg.localId);
+      if (__DEV__) console.log('✅ Sent queued message:', msg.localId);
       sentCount++;
     } catch (error) {
       console.error('❌ Failed to send queued message:', error);
@@ -91,14 +94,18 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
           m.localId === msg.localId ? { ...m, retryCount: m.retryCount + 1 } : m
         );
         await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(updatedQueue));
+        totalRetries++;
+        if (__DEV__) console.log(`🔄 Retry ${msg.retryCount + 1}/3 for message ${msg.localId}`);
       } else {
         // Remove from queue after 3 failed retries
         await removeFromQueue(msg.localId);
-        console.log('❌ Message failed after 3 retries, removed from queue:', msg.localId);
+        if (__DEV__) console.log('❌ Message failed after 3 retries, removed from queue:', msg.localId);
         failedCount++;
       }
     }
   }
+  
+  if (__DEV__) console.log(`📊 Queue processed: ${sentCount} sent, ${failedCount} failed, ${totalRetries} retries`);
   
   return { sent: sentCount, failed: failedCount };
 };

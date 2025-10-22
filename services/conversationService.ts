@@ -236,9 +236,12 @@ export const updateConversationLastMessageBatched = (
   // Clear existing timer
   if (updateTimer) clearTimeout(updateTimer);
   
+  if (__DEV__) console.log('📦 Batching conversation update (300ms debounce)');
+  
   // Set new timer (300ms debounce)
   updateTimer = setTimeout(async () => {
     if (pendingUpdate) {
+      if (__DEV__) console.log('💾 Flushing batched conversation update');
       await updateConversationLastMessage(
         pendingUpdate.conversationId,
         pendingUpdate.text,

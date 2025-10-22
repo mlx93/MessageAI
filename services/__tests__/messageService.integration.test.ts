@@ -40,13 +40,13 @@ describe('Message Service - Integration Tests', () => {
 
   afterAll(async () => {
     // Cleanup listeners
-    cleanup.forEach(fn => fn());
+    cleanup.forEach(fn => typeof fn === 'function' && fn());
     await teardownEmulator();
   });
 
   afterEach(() => {
     // Clean up listeners after each test
-    cleanup.forEach(fn => fn());
+    cleanup.forEach(fn => typeof fn === 'function' && fn());
     cleanup = [];
   });
 
@@ -68,7 +68,7 @@ describe('Message Service - Integration Tests', () => {
         status: 'sent'
       };
 
-      const messageRef = await addDoc(collection(db, 'messages'), messageData);
+      const messageRef = await addDoc(collection(db, `conversations/${conversationId}/messages`), messageData);
 
       // Verify message was created
       const messageDoc = await getDoc(messageRef);
@@ -84,8 +84,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Set up real-time listener
       const messagesQuery = query(
-        collection(db, 'messages'),
-        where('conversationId', '==', conversationId),
+        collection(db, `conversations/${conversationId}/messages`),
         orderBy('timestamp', 'asc')
       );
 
@@ -103,7 +102,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Send a message after listener is set up
       setTimeout(async () => {
-        await addDoc(collection(db, 'messages'), {
+        await addDoc(collection(db, `conversations/${conversationId}/messages`), {
           conversationId,
           senderId,
           text: 'Test message',
@@ -121,7 +120,7 @@ describe('Message Service - Integration Tests', () => {
       const messages = ['First', 'Second', 'Third', 'Fourth', 'Fifth'];
       
       for (let i = 0; i < messages.length; i++) {
-        await addDoc(collection(db, 'messages'), {
+        await addDoc(collection(db, `conversations/${conversationId}/messages`), {
           conversationId,
           senderId: 'user1',
           text: messages[i],
@@ -135,8 +134,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Query messages in order
       const messagesQuery = query(
-        collection(db, 'messages'),
-        where('conversationId', '==', conversationId),
+        collection(db, `conversations/${conversationId}/messages`),
         orderBy('timestamp', 'asc')
       );
 
@@ -154,7 +152,7 @@ describe('Message Service - Integration Tests', () => {
       const promises = [];
       for (let i = 0; i < messageCount; i++) {
         promises.push(
-          addDoc(collection(db, 'messages'), {
+          addDoc(collection(db, `conversations/${conversationId}/messages`), {
             conversationId,
             senderId: 'user1',
             text: `Message ${i + 1}`,
@@ -169,8 +167,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Verify all messages were created
       const messagesQuery = query(
-        collection(db, 'messages'),
-        where('conversationId', '==', conversationId)
+        collection(db, `conversations/${conversationId}/messages`)
       );
 
       const snapshot = await getDocs(messagesQuery);
@@ -236,7 +233,7 @@ describe('Message Service - Integration Tests', () => {
       // Create 5 messages
       const messageIds: string[] = [];
       for (let i = 0; i < 5; i++) {
-        const messageRef = await addDoc(collection(db, 'messages'), {
+        const messageRef = await addDoc(collection(db, `conversations/${conversationId}/messages`), {
           conversationId,
           senderId: 'user1',
           text: `Message ${i + 1}`,
@@ -306,7 +303,7 @@ describe('Message Service - Integration Tests', () => {
       // Send 3 messages
       const messageIds: string[] = [];
       for (let i = 0; i < 3; i++) {
-        const messageRef = await addDoc(collection(db, 'messages'), {
+        const messageRef = await addDoc(collection(db, `conversations/${conversationId}/messages`), {
           conversationId,
           senderId: 'user1',
           text: `Group message ${i + 1}`,
@@ -318,17 +315,16 @@ describe('Message Service - Integration Tests', () => {
       }
 
       // User2 reads first 2 messages
-      await updateDoc(doc(db, 'messages', messageIds[0]), {
+      await updateDoc(doc(db, `conversations/${conversationId}/messages`, messageIds[0]), {
         readBy: arrayUnion('user2')
       });
-      await updateDoc(doc(db, 'messages', messageIds[1]), {
+      await updateDoc(doc(db, `conversations/${conversationId}/messages`, messageIds[1]), {
         readBy: arrayUnion('user2')
       });
 
       // Count unread for user2
       const messagesQuery = query(
-        collection(db, 'messages'),
-        where('conversationId', '==', conversationId)
+        collection(db, `conversations/${conversationId}/messages`)
       );
 
       const snapshot = await getDocs(messagesQuery);
@@ -367,7 +363,7 @@ describe('Message Service - Integration Tests', () => {
       };
 
       // Add to Firestore (simulating server save)
-      const messageRef = await addDoc(collection(db, 'messages'), localMessage);
+      const messageRef = await addDoc(collection(db, `conversations/${conversationId}/messages`), localMessage);
 
       // Update status to 'sent' with server ID
       await updateDoc(messageRef, {
@@ -387,7 +383,7 @@ describe('Message Service - Integration Tests', () => {
     it('should store timestamp as Firestore Timestamp', async () => {
       const conversationId = `conv-timestamp-${Date.now()}`;
 
-      const messageRef = await addDoc(collection(db, 'messages'), {
+      const messageRef = await addDoc(collection(db, `conversations/${conversationId}/messages`), {
         conversationId,
         senderId: 'user1',
         text: 'Timestamped message',
@@ -409,7 +405,7 @@ describe('Message Service - Integration Tests', () => {
       
       // Send message now
       const now = Timestamp.now();
-      await addDoc(collection(db, 'messages'), {
+      await addDoc(collection(db, `conversations/${conversationId}/messages`), {
         conversationId,
         senderId: 'user1',
         text: 'Old message',
@@ -423,7 +419,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Send another message
       const later = Timestamp.now();
-      await addDoc(collection(db, 'messages'), {
+      await addDoc(collection(db, `conversations/${conversationId}/messages`), {
         conversationId,
         senderId: 'user1',
         text: 'New message',
@@ -434,8 +430,7 @@ describe('Message Service - Integration Tests', () => {
 
       // Query messages after 'now'
       const messagesQuery = query(
-        collection(db, 'messages'),
-        where('conversationId', '==', conversationId),
+        collection(db, `conversations/${conversationId}/messages`),
         where('timestamp', '>', now)
       );
 

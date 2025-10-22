@@ -12,6 +12,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
 import { setUserOnline, setUserOffline, setUserInApp, updateLastSeen } from '../services/presenceService';
+import { flushCacheBuffer } from '../services/sqliteService';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -127,11 +128,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // App is in background or inactive
         try {
           await setUserInApp(auth.currentUser.uid, false);
-          console.log('User set to inApp: false');
+          if (__DEV__) console.log('User set to inApp: false');
           // Stop heartbeat when app goes to background
           stopHeartbeat();
+          // Flush any pending cache writes
+          await flushCacheBuffer();
+          if (__DEV__) console.log('💾 Cache flushed on background');
         } catch (error) {
-          console.error('Failed to set user inApp:', error);
+          console.error('Failed to set user inApp or flush cache:', error);
         }
       }
     };
