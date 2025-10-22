@@ -8,7 +8,7 @@
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { Alert } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
+import * as Clipboard from 'expo-clipboard';
 
 /**
  * Wait for OTP code to be generated and fetch it from Firestore
@@ -86,7 +86,7 @@ export const showOTPWithCopy = (code: string, phoneNumber: string) => {
       {
         text: 'Copy Code',
         onPress: async () => {
-          await Clipboard.setString(code);
+          await Clipboard.setStringAsync(code);
           // No confirmation alert - just copy silently
         },
       },

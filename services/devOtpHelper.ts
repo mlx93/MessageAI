@@ -6,7 +6,7 @@
  */
 
 import { Alert } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
+import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
@@ -30,8 +30,8 @@ export const showOtpInstructions = async (phoneNumber: string) => {
     [
       {
         text: 'Copy Command',
-        onPress: () => {
-          Clipboard.setString(command);
+        onPress: async () => {
+          await Clipboard.setStringAsync(command);
           Alert.alert('✅ Copied!', 'Paste in your terminal to get the OTP code');
         },
       },
@@ -62,7 +62,7 @@ export const showOtpNotification = async (otpCode: string) => {
     });
 
     // Also copy to clipboard automatically
-    await Clipboard.setString(otpCode);
+    await Clipboard.setStringAsync(otpCode);
   } catch (error) {
     console.error('Failed to show OTP notification:', error);
   }
@@ -110,7 +110,7 @@ export const showDevHelper = async (phoneNumber: string) => {
         {
           text: 'Copy Code',
           onPress: async () => {
-            await Clipboard.setString(testOtp);
+            await Clipboard.setStringAsync(testOtp);
             Alert.alert('✅ Copied!', 'Code copied to clipboard');
           },
         },
