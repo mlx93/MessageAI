@@ -800,7 +800,7 @@ export default function ChatScreen() {
                 {isImageMessage ? (
                   <TouchableOpacity 
                     onPress={() => setViewerImageUrl(message.mediaURL!)}
-                    style={styles.imageMessageContainer}
+                    style={[styles.imageMessageContainer, styles.ownImageContainer]}
                   >
                     <Image 
                       source={{ uri: message.mediaURL }} 
@@ -1039,18 +1039,13 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
-          initialScrollIndex={messages.length > 1 ? messages.length - 1 : undefined}
-          getItemLayout={(data, index) => ({
-            length: 100, // Approximate item height
-            offset: 100 * index,
-            index,
-          })}
+          initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
           onScrollToIndexFailed={(info) => {
-            console.warn('Scroll to index failed:', info);
-            // Use scrollToEnd as safe fallback
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 100);
+            // Fallback if initialScrollIndex fails
+            const wait = new Promise(resolve => setTimeout(resolve, 100));
+            wait.then(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+            });
           }}
           onContentSizeChange={() => {
             // Only scroll on subsequent updates (new messages), not initial load
@@ -1323,6 +1318,11 @@ const styles = StyleSheet.create({
   imageMessageContainer: {
     maxWidth: '80%',
     marginBottom: 2,
+  },
+  ownImageContainer: {
+    alignSelf: 'flex-end',
+    marginLeft: 'auto', // Push to far right
+    marginRight: 8, // Small margin so images don't touch screen edge
   },
   ownMessage: {
     backgroundColor: '#007AFF',
