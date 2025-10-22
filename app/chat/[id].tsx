@@ -7,7 +7,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
-import { updateConversationLastMessage, addParticipantToConversation, removeParticipantFromConversation, resetUnreadCount } from '../../services/conversationService';
+import { updateConversationLastMessage, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
 import { cacheMessage, getCachedMessages } from '../../services/sqliteService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
 import { searchAllUsers, getUserContacts } from '../../services/contactService';
@@ -55,6 +55,7 @@ export default function ChatScreen() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
+  const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -207,7 +208,7 @@ export default function ChatScreen() {
     getCachedMessages(conversationId).then(cachedMsgs => {
       if (cachedMsgs.length > 0) {
         setMessages(cachedMsgs);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
+        // onContentSizeChange will handle scrolling to end without visible animation
       }
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
@@ -232,7 +233,10 @@ export default function ChatScreen() {
     // Subscribe to real-time messages
     const unsubscribeMessages = subscribeToMessages(conversationId, (msgs) => {
       setMessages(msgs);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      // Only animate scroll if we've already done the initial scroll (not first load)
+      if (hasScrolledToEnd.current) {
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      }
       
       // Cache messages
       msgs.forEach(m => {
@@ -626,13 +630,18 @@ export default function ChatScreen() {
         const { shouldSplitOnParticipantAdd, splitConversation, getConversation } = 
           await import('../../services/conversationService');
         
-        const shouldSplit = await shouldSplitOnParticipantAdd(conversationId);
+        // ALWAYS split when removing participants, otherwise check if adding requires split
+        const shouldSplit = participantsToRemove.length > 0 || await shouldSplitOnParticipantAdd(conversationId);
         
         if (shouldSplit) {
-          // Show confirmation dialog
+          // Show confirmation dialog with appropriate message
+          const message = participantsToRemove.length > 0
+            ? 'Removing participants will create a new conversation with the remaining people. The original conversation will be preserved.'
+            : 'Adding participants will create a group conversation. The original conversation will be preserved.';
+          
           Alert.alert(
             'Create New Conversation?',
-            'Changing participants will create a new conversation. Previous messages will remain in the old conversation.',
+            message,
             [
               {
                 text: 'Cancel',
@@ -647,14 +656,14 @@ export default function ChatScreen() {
                 text: 'Continue',
                 onPress: async () => {
                   try {
-                    // Split conversation
+                    // Split conversation (creates new or finds existing with remaining participants)
                     const newConversationId = await splitConversation(
                       conversationId,
                       allParticipantIds,
                       user.uid
                     );
                     
-                    // Navigate to new conversation
+                    // Navigate to new/existing conversation
                     router.replace(`/chat/${newConversationId}`);
                     
                     // Reset state
@@ -674,15 +683,7 @@ export default function ChatScreen() {
         }
       }
 
-      // No split needed - just add/remove participants
-      // Remove marked participants
-      for (const uid of participantsToRemove) {
-        await removeParticipantFromConversation(conversationId, uid);
-        
-        // Remove from current participants list
-        setCurrentParticipants(prev => prev.filter(p => p.uid !== uid));
-      }
-
+      // No split needed - just add participants (removal always requires split above)
       // Add all pending participants
       for (const participant of pendingParticipants) {
         await addParticipantToConversation(conversationId, participant.uid);
@@ -1026,6 +1027,13 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
+          onContentSizeChange={() => {
+            // Scroll to end immediately on first load (no animation)
+            if (!hasScrolledToEnd.current && messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: false });
+              hasScrolledToEnd.current = true;
+            }
+          }}
           ListFooterComponent={() => (
             <>
               {/* Typing Indicator - inline with messages */}
