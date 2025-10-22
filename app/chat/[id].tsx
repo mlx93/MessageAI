@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
@@ -280,25 +280,31 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!user) return;
 
-    // Reset unread count when entering chat
-    resetUnreadCount(conversationId, user.uid).catch(error => {
-      console.error('Failed to reset unread count:', error);
-    });
+    // Small delay to ensure navigation has completed
+    const setupTimeout = setTimeout(() => {
+      // Reset unread count when entering chat
+      resetUnreadCount(conversationId, user.uid).catch(error => {
+        console.error('Failed to reset unread count:', error);
+      });
 
-    // Set this conversation as active in Firestore (for Cloud Functions)
-    setFirestoreActiveConversation(user.uid, conversationId).catch(error => {
-      console.error('Failed to set Firestore active conversation:', error);
-    });
+      // Set this conversation as active in Firestore (for Cloud Functions)
+      setFirestoreActiveConversation(user.uid, conversationId).catch(error => {
+        console.error('Failed to set Firestore active conversation:', error);
+      });
 
-    // Set this conversation as active locally (for in-app notifications)
-    setLocalActiveConversation(conversationId);
+      // Set this conversation as active locally (for in-app notifications)
+      setLocalActiveConversation(conversationId);
+      console.log(`✅ Set active conversation: ${conversationId}`);
+    }, 100);
 
     // Clear on unmount
     return () => {
+      clearTimeout(setupTimeout);
       setFirestoreActiveConversation(user.uid, null).catch(error => {
         console.error('Failed to clear Firestore active conversation:', error);
       });
       setLocalActiveConversation(null);
+      console.log('✅ Cleared active conversation');
     };
   }, [conversationId, user]);
 
@@ -429,8 +435,8 @@ export default function ChatScreen() {
     }
   };
 
-  // Container-level pan gesture for all blue bubbles
-  const containerPanGesture = Gesture.Pan()
+  // Container-level pan gesture for all blue bubbles (memoized to prevent recreation)
+  const containerPanGesture = useMemo(() => Gesture.Pan()
     .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
     .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (allow scrolling)
     .onUpdate((event) => {
@@ -449,7 +455,7 @@ export default function ChatScreen() {
         // Hide timestamps
         blueBubblesTranslateX.value = withSpring(0);
       }
-    });
+    }), [blueBubblesTranslateX]);
 
   // Animated style for all blue bubbles
   const blueBubblesAnimatedStyle = useAnimatedStyle(() => ({
