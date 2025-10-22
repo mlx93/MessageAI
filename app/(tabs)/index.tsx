@@ -1,5 +1,5 @@
-import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl, Modal, TextInput, ScrollView } from 'react-native';
-import { useEffect, useState, useCallback } from 'react';
+import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations, deleteConversation } from '../../services/conversationService';
 import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
@@ -18,7 +18,6 @@ export default function ConversationsScreen() {
   const [presenceMap, setPresenceMap] = useState<Record<string, { online: boolean; inApp: boolean; lastSeen?: Date }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editedFirstName, setEditedFirstName] = useState('');
@@ -58,21 +57,14 @@ export default function ConversationsScreen() {
       const unsubscribe = getUserConversations(user.uid, (convos) => {
         setConversations(convos);
         setLoading(false);
-        setRefreshing(false);
       });
       
       return unsubscribe;
     } catch (err: any) {
       setError(err.message || 'Failed to load conversations');
       setLoading(false);
-      setRefreshing(false);
     }
   }, [user]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    // The useEffect will handle reloading
-  };
 
   // Subscribe to presence for all participants
   useEffect(() => {
@@ -215,16 +207,18 @@ export default function ConversationsScreen() {
     const isOnline = otherUserId ? presenceMap[otherUserId]?.online : false;
     const isInApp = otherUserId ? presenceMap[otherUserId]?.inApp : false;
 
-    const panGesture = Gesture.Pan()
+    const panGesture = useMemo(() => Gesture.Pan()
       .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
       .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (prioritize scrolling)
       .onUpdate((event) => {
+        'worklet';
         // Only allow left swipe (negative translation) and limit to -80px
         if (event.translationX < 0) {
           translateX.value = Math.max(event.translationX, -80);
         }
       })
       .onEnd((event) => {
+        'worklet';
         if (event.translationX < -40) {
           // Threshold reached - reveal delete button (lowered to 40px for easier access)
           translateX.value = withSpring(-80);
@@ -232,7 +226,7 @@ export default function ConversationsScreen() {
           // Snap back
           translateX.value = withSpring(0);
         }
-      });
+      }), []);
 
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [{ translateX: translateX.value }],
@@ -290,13 +284,6 @@ export default function ConversationsScreen() {
               <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>{getInitials(item)}</Text>
-                  {unreadCount > 0 && (
-                    <View style={styles.avatarUnreadBadge}>
-                      <Text style={styles.avatarUnreadText}>
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </Text>
-                    </View>
-                  )}
                 </View>
                 {item.type === 'direct' && isOnline && (
                   <View 
@@ -311,14 +298,9 @@ export default function ConversationsScreen() {
               <View style={styles.conversationDetails}>
                 <View style={styles.header}>
                   <Text style={styles.title}>{getConversationTitle(item)}</Text>
-                  <View style={styles.rightColumn}>
-                    <Text style={styles.timestamp}>
-                      {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
-                    </Text>
-                    {unreadCount > 0 && (
-                      <View style={styles.blueDot} />
-                    )}
-                  </View>
+                  <Text style={styles.timestamp}>
+                    {item.lastMessage.timestamp ? formatTimestamp(item.lastMessage.timestamp) : ''}
+                  </Text>
                 </View>
                 
                 <View style={styles.footer}>
@@ -394,14 +376,6 @@ export default function ConversationsScreen() {
         data={conversations}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#007AFF"
-            colors={['#007AFF']}
-          />
-        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>💬</Text>
@@ -790,38 +764,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
-  rightColumn: {
-    alignItems: 'flex-end',
-  },
   timestamp: { 
     fontSize: 12, 
     color: '#999' 
-  },
-  blueDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#007AFF',
-    marginTop: 4,
-  },
-  avatarUnreadBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#FF3B30',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  avatarUnreadText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '700',
   },
   footer: { 
     flexDirection: 'row', 
@@ -834,7 +779,7 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   unreadBadge: { 
-    backgroundColor: '#007AFF', 
+    backgroundColor: '#FFCCCB',
     borderRadius: 10, 
     paddingHorizontal: 8, 
     paddingVertical: 2, 
@@ -843,7 +788,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   unreadText: { 
-    color: 'white', 
+    color: '#CC0000',
     fontSize: 12, 
     fontWeight: 'bold' 
   },

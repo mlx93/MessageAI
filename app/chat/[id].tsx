@@ -431,13 +431,17 @@ export default function ChatScreen() {
 
   // Container-level pan gesture for all blue bubbles
   const containerPanGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
+    .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (allow scrolling)
     .onUpdate((event) => {
+      'worklet';
       // Only allow left swipe (negative translation)
       if (event.translationX < 0) {
         blueBubblesTranslateX.value = event.translationX;
       }
     })
     .onEnd((event) => {
+      'worklet';
       if (event.translationX < -60) {
         // Reveal all timestamps
         blueBubblesTranslateX.value = withSpring(-100);
@@ -780,6 +784,10 @@ export default function ChatScreen() {
           ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
+          showsVerticalScrollIndicator={true}
+          scrollEnabled={true}
+          bounces={true}
+          alwaysBounceVertical={false}
         >
           {messages.map((message, index) => {
             const isOwnMessage = message.senderId === user.uid;
@@ -1099,6 +1107,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingLeft: 16,
     paddingRight: 0, // No right padding - timestamps flush with screen edge
+    flexGrow: 1, // Allow content to grow beyond screen height
   },
   messageRow: {
     flexDirection: 'row',

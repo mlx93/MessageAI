@@ -1,7 +1,32 @@
-import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * Helper function to fetch participant details
+ * Extracts user data and formats it for conversation participant details
+ */
+const fetchParticipantDetails = async (userId: string): Promise<any> => {
+  const userSnap = await getDoc(doc(db, 'users', userId));
+  if (!userSnap.exists()) return null;
+  
+  const userData = userSnap.data() as User;
+  return {
+    displayName: userData.displayName,
+    ...(userData.photoURL && { photoURL: userData.photoURL }),
+    initials: userData.initials,
+    unreadCount: 0
+  };
+};
+
+/**
+ * Helper function to check if arrays have identical elements
+ */
+const arraysEqual = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false;
+  return a.every((val, index) => val === b[index]);
+};
 
 /**
  * Create a new conversation or get existing one
@@ -55,8 +80,7 @@ export const createOrGetConversation = async (participantIds: string[], currentU
           const convParticipants = [...conv.participants].sort();
           
           // Check if participants arrays are identical
-          if (convParticipants.length === sorted.length && 
-              convParticipants.every((val, index) => val === sorted[index])) {
+          if (arraysEqual(convParticipants, sorted)) {
             console.log(`✅ Found existing group conversation: ${docSnap.id}`);
             return docSnap.id;
           }
@@ -77,15 +101,9 @@ export const createOrGetConversation = async (participantIds: string[], currentU
   // Fetch participant details
   const participantDetails: any = {};
   for (const uid of participantIds) {
-    const userSnap = await getDoc(doc(db, 'users', uid));
-    if (userSnap.exists()) {
-      const userData = userSnap.data() as User;
-      participantDetails[uid] = {
-        displayName: userData.displayName,
-        ...(userData.photoURL && { photoURL: userData.photoURL }), // Only include if not null/undefined
-        initials: userData.initials,
-        unreadCount: 0
-      };
+    const details = await fetchParticipantDetails(uid);
+    if (details) {
+      participantDetails[uid] = details;
     }
   }
   
@@ -190,15 +208,9 @@ export const addParticipantToConversation = async (conversationId: string, userI
   const updatedParticipants = [...conversation.participants, userId];
   
   // Fetch new participant details
-  const userSnap = await getDoc(doc(db, 'users', userId));
-  if (userSnap.exists()) {
-    const userData = userSnap.data() as User;
-    conversation.participantDetails[userId] = {
-      displayName: userData.displayName,
-      ...(userData.photoURL && { photoURL: userData.photoURL }), // Only include if not null/undefined
-      initials: userData.initials,
-      unreadCount: 0
-    };
+  const details = await fetchParticipantDetails(userId);
+  if (details) {
+    conversation.participantDetails[userId] = details;
   }
   
   // Update conversation type if now 3+ participants

@@ -139,13 +139,23 @@ export const setActiveConversation = async (
   userId: string,
   conversationId: string | null
 ): Promise<void> => {
+  if (!userId) {
+    console.warn('Cannot set active conversation: userId is undefined');
+    return;
+  }
+  
   try {
     await setDoc(doc(db, 'activeConversations', userId), {
       conversationId: conversationId || null,
       lastActive: serverTimestamp(),
     });
-  } catch (error) {
-    console.error('Failed to set active conversation:', error);
+  } catch (error: any) {
+    // Silently fail for permission errors - not critical for app functionality
+    if (error?.code === 'permission-denied') {
+      console.warn('⚠️ Permission denied for activeConversations (non-critical)');
+    } else {
+      console.error('Failed to set active conversation:', error);
+    }
   }
 };
 
