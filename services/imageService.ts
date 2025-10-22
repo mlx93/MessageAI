@@ -7,6 +7,7 @@
 
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
 
@@ -70,6 +71,56 @@ export const compressImage = async (uri: string): Promise<string> => {
 };
 
 /**
+ * Progressive compression based on file size
+ * Uses different compression tiers for different file sizes
+ * 
+ * @param uri - URI of the image to compress
+ * @param size - Size of the image in bytes
+ * @returns URI of the compressed image
+ */
+export const compressImageProgressive = async (uri: string, size: number): Promise<string> => {
+  let width = 1920;
+  let quality = 0.7;
+  
+  console.log(`📸 Compressing image: ${(size / 1024 / 1024).toFixed(2)}MB`);
+  
+  // Tier 1: >10MB (aggressive)
+  if (size > 10 * 1024 * 1024) {
+    width = 1280;
+    quality = 0.6;
+    console.log('📸 Using Tier 1 compression (10MB+): 1280px, 60% quality');
+  }
+  
+  // Tier 2: >20MB (very aggressive)
+  if (size > 20 * 1024 * 1024) {
+    width = 1024;
+    quality = 0.5;
+    console.log('📸 Using Tier 2 compression (20MB+): 1024px, 50% quality');
+  }
+  
+  // Tier 3: >50MB (extreme)
+  if (size > 50 * 1024 * 1024) {
+    width = 800;
+    quality = 0.4;
+    console.log('📸 Using Tier 3 compression (50MB+): 800px, 40% quality');
+  }
+  
+  const compressed = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width } }],
+    {
+      compress: quality,
+      format: ImageManipulator.SaveFormat.JPEG,
+    }
+  );
+  
+  const newSize = await getFileSize(compressed.uri);
+  console.log(`✅ Compressed: ${(size / 1024 / 1024).toFixed(2)}MB → ${(newSize / 1024 / 1024).toFixed(2)}MB`);
+  
+  return compressed.uri;
+};
+
+/**
  * Get file size from URI
  * 
  * @param uri - File URI
@@ -87,9 +138,37 @@ const getFileSize = async (uri: string): Promise<number> => {
 };
 
 /**
+ * Get MIME type from URI
+ * 
+ * @param uri - File URI
+ * @returns MIME type string
+ */
+export const getMimeType = async (uri: string): Promise<string> => {
+  try {
+    // Extract from URI extension
+    const extension = uri.split('.').pop()?.toLowerCase();
+    
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'heic':
+        return 'image/heic';
+      default:
+        return 'image/jpeg'; // Default
+    }
+  } catch (error) {
+    console.error('Failed to detect MIME type:', error);
+    return 'image/jpeg';
+  }
+};
+
+/**
  * Upload an image to Cloud Storage
  * 
- * Automatically compresses images larger than 5MB
+ * Automatically compresses images larger than 5MB using progressive compression
  * 
  * @param uri - URI of the image to upload
  * @param conversationId - ID of the conversation (for organizing storage)
@@ -101,10 +180,10 @@ export const uploadImage = async (uri: string, conversationId: string): Promise<
     const size = await getFileSize(uri);
     let finalUri = uri;
     
-    // Compress if larger than 5MB
+    // Always compress images > 5MB (now with progressive tiers)
     if (size > 5 * 1024 * 1024) {
-      console.log('Image is large, compressing...');
-      finalUri = await compressImage(uri);
+      console.log(`📸 Image is ${(size / 1024 / 1024).toFixed(2)}MB, compressing...`);
+      finalUri = await compressImageProgressive(uri, size);
     }
     
     // Fetch the image as a blob
@@ -127,6 +206,48 @@ export const uploadImage = async (uri: string, conversationId: string): Promise<
     return downloadURL;
   } catch (error) {
     console.error('Failed to upload image:', error);
+    throw error;
+  }
+};
+
+/**
+ * Upload an image with timeout and retry logic
+ * 
+ * @param uri - URI of the image to upload
+ * @param conversationId - ID of the conversation
+ * @param timeoutMs - Timeout in milliseconds (default 15000)
+ * @param retryCount - Current retry attempt (default 0)
+ * @returns Download URL of the uploaded image
+ */
+export const uploadImageWithTimeout = async (
+  uri: string,
+  conversationId: string,
+  timeoutMs = 15000,
+  retryCount = 0
+): Promise<string> => {
+  const uploadPromise = uploadImage(uri, conversationId);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timeout')), timeoutMs)
+  );
+  
+  try {
+    return await Promise.race([uploadPromise, timeoutPromise]);
+  } catch (error: any) {
+    const isTimeout = error.message === 'Upload timeout';
+    
+    // Retry once on timeout
+    if (isTimeout && retryCount < 1) {
+      console.log('📸 Upload timeout, retrying...');
+      return await uploadImageWithTimeout(uri, conversationId, timeoutMs, retryCount + 1);
+    }
+    
+    // Retry once on network error
+    if (!isTimeout && retryCount < 1) {
+      console.log('📸 Upload failed, retrying...');
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2s delay
+      return await uploadImageWithTimeout(uri, conversationId, timeoutMs, retryCount + 1);
+    }
+    
     throw error;
   }
 };
