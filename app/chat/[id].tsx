@@ -1039,13 +1039,18 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
-          initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
+          initialScrollIndex={messages.length > 1 ? messages.length - 1 : undefined}
+          getItemLayout={(data, index) => ({
+            length: 100, // Approximate item height
+            offset: 100 * index,
+            index,
+          })}
           onScrollToIndexFailed={(info) => {
-            // Fallback if initialScrollIndex fails
-            const wait = new Promise(resolve => setTimeout(resolve, 100));
-            wait.then(() => {
-              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-            });
+            console.warn('Scroll to index failed:', info);
+            // Use scrollToEnd as safe fallback
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }, 100);
           }}
           onContentSizeChange={() => {
             // Only scroll on subsequent updates (new messages), not initial load
