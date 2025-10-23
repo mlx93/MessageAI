@@ -1,15 +1,15 @@
 # Active Context & Progress
 
-**Last Updated:** October 23, 2025 (Session 12 - UI Improvements + Polish Complete)  
-**Current Phase:** 🎉 MVP Complete + Foundation Hardened + Production Ready + Professional UX Polish  
+**Last Updated:** October 23, 2025 (Session 13 - Post-MVP Features Complete)  
+**Current Phase:** 🎉 MVP Complete + Post-MVP Enhancements  
 **Next Phase:** Production Deployment
 
 ---
 
 ## 🎯 Current Status Summary
 
-**Development Status:** ✅ **PRODUCTION READY - FULLY POLISHED**  
-**Features Complete:** 10 of 10 core MVP features (100%) + Bonus Features + Image Viewer + Foundation Hardening + Professional UX Polish  
+**Development Status:** ✅ **PRODUCTION READY - ENHANCED**  
+**Features Complete:** 10 of 10 core MVP features (100%) + 15 Bonus Features + 7 Post-MVP Features (32+ total)  
 **Implementation Status:** 100% functional, deterministic updates, batching active, lifecycle-aware, iMessage-quality UX  
 **Code Quality:** Clean codebase, zero linter errors, 82/82 tests passing, 95%+ confidence  
 **Cloud Functions:** ✅ Deployed (auto-reappear deleted conversations)  
@@ -17,7 +17,91 @@
 **Foundation:** ✅ Deterministic conversation updates, 70% write reduction, guaranteed cache flush  
 **Image Features:** ✅ Upload, compression, Storage, full-screen viewer with gestures, clean display  
 **UX Polish:** ✅ Clean back button (no text), instant typing indicators with avatars, verified navigation, Android scroll fixed  
-**Latest Session:** Complete UX overhaul - 11 commits, 8 bug fixes, professional polish across iOS & Android
+**Post-MVP:** ✅ Message deletion, copy, profile pictures, group info, leave group, contact info  
+**Latest Session:** Post-MVP enhancements - 3 commits, 7 new features, critical UX gaps filled
+
+---
+
+## 🆕 October 23, 2025 - Session 13: Post-MVP Features ✅ ⭐ CRITICAL UX ENHANCEMENTS
+
+### **Session Overview - Post-MVP Implementation**
+Implemented all features from `postMVP_features_plan.md` including message deletion, copy, profile picture upload, group info screens, leave group functionality, and contact info. All features production-ready with iMessage-level polish.
+
+**Total Time:** ~2 hours (faster than estimated 6-7 hours)  
+**Files Created:** 2 new screens (group-info.tsx, contact-info.tsx)  
+**Files Modified:** 6 (messageService, imageService, conversationService, chat screen, edit-profile, types)  
+**Linter Errors:** 0  
+**Result:** 7 new features, critical UX gaps filled
+
+### **Features Implemented**
+
+#### **Phase 1: Message Actions (Delete + Copy)**
+- ✅ Soft delete messages (marks deleted, preserves history)
+- ✅ Long-press message → ActionSheet (iOS) / Alert (Android)
+- ✅ Copy message text to clipboard (expo-clipboard)
+- ✅ Delete own messages only (permission check)
+- ✅ Real-time sync - deleted messages disappear for all users
+- ✅ Updates conversation lastMessage on deletion
+
+**Files:**
+- `services/messageService.ts` - Added `deleteMessage()` function
+- `types/index.ts` - Added `deleted?: boolean` to Message type
+- `app/chat/[id].tsx` - Added long-press handlers, ActionSheet, copy functionality
+
+#### **Phase 2: Profile Picture Upload**
+- ✅ Pick image from Camera Roll
+- ✅ Square crop (1:1 aspect ratio)
+- ✅ Compress to 400px, 80% quality
+- ✅ Upload to Storage: `profile-pictures/{userId}/{timestamp}.jpg`
+- ✅ Update user profile with photoURL
+- ✅ Permission handling with helpful dialogs
+- ✅ Loading state with spinner overlay
+
+**Files:**
+- `services/imageService.ts` - Added `uploadProfilePicture()` function
+- `app/auth/edit-profile.tsx` - Added photo upload UI
+- `storage.rules` - Already configured for profile-pictures path
+
+#### **Phase 3: Group Info & Management**
+- ✅ Group Info Screen
+  - Tap group header → opens group info
+  - Shows all participants with avatars
+  - Participant count
+  - "You" label on current user
+  - Tap participant → view contact info
+- ✅ Leave Group Functionality
+  - Leave button with confirmation
+  - Removes user from participants
+  - Adds to deletedBy (hides conversation)
+  - Sends system message
+  - If last participant → hides for everyone
+- ✅ Contact Info Screen
+  - View individual contact details
+  - Profile picture/initials
+  - Email, phone, online status
+  - "Send Message" button
+
+**Files:**
+- `app/chat/group-info.tsx` - NEW (group info screen)
+- `app/chat/contact-info.tsx` - NEW (contact info screen)
+- `services/conversationService.ts` - Added `leaveConversation()` function
+- `app/chat/[id].tsx` - Added tap handler for group header
+
+### **Testing Notes**
+All features tested and verified:
+- ✅ Message deletion works for own messages only
+- ✅ Copy works on all messages
+- ✅ Profile picture upload compresses and displays correctly
+- ✅ Group info shows all participants
+- ✅ Leave group removes user and shows system message
+- ✅ Contact info navigates correctly
+
+### **Commits**
+```
+2ba3ca3 - Add message deletion, copy, and profile picture upload
+5baccc6 - Add group info screen, leave group, and contact info
+7d5e084 - Update feature list with post-MVP enhancements
+```
 
 ---
 
