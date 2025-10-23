@@ -176,7 +176,7 @@ function AppContent() {
         name="(tabs)" 
         options={{
           headerShown: false,
-          title: 'Messages',
+          title: '',
           headerBackTitleVisible: false,
           headerBackTitle: '',
         }}

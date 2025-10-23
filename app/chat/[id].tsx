@@ -148,6 +148,7 @@ export default function ChatScreen() {
 
           navigation.setOptions({
             title: isAddMode ? '' : title,
+            headerBackTitleVisible: false,
             headerBackTitle: '',
             headerTitle: isAddMode || conversation.type !== 'direct' ? undefined : () => (
               <View style={{ flexDirection: 'column', alignItems: 'center' }}>
@@ -185,9 +186,9 @@ export default function ChatScreen() {
               <TouchableOpacity 
                 onPress={buttonAction} 
                 style={{ 
-                  marginRight: 12,
-                  width: 32,
-                  height: 32,
+                  marginRight: 16,
+                  width: 44,
+                  height: 44,
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
@@ -203,7 +204,7 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.error('Failed to load conversation:', error);
-        navigation.setOptions({ title: 'Chat', headerBackTitle: '' });
+        navigation.setOptions({ title: 'Chat', headerBackTitleVisible: false, headerBackTitle: '' });
       }
     };
     loadConversationTitle();
