@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion, serverTimestamp, increment } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion, serverTimestamp, increment, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -531,5 +531,63 @@ export const getUnreadCount = async (
     console.error('Failed to get unread count:', error);
     return 0;
   }
+};
+
+/**
+ * Remove user from group conversation
+ * If last participant, mark conversation as deleted
+ */
+export const leaveConversation = async (
+  conversationId: string,
+  userId: string
+): Promise<void> => {
+  const conversationRef = doc(db, 'conversations', conversationId);
+  const conversationSnap = await getDoc(conversationRef);
+  
+  if (!conversationSnap.exists()) {
+    throw new Error('Conversation not found');
+  }
+  
+  const conversation = conversationSnap.data();
+  
+  // Only allow leaving groups
+  if (conversation.type !== 'group') {
+    throw new Error('Cannot leave direct conversations');
+  }
+  
+  // Check if user is participant
+  if (!conversation.participants.includes(userId)) {
+    throw new Error('User is not a participant');
+  }
+  
+  // Remove user from participants array
+  const updatedParticipants = conversation.participants.filter((id: string) => id !== userId);
+  
+  // If only one participant left, convert to deletedBy array
+  if (updatedParticipants.length === 1) {
+    await updateDoc(conversationRef, {
+      participants: updatedParticipants,
+      deletedBy: arrayUnion(...updatedParticipants) // Hide for last person too
+    });
+  } else {
+    // Remove from participant list and participant details
+    const updatedDetails = { ...conversation.participantDetails };
+    delete updatedDetails[userId];
+    
+    await updateDoc(conversationRef, {
+      participants: updatedParticipants,
+      participantDetails: updatedDetails,
+      // Add to deletedBy so it disappears from leaver's list
+      deletedBy: arrayUnion(userId)
+    });
+  }
+  
+  // Send system message
+  await addDoc(collection(db, `conversations/${conversationId}/messages`), {
+    text: `${conversation.participantDetails[userId]?.displayName || 'User'} left the group`,
+    type: 'system',
+    timestamp: serverTimestamp(),
+    senderId: 'system'
+  });
 };
 
