@@ -125,3 +125,57 @@ export const getQueueSize = async (): Promise<number> => {
   return queue.length;
 };
 
+/**
+ * Retry a single message manually (triggered by user tap on failed message)
+ * Returns true if successful, false if failed
+ */
+export const retryMessage = async (localId: string): Promise<boolean> => {
+  const queue = await getQueue();
+  const message = queue.find(msg => msg.localId === localId);
+  
+  if (!message) {
+    console.warn(`⚠️ Message ${localId} not found in queue`);
+    return false;
+  }
+  
+  try {
+    // Import timeout version dynamically to avoid circular dependency
+    const { sendMessageWithTimeout } = await import('./messageService');
+    
+    // Use 10 second timeout for manual retries
+    await sendMessageWithTimeout(
+      message.conversationId, 
+      message.text, 
+      message.senderId, 
+      message.localId,
+      undefined,
+      10000
+    );
+    updateConversationLastMessageBatched(message.conversationId, message.text, message.senderId, message.localId);
+    
+    // Remove from queue on successful send
+    await removeFromQueue(message.localId);
+    console.log('✅ Manual retry successful:', message.localId);
+    return true;
+  } catch (error) {
+    console.error('❌ Manual retry failed:', error);
+    
+    // Update retry count
+    const currentQueue = await getQueue();
+    const updatedQueue = currentQueue.map(m => 
+      m.localId === message.localId ? { ...m, retryCount: m.retryCount + 1 } : m
+    );
+    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(updatedQueue));
+    
+    return false;
+  }
+};
+
+/**
+ * Get queued messages for a specific conversation
+ */
+export const getQueuedMessagesForConversation = async (conversationId: string): Promise<QueuedMessage[]> => {
+  const queue = await getQueue();
+  return queue.filter(msg => msg.conversationId === conversationId);
+};
+

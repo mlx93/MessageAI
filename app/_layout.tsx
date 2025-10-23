@@ -24,6 +24,7 @@ import {
   markOffline 
 } from '../services/globalMessageListener';
 import InAppNotificationBanner from '../components/InAppNotificationBanner';
+import NetworkStatusBanner from '../components/NetworkStatusBanner';
 import NetInfo from '@react-native-community/netinfo';
 
 function AppContent() {
@@ -154,6 +155,9 @@ function AppContent() {
 
   return (
     <>
+      {/* Network status banner - shown at the very top when offline */}
+      <NetworkStatusBanner />
+      
       {/* In-app notification banner */}
       <InAppNotificationBanner 
         notification={inAppNotification}
@@ -230,6 +234,54 @@ function AppContent() {
           headerBackTitle: '',
           presentation: 'card',
         }} 
+      />
+      <Stack.Screen
+        name="group/[id]"
+        options={({ navigation }) => ({
+          headerShown: true,
+          title: 'Group Info',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={{
+                marginLeft: 0,
+                paddingLeft: 12,
+                paddingRight: 12,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 5, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={30} color="#007AFF" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="contact/[userId]"
+        options={({ navigation }) => ({
+          headerShown: true,
+          title: 'Contact Info',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={{
+                marginLeft: 0,
+                paddingLeft: 12,
+                paddingRight: 12,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 5, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={30} color="#007AFF" />
+            </TouchableOpacity>
+          ),
+        })}
       />
     </Stack>
     </>

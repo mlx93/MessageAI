@@ -86,8 +86,8 @@ aiMessage follows a modern mobile-first architecture optimized for rapid develop
   - Offline queue metadata
 
 ### **Media Handling**
-- **expo-image-picker:** v17.0.8 - Select images from gallery/camera
-- **expo-image-manipulator:** v14.0.7 - Resize and compress images
+- **expo-image-picker:** v17.0.8 - Select images from gallery/camera (allowsEditing + 1:1 crop for avatars)
+- **expo-image-manipulator:** v14.0.7 - Resize and compress images (square cropping for profile photos)
 - **Progressive Compression:** 60MB+ images handled gracefully
 
 ### **Device Features**
@@ -367,14 +367,15 @@ services/
 ├── otpService.ts           # OTP code management
 ├── devOtpHelper.ts         # Dev OTP testing helper
 ├── contactService.ts       # Contact import and matching
-├── conversationService.ts  # Conversation management
-├── messageService.ts       # Message send/receive
+├── conversationService.ts  # Conversation management (participant detail updates)
+├── messageService.ts       # Message send/receive & soft delete
 ├── sqliteService.ts        # Local caching
-├── offlineQueue.ts         # Offline queue management
-├── imageService.ts         # Image upload/compression
+├── offlineQueue.ts         # Offline queue management (queued banner)
+├── imageService.ts         # Image upload/compression (profile photos)
 ├── presenceService.ts      # Presence system
 ├── notificationService.ts  # Push notification handling
-└── globalMessageListener.ts # Global message subscriptions
+├── globalMessageListener.ts # Global message subscriptions
+└── ...
 ```
 
 **Benefits:**
@@ -553,7 +554,14 @@ service firebase.storage {
     match /users/{userId}/media/{filename} {
       allow read: if request.auth != null;
       allow write: if request.auth.uid == userId 
-        && request.resource.size < 10 * 1024 * 1024  // 10MB limit
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /users/{userId}/profile-photos/{filename} {
+      allow read: if request.auth != null;
+      allow write: if request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }
   }

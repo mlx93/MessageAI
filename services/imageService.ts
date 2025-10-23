@@ -51,7 +51,8 @@ export const pickImage = async (): Promise<string | null> => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [1, 1],
     });
 
     if (result.canceled) {
@@ -292,6 +293,50 @@ export const pickAndUploadImage = async (conversationId: string): Promise<string
     return downloadURL;
   } catch (error) {
     console.error('Failed to pick and upload image:', error);
+    throw error;
+  }
+};
+
+/**
+ * Pick, crop to square, and upload a profile picture
+ * 
+ * @param userId - ID of the user (for storage path)
+ * @returns Download URL of the uploaded profile picture, or null if cancelled/failed
+ */
+export const pickAndUploadProfilePicture = async (userId: string): Promise<string | null> => {
+  try {
+    // Pick image
+    const uri = await pickImage();
+    if (!uri) {
+      return null;
+    }
+    
+    // Crop to square (400x400)
+    const cropped = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 400, height: 400 } }],
+      {
+        compress: 0.8,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    
+    // Upload to profile-photos path
+    const response = await fetch(cropped.uri);
+    const blob = await response.blob();
+    
+    const filename = 'avatar.jpg';
+    const storageRef = ref(storage, `users/${userId}/profile-photos/${filename}`);
+    
+    console.log('Uploading profile picture...');
+    await uploadBytes(storageRef, blob);
+    
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log('Profile picture uploaded successfully:', downloadURL);
+    
+    return downloadURL;
+  } catch (error) {
+    console.error('Failed to pick and upload profile picture:', error);
     throw error;
   }
 };

@@ -23,8 +23,23 @@ service firebase.storage {
       allow delete: if isAuthenticated();
     }
     
-    // Profile pictures
+    // Profile pictures (legacy path)
     match /profile-pictures/{userId}/{imageId} {
+      // Allow users to upload their own profile picture (max 10MB)
+      allow create, update: if isAuthenticated() 
+                            && request.auth.uid == userId
+                            && request.resource.size < 10 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*');
+      
+      // Anyone authenticated can read profile pictures
+      allow read: if isAuthenticated();
+      
+      // Allow users to delete their own profile picture
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Profile photos (new path for user avatars)
+    match /users/{userId}/profile-photos/{imageId} {
       // Allow users to upload their own profile picture (max 10MB)
       allow create, update: if isAuthenticated() 
                             && request.auth.uid == userId

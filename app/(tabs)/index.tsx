@@ -171,13 +171,8 @@ export default function ConversationsScreen() {
   };
 
   const handleOpenProfile = useCallback(() => {
-    // Populate edit fields with current values
-    setEditedFirstName(userProfile?.firstName || '');
-    setEditedLastName(userProfile?.lastName || '');
-    setEditedEmail(userProfile?.email || '');
-    setIsEditingProfile(false);
-    setShowProfileMenu(true);
-  }, [userProfile]);
+    router.push('/auth/edit-profile');
+  }, []);
 
   const handleSaveProfile = useCallback(async () => {
     if (!user) return;
@@ -296,7 +291,7 @@ export default function ConversationsScreen() {
     }, [item.id, user.uid, item.participantDetails]);
 
     const panGesture = useMemo(() => Gesture.Pan()
-      .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
+      .activeOffsetX([-40, 40]) // Improved: 40px threshold for more reliable activation
       .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (prioritize scrolling)
       .onUpdate((event) => {
         'worklet';

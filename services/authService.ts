@@ -16,6 +16,7 @@ import { httpsCallable } from 'firebase/functions';
 import { doc, setDoc, getDoc, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, functions } from './firebase';
 import { User } from '../types';
+import { updateParticipantDetailsForUser } from './conversationService';
 
 /**
  * Phone number normalization - converts various formats to E.164
@@ -196,6 +197,15 @@ export const updateUserProfile = async (
   updates: Partial<User>
 ): Promise<void> => {
   await setDoc(doc(db, 'users', uid), updates, { merge: true });
+
+  const { displayName, photoURL, initials } = updates;
+  if (displayName !== undefined || photoURL !== undefined || initials !== undefined) {
+    await updateParticipantDetailsForUser(uid, {
+      displayName,
+      photoURL,
+      initials,
+    });
+  }
 };
 
 /**

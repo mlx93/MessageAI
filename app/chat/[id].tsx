@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
+import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
 import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
 import { cacheMessage, cacheMessageBatched, getCachedMessages, flushCacheBuffer } from '../../services/sqliteService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
@@ -21,6 +21,11 @@ import NetInfo from '@react-native-community/netinfo';
 import { Message } from '../../types';
 import { Ionicons } from '@expo/vector-icons';
 import ImageViewer from '../../components/ImageViewer';
+import MessageActionSheet from '../../components/MessageActionSheet';
+import CachedImage from '../../components/CachedImage';
+import QueueVisibilityBanner from '../../components/QueueVisibilityBanner';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 
 interface Participant {
   uid: string;
@@ -56,6 +61,8 @@ export default function ChatScreen() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null); // Image viewer state
   const [isInputFocused, setIsInputFocused] = useState(false); // Track if input is focused
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
@@ -139,7 +146,9 @@ export default function ChatScreen() {
               .slice(0, 3)
               .join(', ');
             title = names + (conversation.participants.length > 4 ? '...' : '');
-            subtitle = `${conversation.participants.length} participants`;
+            // Participant count with proper pluralization
+            const count = conversation.participants.length;
+            subtitle = `${count} ${count === 1 ? 'participant' : 'participants'}`;
           }
 
           // Determine button based on state
@@ -149,38 +158,48 @@ export default function ChatScreen() {
           navigation.setOptions({
             title: isAddMode ? '' : title,
             headerBackTitle: '',
-            headerTitle: isAddMode || conversation.type !== 'direct' ? undefined : () => (
-              <View style={{ flexDirection: 'column', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
-                    {title}
-                  </Text>
-                  {(() => {
-                    // Check staleness before showing indicator (22s threshold)
-                    const secondsAgo = otherUserLastSeen 
-                      ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
-                      : Infinity;
-                    const isStale = secondsAgo >= 22;
-                    
-                    return otherUserOnline && !isStale && (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if background
-                        }}
-                      />
-                    );
-                  })()}
+            headerTitle: isAddMode ? undefined : () => {
+              const isGroup = conversation.type === 'group';
+              const HeaderContent = (
+                <View style={{ flexDirection: 'column', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
+                      {title}
+                    </Text>
+                    {!isGroup && (() => {
+                      // Check staleness before showing indicator (22s threshold)
+                      const secondsAgo = otherUserLastSeen 
+                        ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+                        : Infinity;
+                      const isStale = secondsAgo >= 22;
+                      
+                      return otherUserOnline && !isStale && (
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A',
+                          }}
+                        />
+                      );
+                    })()}
+                  </View>
+                  {subtitle && (
+                    <Text style={{ fontSize: 12, color: '#666' }}>
+                      {subtitle}
+                    </Text>
+                  )}
                 </View>
-                {subtitle && (
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    {subtitle}
-                  </Text>
-                )}
-              </View>
-            ),
+              );
+
+              // Make group headers tappable
+              return isGroup ? (
+                <TouchableOpacity onPress={() => router.push(`/group/${conversationId}`)}>
+                  {HeaderContent}
+                </TouchableOpacity>
+              ) : HeaderContent;
+            },
             headerRight: () => (
               <TouchableOpacity 
                 onPress={buttonAction} 
@@ -236,23 +255,28 @@ export default function ChatScreen() {
 
     // Subscribe to real-time messages
     const unsubscribeMessages = subscribeToMessages(conversationId, (msgs) => {
-      setMessages(msgs);
+      // Filter out messages deleted by current user
+      const visibleMessages = msgs.filter(m => 
+        !m.deletedBy || !m.deletedBy.includes(user!.uid)
+      );
+      
+      setMessages(visibleMessages);
       // Only animate scroll if we've already done the initial scroll (not first load)
       if (hasScrolledToEnd.current) {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       }
       
       // Cache messages (batched for performance)
-      msgs.forEach(m => {
+      visibleMessages.forEach(m => {
         cacheMessageBatched(m);
       });
       
       // Mark messages as delivered
-      msgs.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
+      visibleMessages.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
         .forEach(m => markMessageAsDelivered(conversationId, m.id, user!.uid));
       
       // Mark all unread messages as read (no flag - being in chat = messages are read)
-      const unreadMessages = msgs.filter(m => 
+      const unreadMessages = visibleMessages.filter(m => 
         m.senderId !== user!.uid &&           // Not from me
         !m.readBy.includes(user!.uid)         // I haven't read it yet
       );
@@ -517,7 +541,7 @@ export default function ChatScreen() {
     if (!details) return null;
     
     const displayName = details.displayName || 'Unknown';
-    const initials = details.initials || displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    const initials = details.initials || displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
     
     return { displayName, initials };
   }, [participantDetailsMap]);
@@ -615,6 +639,8 @@ export default function ChatScreen() {
   };
 
   const handleConfirmAddUsers = async () => {
+    if (!user) return;
+    
     if (pendingParticipants.length === 0 && participantsToRemove.length === 0) {
       setIsAddMode(false);
       return;
@@ -667,7 +693,7 @@ export default function ChatScreen() {
                     const newConversationId = await splitConversation(
                       conversationId,
                       allParticipantIds,
-                      user.uid
+                      user!.uid // Safe: user checked at start of handleConfirmAddUsers
                     );
                     
                     // Navigate to new/existing conversation
@@ -713,10 +739,63 @@ export default function ChatScreen() {
     }
   };
 
+  // Action sheet handlers
+  const handleLongPressMessage = useCallback((message: Message) => {
+    setSelectedMessage(message);
+    setActionSheetVisible(true);
+  }, []);
+
+  const handleCopyMessage = useCallback(async () => {
+    if (!selectedMessage) return;
+
+    const textToCopy = selectedMessage.text;
+    
+    if (!textToCopy || textToCopy.trim().length === 0) {
+      Alert.alert('No Text', 'This message has no text to copy');
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(textToCopy);
+      // Silent copy - no notification
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      Alert.alert('Error', 'Failed to copy text');
+    }
+  }, [selectedMessage]);
+
+  const handleDeleteMessage = useCallback(async () => {
+    if (!selectedMessage || !user) return;
+
+    Alert.alert(
+      'Delete Message',
+      'Delete this message for yourself? Others will still see it.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessage(conversationId, selectedMessage.id, user.uid);
+              // Message will be filtered out via real-time listener
+            } catch (error) {
+              console.error('Failed to delete message:', error);
+              Alert.alert('Error', 'Failed to delete message');
+            }
+          }
+        }
+      ]
+    );
+  }, [selectedMessage, user, conversationId]);
+
   // Manual retry handler for queued messages
   const handleRetryMessage = useCallback(async (localId: string) => {
     try {
-      const { getQueue } = await import('../services/offlineQueue');
+      const { getQueue } = await import('../../services/offlineQueue');
       const queue = await getQueue();
       const message = queue.find(m => m.localId === localId);
       
@@ -780,6 +859,60 @@ export default function ChatScreen() {
     }
   }, []);
 
+  // Retry handler that returns success/failure (for failed messages)
+  const handleRetryMessageWithAlert = useCallback(async (localId: string): Promise<boolean> => {
+    try {
+      const { retryMessage } = await import('../../services/offlineQueue');
+      
+      // Show loading
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.localId === localId || msg.id === localId
+            ? { ...msg, status: 'sending' }
+            : msg
+        )
+      );
+      
+      // Try to retry
+      const success = await retryMessage(localId);
+      
+      if (success) {
+        // Update UI to sent
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.localId === localId || msg.id === localId
+              ? { ...msg, status: 'sent' }
+              : msg
+          )
+        );
+        Alert.alert('✅ Sent', 'Message sent successfully');
+        return true;
+      } else {
+        // Update UI back to failed
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.localId === localId || msg.id === localId
+              ? { ...msg, status: 'failed' }
+              : msg
+          )
+        );
+        return false;
+      }
+    } catch (error) {
+      console.error('Retry failed:', error);
+      
+      // Update UI back to failed
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.localId === localId || msg.id === localId
+            ? { ...msg, status: 'failed' }
+            : msg
+        )
+      );
+      return false;
+    }
+  }, []);
+
   // Memoized MessageRow component for FlatList performance
   const MessageRow = memo(({ item: message, index }: { item: Message; index: number }) => {
     const isOwnMessage = message.senderId === user!.uid;
@@ -800,18 +933,20 @@ export default function ChatScreen() {
             <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
               <View style={styles.messageContainer}>
                 {isImageMessage ? (
-                  <TouchableOpacity 
-                    onPress={() => setViewerImageUrl(message.mediaURL!)}
-                    style={[styles.imageMessageContainer, styles.ownImageContainer]}
-                  >
-                    <Image 
-                      source={{ uri: message.mediaURL }} 
+                  <View style={[styles.imageMessageContainer, styles.ownImageContainer]}>
+                    <CachedImage
+                      uri={message.mediaURL!}
                       style={[styles.messageImage, styles.ownMessageImage]}
                       resizeMode="cover"
+                      onPress={() => setViewerImageUrl(message.mediaURL!)}
+                      onLongPress={() => handleLongPressMessage(message)}
+                      delayLongPress={500}
                     />
-                  </TouchableOpacity>
+                  </View>
                 ) : (
-                  <View 
+                  <Pressable 
+                    onLongPress={() => handleLongPressMessage(message)}
+                    delayLongPress={500}
                     style={[
                       styles.messageBubble,
                       styles.ownMessage,
@@ -820,7 +955,7 @@ export default function ChatScreen() {
                     <Text style={[styles.messageText, { color: '#fff' }]}>
                       {message.text}
                     </Text>
-                  </View>
+                  </Pressable>
                 )}
                 
                 {/* Read receipt below bubble - always visible */}
@@ -847,6 +982,52 @@ export default function ChatScreen() {
                       <Text style={styles.retryText}>Retry</Text>
                     </TouchableOpacity>
                   </View>
+                )}
+                
+                {/* Failed status - red exclamation icon with haptic feedback */}
+                {message.status === 'failed' && (
+                  <TouchableOpacity 
+                    onPress={async () => {
+                      // Haptic feedback on tap
+                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      
+                      if (user) {
+                        // Try retry first
+                        const success = await handleRetryMessageWithAlert(message.localId || message.id);
+                        
+                        if (!success) {
+                          // Show alert with options after 3 failed attempts
+                          Alert.alert(
+                            'Message Failed',
+                            'This message failed to send after multiple attempts.',
+                            [
+                              {
+                                text: 'Try Again',
+                                onPress: () => handleRetryMessage(message.localId || message.id)
+                              },
+                              {
+                                text: 'Delete Message',
+                                style: 'destructive',
+                                onPress: async () => {
+                                  // Remove from queue and messages
+                                  await removeFromQueue(message.localId || message.id);
+                                  setMessages(prev => prev.filter(m => m.localId !== message.localId && m.id !== message.id));
+                                }
+                              },
+                              {
+                                text: 'Cancel',
+                                style: 'cancel'
+                              }
+                            ]
+                          );
+                        }
+                      }
+                    }}
+                    style={styles.failedIcon}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="alert-circle" size={20} color="#FF3B30" />
+                  </TouchableOpacity>
                 )}
               </View>
               
@@ -877,18 +1058,20 @@ export default function ChatScreen() {
               )}
               
               {isImageMessage ? (
-                <TouchableOpacity 
-                  onPress={() => setViewerImageUrl(message.mediaURL!)}
-                  style={styles.imageMessageContainer}
-                >
-                  <Image 
-                    source={{ uri: message.mediaURL }} 
+                <View style={[styles.imageMessageContainer, styles.otherImageContainer]}>
+                  <CachedImage
+                    uri={message.mediaURL!}
                     style={[styles.messageImage, styles.otherMessageImage]}
                     resizeMode="cover"
+                    onPress={() => setViewerImageUrl(message.mediaURL!)}
+                    onLongPress={() => handleLongPressMessage(message)}
+                    delayLongPress={500}
                   />
-                </TouchableOpacity>
+                </View>
               ) : (
-                <View 
+                <Pressable 
+                  onLongPress={() => handleLongPressMessage(message)}
+                  delayLongPress={500}
                   style={[
                     styles.messageBubble,
                     styles.otherMessage,
@@ -897,7 +1080,7 @@ export default function ChatScreen() {
                   <Text style={[styles.messageText, { color: '#000' }]}>
                     {message.text}
                   </Text>
-                </View>
+                </Pressable>
               )}
               
               {/* Read receipt below bubble */}
@@ -1100,6 +1283,22 @@ export default function ChatScreen() {
         />
       </View>
 
+      {/* Queue Visibility Banner - shows pending/failed messages */}
+      <QueueVisibilityBanner 
+        conversationId={conversationId}
+        onTapBanner={() => {
+          // Scroll to first queued/failed message
+          const firstQueuedIndex = messages.findIndex(m => m.status === 'queued' || m.status === 'failed');
+          if (firstQueuedIndex !== -1) {
+            flatListRef.current?.scrollToIndex({ 
+              index: firstQueuedIndex, 
+              animated: true,
+              viewPosition: 0.5 // Center the message
+            });
+          }
+        }}
+      />
+
       <View style={styles.inputContainer}>
         <TouchableOpacity 
           style={styles.imageButton}
@@ -1134,6 +1333,20 @@ export default function ChatScreen() {
           onClose={() => setViewerImageUrl(null)}
         />
       )}
+
+      {/* Message Action Sheet */}
+      <MessageActionSheet
+        visible={actionSheetVisible}
+        onClose={() => {
+          setActionSheetVisible(false);
+          setSelectedMessage(null);
+        }}
+        onCopy={handleCopyMessage}
+        onDelete={selectedMessage?.senderId === user?.uid ? handleDeleteMessage : undefined}
+        messageText={selectedMessage?.text || ''}
+        isOwnMessage={selectedMessage?.senderId === user?.uid}
+      />
+
     </KeyboardAvoidingView>
   );
 }
@@ -1349,6 +1562,9 @@ const styles = StyleSheet.create({
     marginLeft: 'auto', // Push to far right
     marginRight: 8, // Small margin so images don't touch screen edge
   },
+  otherImageContainer: {
+    alignSelf: 'flex-start',
+  },
   ownMessage: {
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
@@ -1498,6 +1714,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 4,
     alignSelf: 'flex-end',
+  },
+  failedIcon: {
+    marginTop: 4,
+    alignSelf: 'flex-end',
+    padding: 4,
   },
   queuedText: {
     fontSize: 12,

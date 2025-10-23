@@ -22,6 +22,8 @@ import { router } from 'expo-router';
 import { updateUserProfile } from '../../services/authService';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
+import { pickAndUploadProfilePicture } from '../../services/imageService';
+import Avatar from '../../components/Avatar';
 
 export default function EditProfileScreen() {
   const { user, userProfile, refreshUserProfile } = useAuth();
@@ -29,6 +31,7 @@ export default function EditProfileScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   useEffect(() => {
     if (userProfile) {
@@ -73,6 +76,24 @@ export default function EditProfileScreen() {
     router.back();
   };
 
+  const handleUploadAvatar = async () => {
+    if (!user) return;
+    
+    setIsUploadingAvatar(true);
+    try {
+      const photoURL = await pickAndUploadProfilePicture(user.uid);
+      if (photoURL) {
+        await updateUserProfile(user.uid, { photoURL });
+        await refreshUserProfile();
+      }
+    } catch (error: any) {
+      console.error('Failed to upload avatar:', error);
+      Alert.alert('Error', 'Failed to upload profile picture');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -86,6 +107,37 @@ export default function EditProfileScreen() {
           <View style={styles.content}>
             <Text style={styles.title}>Edit Profile</Text>
             <Text style={styles.subtitle}>Update your account information</Text>
+
+            {/* Profile Picture */}
+            <TouchableOpacity 
+              style={styles.avatarContainer} 
+              onPress={handleUploadAvatar}
+              disabled={isUploadingAvatar}
+              activeOpacity={0.8}
+            >
+              <Avatar
+                photoURL={userProfile?.photoURL}
+                initials={userProfile?.initials || '??'}
+                size={120}
+              />
+              {isUploadingAvatar && (
+                <View style={styles.avatarLoading}>
+                  <ActivityIndicator color="#fff" size="large" />
+                </View>
+              )}
+              <Text style={styles.avatarText}>Tap to change photo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.uploadPhotoButton, isUploadingAvatar && styles.buttonDisabled]}
+              onPress={handleUploadAvatar}
+              disabled={isUploadingAvatar}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.uploadPhotoText}>
+                {isUploadingAvatar ? 'Uploading…' : 'Upload Profile Photo'}
+              </Text>
+            </TouchableOpacity>
 
             <TextInput
               style={styles.input}
@@ -182,6 +234,40 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 40,
+  },
+  avatarContainer: {
+    alignSelf: 'center',
+    marginBottom: 24,
+    alignItems: 'center',
+  },
+  avatarLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 60,
+  },
+  avatarText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#007AFF',
+  },
+  uploadPhotoButton: {
+    alignSelf: 'center',
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    marginBottom: 24,
+  },
+  uploadPhotoText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
   input: {
     borderWidth: 1,

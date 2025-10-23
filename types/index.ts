@@ -27,12 +27,13 @@ export interface Message {
   text: string;
   senderId: string;
   timestamp: Date;
-  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'queued';
   type: 'text' | 'image' | 'system';
   mediaURL?: string;
   localId: string; // For optimistic updates and deduplication
   readBy: string[]; // Array of user IDs who have read this message
   deliveredTo: string[]; // Array of user IDs who have received this message
+  deletedBy?: string[]; // Array of user IDs who soft-deleted this message
 }
 
 export interface Conversation {

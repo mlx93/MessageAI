@@ -53,7 +53,8 @@ export const subscribeToMessages = (
         mediaURL: data.mediaURL,
         localId: data.localId,
         readBy: data.readBy || [],
-        deliveredTo: data.deliveredTo || []
+        deliveredTo: data.deliveredTo || [],
+        deletedBy: data.deletedBy || []
       } as Message;
     });
     callback(messages);
@@ -95,6 +96,21 @@ export const markMessageAsDelivered = async (
   await updateDoc(messageRef, {
     deliveredTo: arrayUnion(userId),
     status: 'delivered'
+  });
+};
+
+/**
+ * Soft-delete a message for a specific user
+ * Message remains visible to other users
+ */
+export const deleteMessage = async (
+  conversationId: string,
+  messageId: string,
+  userId: string
+): Promise<void> => {
+  const messageRef = doc(db, `conversations/${conversationId}/messages`, messageId);
+  await updateDoc(messageRef, {
+    deletedBy: arrayUnion(userId)
   });
 };
 

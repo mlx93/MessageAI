@@ -3378,3 +3378,19 @@ After fixes, all 7 scenarios should pass:
 - 4-6 hours of fixes gets us to 95% testing confidence
 - Comprehensive implementation plan created
 - All code examples ready to implement
+
+---
+
+**October 23, 2025 (Session 13 - Post-MVP UX Enhancements)**
+- ✅ Added full-screen `MessageActionSheet` for copy/delete with iOS polish
+- ✅ Implemented per-user soft delete filtering in `chat/[id].tsx`
+- ✅ Copy feature tuned (500ms long press, smooth fade animations)
+- ✅ Profile photo flow: square crop, upload to Storage, global participant refresh
+- ✅ Contact & group info screens: added back navigation + send message flow fix
+- ✅ Cached image component created (loading states, retry, cache busting)
+- ✅ Firebase Storage rules extended to `users/{uid}/profile-photos` (deployed)
+- ✅ Clean restart script + troubleshooting guide documented
+- 🧪 Verified message send/retry, delete, and avatar propagation across chats
+- ⚠️ Remaining: review expo-image-picker deprecation warning in future pass
+
+---

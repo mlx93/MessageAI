@@ -221,7 +221,7 @@ export const updateConversationLastMessage = async (
  * Batched version of updateConversationLastMessage
  * Debounces rapid updates to reduce Firestore writes
  */
-let updateTimer: NodeJS.Timeout | null = null;
+let updateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingUpdate: { conversationId: string, text: string, senderId: string, messageId: string } | null = null;
 
 export const updateConversationLastMessageBatched = (
@@ -251,6 +251,46 @@ export const updateConversationLastMessageBatched = (
       pendingUpdate = null;
     }
   }, 300);
+};
+
+export const updateParticipantDetailsForUser = async (
+  userId: string,
+  updates: {
+    displayName?: string;
+    photoURL?: string | null;
+    initials?: string;
+  }
+): Promise<void> => {
+  try {
+    const q = query(
+      collection(db, 'conversations'),
+      where('participants', 'array-contains', userId)
+    );
+
+    const snapshot = await getDocs(q);
+
+    const updateEntries = Object.entries(updates).filter(([, value]) => value !== undefined);
+    if (updateEntries.length === 0) return;
+
+    await Promise.all(
+      snapshot.docs.map(async (docSnap) => {
+        const docRef = doc(db, 'conversations', docSnap.id);
+        const updatePayload: Record<string, any> = {};
+
+        for (const [key, value] of updateEntries) {
+          updatePayload[`participantDetails.${userId}.${key}`] = value;
+        }
+
+        try {
+          await updateDoc(docRef, updatePayload);
+        } catch (error) {
+          console.error(`Failed to update participant details for ${docSnap.id}:`, error);
+        }
+      })
+    );
+  } catch (error) {
+    console.error('Failed to update participant details for user:', error);
+  }
 };
 
 /**
@@ -530,6 +570,22 @@ export const getUnreadCount = async (
   } catch (error) {
     console.error('Failed to get unread count:', error);
     return 0;
+  }
+};
+
+export const updateUserProfile = async (
+  uid: string,
+  updates: Partial<User>
+): Promise<void> => {
+  await setDoc(doc(db, 'users', uid), updates, { merge: true });
+
+  const { displayName, photoURL, initials } = updates;
+  if (displayName !== undefined || photoURL !== undefined || initials !== undefined) {
+    await updateParticipantDetailsForUser(uid, {
+      displayName,
+      photoURL,
+      initials,
+    });
   }
 };
 
