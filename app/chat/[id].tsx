@@ -71,7 +71,7 @@ export default function ChatScreen() {
     inputText.trim().length > 0,
     isInputFocused
   );
-  const { typingText } = useTypingStatus(conversationId, user?.uid || '');
+  const { typingText, typingUsers } = useTypingStatus(conversationId, user?.uid || '');
 
   const [participantDetailsMap, setParticipantDetailsMap] = useState<Record<string, any>>({});
   const [isGroupChat, setIsGroupChat] = useState(false);
@@ -1060,15 +1060,36 @@ export default function ChatScreen() {
           }}
           ListFooterComponent={() => (
             <>
-              {/* Typing Indicator - inline with messages */}
-              {typingText && (
+              {/* Typing Indicator - styled like regular messages with avatar */}
+              {typingUsers.length > 0 && (
                 <View style={styles.messageRow}>
-                  <View style={styles.messageContainer}>
-                    <View style={styles.typingBubble}>
-                      <View style={styles.typingDotsContainer}>
-                        <View style={[styles.typingDot, styles.typingDot1]} />
-                        <View style={[styles.typingDot, styles.typingDot2]} />
-                        <View style={[styles.typingDot, styles.typingDot3]} />
+                  <View style={styles.otherMessageWrapper}>
+                    {/* Avatar - show first typing user's initials */}
+                    {(() => {
+                      const firstTyper = typingUsers[0];
+                      const typerDetails = participantDetailsMap[firstTyper.userId];
+                      const initials = typerDetails?.initials || firstTyper.displayName?.substring(0, 2).toUpperCase() || '??';
+                      
+                      return (
+                        <View style={styles.senderAvatar}>
+                          <Text style={styles.senderAvatarText}>{initials}</Text>
+                        </View>
+                      );
+                    })()}
+                    
+                    <View style={styles.messageContainer}>
+                      {/* Sender name(s) above bubble */}
+                      {isGroupChat && (
+                        <Text style={styles.senderName}>{typingText.replace(' is typing...', '').replace(' are typing...', '')}</Text>
+                      )}
+                      
+                      {/* Typing dots in grey bubble */}
+                      <View style={styles.typingBubble}>
+                        <View style={styles.typingDotsContainer}>
+                          <View style={[styles.typingDot, styles.typingDot1]} />
+                          <View style={[styles.typingDot, styles.typingDot2]} />
+                          <View style={[styles.typingDot, styles.typingDot3]} />
+                        </View>
                       </View>
                     </View>
                   </View>

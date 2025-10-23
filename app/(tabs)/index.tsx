@@ -272,22 +272,19 @@ export default function ConversationsScreen() {
       const typingQuery = query(typingRef);
       
       const unsubscribe = onSnapshot(typingQuery, (snapshot) => {
-        const now = Date.now();
         const activeTypers: string[] = [];
         
         snapshot.forEach((doc) => {
           const data = doc.data();
           const userId = doc.id;
           
-          // Only show if typing within last 3 seconds and not current user
-          if (userId !== user.uid && data.timestamp) {
-            const typingTime = data.timestamp.toMillis();
-            if (now - typingTime < 3000) {
-              // Get user's display name from participant details
-              const userDetails = item.participantDetails?.[userId];
-              if (userDetails?.displayName) {
-                activeTypers.push(userDetails.displayName);
-              }
+          // Only show if actively typing (isTyping === true) and not current user
+          // This matches the exact same logic as in-chat typing detection
+          if (userId !== user.uid && data.isTyping === true) {
+            // Get user's display name from participant details
+            const userDetails = item.participantDetails?.[userId];
+            if (userDetails?.displayName) {
+              activeTypers.push(userDetails.displayName);
             }
           }
         });

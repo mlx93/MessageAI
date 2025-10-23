@@ -80,10 +80,10 @@ export const useTypingIndicator = (
  * 
  * @param conversationId - ID of the conversation
  * @param currentUserId - Current user's ID (to exclude from typing list)
- * @returns Object with typingText string
+ * @returns Object with typingText string and typingUsers array with user details
  */
 export const useTypingStatus = (conversationId: string, currentUserId: string) => {
-  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [typingUsers, setTypingUsers] = useState<Array<{ userId: string; displayName: string }>>([]);
 
   useEffect(() => {
     const typingCollectionRef = collection(db, `conversations/${conversationId}/typing`);
@@ -93,7 +93,10 @@ export const useTypingStatus = (conversationId: string, currentUserId: string) =
       (snapshot) => {
         const typing = snapshot.docs
           .filter(doc => doc.id !== currentUserId && doc.data().isTyping)
-          .map(doc => doc.data().displayName);
+          .map(doc => ({
+            userId: doc.id,
+            displayName: doc.data().displayName
+          }));
         
         setTypingUsers(typing);
       },
@@ -114,18 +117,21 @@ export const useTypingStatus = (conversationId: string, currentUserId: string) =
     }
     
     if (typingUsers.length === 1) {
-      return `${typingUsers[0]} is typing...`;
+      return `${typingUsers[0].displayName} is typing...`;
     }
     
     if (typingUsers.length === 2) {
-      return `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
+      return `${typingUsers[0].displayName} and ${typingUsers[1].displayName} are typing...`;
     }
     
     // 3 or more users
     const remaining = typingUsers.length - 2;
-    return `${typingUsers[0]}, ${typingUsers[1]}, and ${remaining} ${remaining === 1 ? 'other' : 'others'} are typing...`;
+    return `${typingUsers[0].displayName}, ${typingUsers[1].displayName}, and ${remaining} ${remaining === 1 ? 'other' : 'others'} are typing...`;
   }, [typingUsers]);
 
-  return { typingText: getTypingText() };
+  return { 
+    typingText: getTypingText(),
+    typingUsers // Return raw user data for custom rendering
+  };
 };
 
