@@ -1157,6 +1157,495 @@ const handleForward = (message: Message) => {
 
 ---
 
+## PHASE 4: Loading States & Polish (Nice to Have)
+
+**Time Estimate:** 1 hour  
+**Files Modified:** 2  
+**New Files:** 1 component
+
+### 4.1 Image Loading Placeholder
+
+**Goal:** Show elegant placeholder while image uploads (2-5 seconds)
+
+**Current State:**
+- Shows "Loading..." text only
+- Chat looks empty during upload
+- No visual feedback
+
+**Problem:**
+- Takes 2-5 seconds to compress/upload
+- User sees blank space
+- Looks unpolished vs iMessage
+
+**Implementation:**
+
+#### **Step 1: Add Loading State to Image Messages**
+**File:** `app/chat/[id].tsx`
+
+Modify image message rendering to show placeholder during upload:
+
+```typescript
+// Add state for uploading images
+const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set());
+
+// In handlePickImage, track upload state:
+const handlePickImage = async () => {
+  try {
+    const localId = generateLocalId(); // Generate ID before upload
+    setUploadingImages(prev => new Set(prev).add(localId));
+    
+    const imageUrl = await pickAndUploadImage(conversationId);
+    
+    if (imageUrl) {
+      await sendImageMessage(conversationId, imageUrl, user.uid, localId);
+    }
+    
+    // Remove from uploading set
+    setUploadingImages(prev => {
+      const next = new Set(prev);
+      next.delete(localId);
+      return next;
+    });
+  } catch (error) {
+    console.error('Failed to pick and upload image:', error);
+  }
+};
+
+// In message rendering, show placeholder for uploading images:
+{message.type === 'image' && (
+  <View style={styles.imageMessageContainer}>
+    {message.status === 'sending' || uploadingImages.has(message.localId) ? (
+      // Placeholder while uploading
+      <View style={styles.imagePlaceholder}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.uploadingText}>Uploading...</Text>
+      </View>
+    ) : (
+      // Actual image
+      <TouchableOpacity onPress={() => setViewerImageUrl(message.mediaURL!)}>
+        <Image 
+          source={{ uri: message.mediaURL }} 
+          style={styles.imageMessage}
+        />
+      </TouchableOpacity>
+    )}
+  </View>
+)}
+```
+
+Add styles:
+```typescript
+imagePlaceholder: {
+  width: 250,
+  height: 200,
+  backgroundColor: '#E8E8E8',
+  borderRadius: 12,
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+uploadingText: {
+  marginTop: 8,
+  fontSize: 14,
+  color: '#8E8E93',
+},
+```
+
+**Alternative: Show blurred thumbnail**
+```typescript
+import { BlurView } from 'expo-blur';
+import * as FileSystem from 'expo-file-system';
+
+// Before upload, create local thumbnail:
+const localUri = result.assets[0].uri;
+
+{message.status === 'sending' ? (
+  <View style={styles.imagePlaceholder}>
+    <Image 
+      source={{ uri: localUri }} 
+      style={styles.imageMessage}
+      blurRadius={10}
+    />
+    <View style={styles.uploadOverlay}>
+      <ActivityIndicator size="large" color="#FFF" />
+      <Text style={styles.uploadingTextOverlay}>Uploading...</Text>
+    </View>
+  </View>
+) : (
+  <Image source={{ uri: message.mediaURL }} style={styles.imageMessage} />
+)}
+```
+
+Add styles:
+```typescript
+uploadOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.4)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  borderRadius: 12,
+},
+uploadingTextOverlay: {
+  marginTop: 8,
+  fontSize: 14,
+  color: '#FFF',
+  fontWeight: '600',
+},
+```
+
+**Testing:**
+- ✅ Pick image → shows gray placeholder with spinner
+- ✅ Upload completes → placeholder replaced with image
+- ✅ No blank space during upload
+- ✅ Matches iMessage UX
+
+---
+
+### 4.2 Image Download Loading States
+
+**Goal:** Show placeholder/progress while images download from Firebase Storage
+
+**Current State:**
+- Images already uploaded show blank space while loading from network
+- No loading feedback
+- User doesn't know if image is loading or broken
+
+**Problem:**
+- Images take 1-3 seconds to download from Firebase Storage
+- Blank white space in chat while loading
+- No indication it's loading vs failed
+
+**Implementation:**
+
+#### **Step 1: Add Loading State to Image Component**
+**File:** `app/chat/[id].tsx`
+
+Replace static `Image` with loading state:
+
+```typescript
+import { useState } from 'react';
+
+// Create separate component for better performance
+const ChatImage = ({ uri, onPress }: { uri: string; onPress: () => void }) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.9}>
+      <View style={styles.imageContainer}>
+        {/* Loading placeholder */}
+        {isLoading && (
+          <View style={styles.imageLoadingPlaceholder}>
+            <ActivityIndicator size="small" color="#007AFF" />
+          </View>
+        )}
+        
+        {/* Error state */}
+        {hasError && (
+          <View style={styles.imageErrorPlaceholder}>
+            <Ionicons name="alert-circle-outline" size={32} color="#8E8E93" />
+            <Text style={styles.imageErrorText}>Failed to load</Text>
+          </View>
+        )}
+        
+        {/* Actual image */}
+        <Image
+          source={{ uri }}
+          style={[
+            styles.imageMessage,
+            isLoading && styles.imageHidden
+          ]}
+          onLoadStart={() => setIsLoading(true)}
+          onLoad={() => setIsLoading(false)}
+          onLoadEnd={() => setIsLoading(false)}
+          onError={() => {
+            setIsLoading(false);
+            setHasError(true);
+          }}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// In message rendering:
+{message.type === 'image' && message.mediaURL && (
+  <ChatImage 
+    uri={message.mediaURL} 
+    onPress={() => setViewerImageUrl(message.mediaURL!)}
+  />
+)}
+```
+
+Add styles:
+```typescript
+imageContainer: {
+  position: 'relative',
+  width: 250,
+  height: 200,
+  borderRadius: 12,
+  overflow: 'hidden',
+},
+imageLoadingPlaceholder: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: '#E8E8E8',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 1,
+},
+imageErrorPlaceholder: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: '#F2F2F7',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 1,
+},
+imageErrorText: {
+  marginTop: 8,
+  fontSize: 12,
+  color: '#8E8E93',
+},
+imageHidden: {
+  opacity: 0,
+},
+```
+
+#### **Alternative: Progressive Image Loading with Blur**
+Use React Native's built-in progressive loading:
+
+```typescript
+<Image
+  source={{ uri: message.mediaURL }}
+  style={styles.imageMessage}
+  defaultSource={require('../../assets/image-placeholder.png')} // Local placeholder
+  loadingIndicatorSource={require('../../assets/spinner.png')} // Loading spinner
+  progressiveRenderingEnabled={true} // Show low-res first, then high-res
+/>
+```
+
+#### **Step 2: Pre-cache Images (Optional)**
+For better performance, pre-load images in the background:
+
+```typescript
+import { Image as RNImage } from 'react-native';
+
+// In useEffect, pre-fetch images:
+useEffect(() => {
+  const imageUrls = messages
+    .filter(m => m.type === 'image' && m.mediaURL)
+    .map(m => m.mediaURL!);
+  
+  // Pre-fetch all images
+  imageUrls.forEach(url => {
+    RNImage.prefetch(url).catch(err => {
+      console.log('Failed to prefetch:', url);
+    });
+  });
+}, [messages]);
+```
+
+**Testing:**
+- ✅ Scroll to image → shows gray placeholder with spinner
+- ✅ Image loads → placeholder fades out
+- ✅ Slow network → shows loading for duration
+- ✅ Failed load → shows error icon + message
+- ✅ No blank white space
+
+---
+
+### 4.3 Conversation List Loading Skeleton
+
+**Goal:** Show animated placeholders while Firestore loads (~500ms)
+
+**Current State:**
+- Blank screen for 500ms on app open
+- SQLite cache helps but still flashes
+- Looks unpolished
+
+**Problem:**
+- Initial Firestore query takes ~500ms
+- User sees empty list briefly
+- Not instant like iMessage
+
+**Implementation:**
+
+#### **Step 1: Create Skeleton Component**
+**New File:** `components/ConversationSkeleton.tsx`
+
+```typescript
+import { View, StyleSheet, Animated } from 'react-native';
+import { useEffect, useRef } from 'react';
+
+export default function ConversationSkeleton({ count = 5 }: { count?: number }) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+  
+  useEffect(() => {
+    // Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+  
+  return (
+    <View style={styles.container}>
+      {Array.from({ length: count }).map((_, index) => (
+        <Animated.View key={index} style={[styles.row, { opacity }]}>
+          {/* Avatar */}
+          <View style={styles.avatar} />
+          
+          {/* Content */}
+          <View style={styles.content}>
+            <View style={styles.nameLine} />
+            <View style={styles.messageLine} />
+          </View>
+          
+          {/* Timestamp */}
+          <View style={styles.timestamp} />
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#E8E8E8',
+    marginRight: 12,
+  },
+  content: {
+    flex: 1,
+  },
+  nameLine: {
+    width: '60%',
+    height: 16,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  messageLine: {
+    width: '90%',
+    height: 14,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 4,
+  },
+  timestamp: {
+    width: 50,
+    height: 12,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 4,
+  },
+});
+```
+
+#### **Step 2: Show Skeleton While Loading**
+**File:** `app/(tabs)/index.tsx`
+
+Add loading state:
+```typescript
+import ConversationSkeleton from '../../components/ConversationSkeleton';
+
+const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+
+// In getUserConversations callback:
+useEffect(() => {
+  if (!user) return;
+  
+  // Show skeleton initially
+  setIsLoadingConversations(true);
+  
+  const unsubscribe = getUserConversations(user.uid, (convs) => {
+    setConversations(convs);
+    setIsLoadingConversations(false); // Hide skeleton once data arrives
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+// In render, before FlatList:
+{isLoadingConversations && conversations.length === 0 ? (
+  <ConversationSkeleton count={8} />
+) : (
+  <FlatList
+    data={conversations}
+    // ... existing props
+  />
+)}
+```
+
+**Alternative: Show skeleton for first 500ms only**
+```typescript
+const [showSkeleton, setShowSkeleton] = useState(true);
+
+useEffect(() => {
+  // Hide skeleton after 500ms regardless (SQLite should load by then)
+  const timer = setTimeout(() => setShowSkeleton(false), 500);
+  return () => clearTimeout(timer);
+}, []);
+
+useEffect(() => {
+  if (!user) return;
+  
+  const unsubscribe = getUserConversations(user.uid, (convs) => {
+    setConversations(convs);
+    setShowSkeleton(false); // Hide immediately when data arrives
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+// Render:
+{showSkeleton && conversations.length === 0 ? (
+  <ConversationSkeleton count={8} />
+) : (
+  <FlatList ... />
+)}
+```
+
+**Testing:**
+- ✅ Open app → shows skeleton rows
+- ✅ Skeleton pulses (smooth animation)
+- ✅ Data loads → skeleton disappears
+- ✅ Subsequent navigation → no skeleton (data cached)
+- ✅ Feels instant like iMessage
+
+---
+
 ## Implementation Checklist
 
 ### Phase 1 (2 hours)
@@ -1181,6 +1670,14 @@ const handleForward = (message: Message) => {
 - [ ] Add tap handler for message actions
 - [ ] Add Forward to action sheet (stub)
 - [ ] Test all Phase 3 features
+
+### Phase 4 (1.5 hours) - Optional Polish
+- [ ] Add image upload placeholder to chat screen (4.1)
+- [ ] Add image download loading states (4.2)
+- [ ] Create ConversationSkeleton component (4.3)
+- [ ] Add skeleton to Messages list (4.3)
+- [ ] Test loading states on slow network
+- [ ] Verify animations are smooth (60 FPS)
 
 ---
 
@@ -1249,7 +1746,12 @@ If any feature breaks production:
 | 2 | Contact info screen | 45 min | |
 | 3 | Message actions menu | 30 min | |
 | 3 | Forward stub | 15 min | |
-| **Total** | | **6.5 hours** | |
+| 4 | Image upload placeholder | 30 min | |
+| 4 | Image download loading | 30 min | |
+| 4 | Conversation skeleton | 30 min | |
+| **Total** | | **8 hours** | |
+
+**Note:** Phase 4 is optional polish - prioritize Phases 1-3 first.
 
 ---
 
