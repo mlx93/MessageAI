@@ -187,8 +187,9 @@ export default function ChatScreen() {
                 onPress={buttonAction} 
                 style={{ 
                   marginRight: 16,
-                  width: 44,
-                  height: 44,
+                  paddingRight: 4,
+                  width: 32,
+                  height: 32,
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
