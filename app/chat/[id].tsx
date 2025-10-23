@@ -186,8 +186,8 @@ export default function ChatScreen() {
               <TouchableOpacity 
                 onPress={buttonAction} 
                 style={{ 
-                  marginRight: 12,
-                  paddingRight: 4,
+                  marginRight: 8,
+                  paddingRight: 8,
                   width: 32,
                   height: 32,
                   justifyContent: 'center',
