@@ -12,19 +12,25 @@ import { db } from '../services/firebase';
 /**
  * Hook to send typing status updates
  * 
- * Shows typing indicator when text exists in input (even if stopped typing)
+ * Shows typing indicator ONLY when:
+ * - User has text in the input box AND
+ * - User has the input focused (selected)
+ * 
+ * Immediately clears when either condition becomes false
  * 
  * @param conversationId - ID of the conversation
  * @param userId - Current user's ID
  * @param displayName - Current user's display name
  * @param hasText - Whether there's text in the input box
+ * @param isFocused - Whether the input is currently focused
  * @returns Object with updateTypingStatus function
  */
 export const useTypingIndicator = (
   conversationId: string,
   userId: string,
   displayName: string,
-  hasText: boolean
+  hasText: boolean,
+  isFocused: boolean
 ) => {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -43,15 +49,16 @@ export const useTypingIndicator = (
     }
   }, [conversationId, userId, displayName]);
 
-  // Update typing status based on whether text exists
+  // Update typing status: only show when BOTH hasText AND isFocused
   useEffect(() => {
-    updateTypingStatus(hasText);
-  }, [hasText, updateTypingStatus]);
+    const isActuallyTyping = hasText && isFocused;
+    updateTypingStatus(isActuallyTyping);
+  }, [hasText, isFocused, updateTypingStatus]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount - immediately clear typing status
   useEffect(() => {
     return () => {
-      // Clear typing status when component unmounts
+      // Clear typing status when component unmounts (user leaves chat)
       setDoc(
         doc(db, `conversations/${conversationId}/typing`, userId),
         {

@@ -55,6 +55,7 @@ export default function ChatScreen() {
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<Date | undefined>();
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null); // Image viewer state
+  const [isInputFocused, setIsInputFocused] = useState(false); // Track if input is focused
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
@@ -62,12 +63,13 @@ export default function ChatScreen() {
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
   
-  // Typing indicators
+  // Typing indicators - only show when input has text AND is focused
   const { updateTypingStatus } = useTypingIndicator(
     conversationId,
     user?.uid || '',
     userProfile?.displayName || '',
-    inputText.trim().length > 0
+    inputText.trim().length > 0,
+    isInputFocused
   );
   const { typingText } = useTypingStatus(conversationId, user?.uid || '');
 
@@ -1088,6 +1090,8 @@ export default function ChatScreen() {
           style={styles.input}
           value={inputText}
           onChangeText={setInputText}
+          onFocus={() => setIsInputFocused(true)}
+          onBlur={() => setIsInputFocused(false)}
           placeholder="Type a message..."
           multiline
           maxLength={1000}
