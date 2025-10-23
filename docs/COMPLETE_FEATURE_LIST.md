@@ -1647,13 +1647,236 @@ MVP_RESILIENCE_FIXES.md
 
 ---
 
+## 📱 PHASE 11: Post-MVP Enhancements (NEW)
+
+**Time Estimate:** 6-7 hours  
+**Priority:** HIGH - Critical UX improvements  
+**Goal:** Polish and group chat enhancements
+
+### 11.1 Message Deletion
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+services/messageService.ts        # deleteMessage function
+types/index.ts                    # Message.deleted field
+app/chat/[id].tsx                # Long-press delete UI
+```
+
+**Features:**
+- Soft delete implementation (marks deleted, preserves for history)
+- Long-press message → shows Delete option (own messages only)
+- ActionSheet UI (iOS) / Alert (Android)
+- Real-time sync - message disappears for all users
+- Updates conversation lastMessage if needed
+- Prevents deletion of others' messages
+
+**API:**
+```typescript
+deleteMessage(conversationId, messageId, userId)
+```
+
+**Testing:**
+- ✅ Long-press own message → shows delete option
+- ✅ Delete → message disappears for all users
+- ✅ Last message deletion → updates conversation preview
+- ✅ Long-press other's message → no delete option
+- ✅ Real-time sync across devices
+
+### 11.2 Copy Message Text
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+app/chat/[id].tsx                # Copy functionality
+```
+
+**Features:**
+- Long-press message → shows Copy option
+- ActionSheet with Copy + Delete (own messages)
+- ActionSheet with Copy only (others' messages)
+- Uses expo-clipboard
+- Works on both iOS and Android
+
+**Testing:**
+- ✅ Long-press → shows Copy option
+- ✅ Own messages → shows Copy + Delete
+- ✅ Copy → text in clipboard
+- ✅ Works on iOS and Android
+
+### 11.3 Profile Picture Upload
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+services/imageService.ts          # uploadProfilePicture function
+app/auth/edit-profile.tsx        # Profile photo UI
+storage.rules                     # profile-pictures path
+```
+
+**Features:**
+- Pick image from Camera Roll
+- Square crop (1:1 aspect ratio)
+- Compress to 400px, 80% quality
+- Upload to Firebase Storage: `profile-pictures/{userId}/{timestamp}.jpg`
+- Update user profile with photoURL
+- Permission handling with helpful dialogs
+- Loading state with spinner overlay
+- "Change Photo" button on edit profile screen
+
+**Storage Rules:**
+```javascript
+match /profile-pictures/{userId}/{imageId} {
+  allow create, update: if isAuthenticated() 
+                        && request.auth.uid == userId
+                        && request.resource.size < 10 * 1024 * 1024
+                        && request.resource.contentType.matches('image/.*');
+  allow read: if isAuthenticated();
+  allow delete: if isAuthenticated() && request.auth.uid == userId;
+}
+```
+
+**API:**
+```typescript
+uploadProfilePicture(userId)  // Returns download URL or null
+```
+
+**Testing:**
+- ✅ Tap "Change Photo" → opens Camera Roll
+- ✅ Select image → compresses and uploads
+- ✅ Profile picture updates immediately
+- ✅ Appears in all conversations
+- ✅ Appears in contact list
+
+### 11.4 Group Info Screen
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+app/chat/group-info.tsx          # Group info screen
+app/chat/[id].tsx                # Tap header handler
+```
+
+**Features:**
+- Tap group chat header → opens group info screen
+- Shows all participants with avatars
+- Participant count
+- Tap participant → view contact info
+- "You" label on current user
+- Leave Group button
+- Info icon in header
+- Works for groups only (not direct chats)
+
+**Navigation:**
+```typescript
+router.push(`/chat/group-info?id=${conversationId}`)
+```
+
+**Testing:**
+- ✅ Tap group header → opens group info
+- ✅ Shows all participants with avatars
+- ✅ Shows participant count
+- ✅ Direct chats → no tap action
+- ✅ "You" label on current user
+
+### 11.5 Leave Group Functionality
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+services/conversationService.ts   # leaveConversation function
+app/chat/group-info.tsx          # Leave button
+```
+
+**Features:**
+- Leave Group button in group info
+- Confirmation dialog
+- Removes user from participants array
+- Removes from participantDetails
+- Adds user to deletedBy (hides conversation)
+- Sends system message: "User left the group"
+- If last participant → marks conversation as deleted for all
+- Navigates back to Messages list
+- Only for groups (not direct chats)
+
+**API:**
+```typescript
+leaveConversation(conversationId, userId)
+```
+
+**Testing:**
+- ✅ Tap "Leave Group" → shows confirmation
+- ✅ Confirm → removes user from participants
+- ✅ Navigates back to Messages list
+- ✅ Conversation disappears from leaver's list
+- ✅ System message appears for remaining users
+- ✅ Last person leaving → conversation hidden for everyone
+
+### 11.6 Participant Count in Header
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+app/chat/[id].tsx                # Group header UI
+```
+
+**Features:**
+- Shows "(N) participants" below group name
+- Only for group chats
+- Updates when people join/leave
+- Shown in group info header as well
+
+**Testing:**
+- ✅ Group chats show participant count
+- ✅ Direct chats show no count
+- ✅ Count updates when people join/leave
+
+### 11.7 Contact Info Screen
+
+**Status:** ✅ Complete
+
+**Key Files:**
+```
+app/chat/contact-info.tsx        # Contact info screen
+```
+
+**Features:**
+- View individual contact details
+- Shows profile picture or initials
+- Shows displayName, email, phone
+- Shows online status (green dot)
+- "Send Message" button → creates/opens DM
+- Navigation from group info participant list
+- No "Send Message" for current user
+
+**Navigation:**
+```typescript
+router.push(`/chat/contact-info?userId=${userId}`)
+```
+
+**Testing:**
+- ✅ Tap participant → shows contact info
+- ✅ Shows profile picture or initials
+- ✅ Shows email and phone
+- ✅ Shows online status
+- ✅ "Send Message" → opens/creates DM
+- ✅ Current user → no "Send Message" button
+
+---
+
 ## 📊 Final Statistics
 
 ### Project Metrics
-- **Total Files:** 80+ (excluding node_modules)
-- **Lines of Code:** ~6,500
+- **Total Files:** 85+ (excluding node_modules)
+- **Lines of Code:** ~7,200
 - **Services:** 12 (6 client + 6 server)
-- **Screens:** 10
+- **Screens:** 12 (added group-info.tsx, contact-info.tsx)
 - **Components:** Custom UI (no react-native-gifted-chat)
 - **Dependencies:** 1,262 packages
 
@@ -1683,8 +1906,9 @@ MVP_RESILIENCE_FIXES.md
 ### Features
 - **Core Features:** 10
 - **Bonus Features:** 15
-- **Total Features:** 25+
-- **Completion:** 100% of MVP
+- **Post-MVP Features:** 7 (message deletion, copy, profile pictures, group info, leave group, contact info)
+- **Total Features:** 32+
+- **Completion:** 100% of MVP + Critical UX Enhancements
 
 ---
 
@@ -1702,9 +1926,11 @@ MVP_RESILIENCE_FIXES.md
 8. **Advanced** (1h): Images + Composition + Inline add
 9. **Notifications** (30m): FCM + Deep linking
 10. **Testing** (3-4h): 229+ tests + Documentation
+11. **Post-MVP** (6-7h): Message actions + Profile pictures + Group info
 
-**Total: ~12 hours** (with testing)  
-**Without testing: ~8 hours** (MVP only)
+**Total: ~18-19 hours** (with testing + post-MVP)  
+**Without testing: ~14-15 hours** (MVP + post-MVP only)  
+**MVP only: ~8 hours**
 
 ---
 
