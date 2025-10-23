@@ -19,7 +19,7 @@ export default function Avatar({
       {photoURL ? (
         <Image 
           source={{ uri: photoURL }} 
-          style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
           resizeMode="cover"
         />
       ) : (
@@ -39,9 +39,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
-  },
-  image: {
-    backgroundColor: '#E8E8E8',
   },
   initialsContainer: {
     backgroundColor: '#007AFF',

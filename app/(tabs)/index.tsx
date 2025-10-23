@@ -1,5 +1,5 @@
 import { View, FlatList, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react';
 import { useAuth } from '../../store/AuthContext';
 import { getUserConversations, deleteConversation } from '../../services/conversationService';
 import { subscribeToMultipleUsersPresence } from '../../services/presenceService';
@@ -8,11 +8,12 @@ import { router, useNavigation, useFocusEffect } from 'expo-router';
 import { formatTimestamp } from '../../utils/messageHelpers';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS, FadeInDown, withTiming } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import ConversationTypingIndicator from '../../components/ConversationTypingIndicator';
+import * as Haptics from 'expo-haptics';
 
 export default function ConversationsScreen() {
   const navigation = useNavigation();
@@ -27,6 +28,10 @@ export default function ConversationsScreen() {
   const [editedLastName, setEditedLastName] = useState('');
   const [editedEmail, setEditedEmail] = useState('');
   const lastViewedConversationRef = useRef<string | null>(null);
+  
+  // Animation values for skeleton cross-fade
+  const skeletonOpacity = useSharedValue(1);
+  const contentOpacity = useSharedValue(0);
 
   useEffect(() => {
     navigation.setOptions({
@@ -69,6 +74,19 @@ export default function ConversationsScreen() {
       setLoading(false);
     }
   }, [user]);
+
+  // Skeleton cross-fade animation
+  useEffect(() => {
+    if (!loading && conversations.length > 0) {
+      // Cross-fade: skeleton fades out, content fades in
+      skeletonOpacity.value = withTiming(0, { duration: 200 });
+      contentOpacity.value = withTiming(1, { duration: 300 });
+    } else if (loading) {
+      // Reset for next load
+      skeletonOpacity.value = 1;
+      contentOpacity.value = 0;
+    }
+  }, [loading, conversations.length]);
 
   // Optimistically clear unread count when returning from a conversation
   useFocusEffect(
@@ -174,6 +192,11 @@ export default function ConversationsScreen() {
     router.push('/auth/edit-profile');
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    setError(null);
+  }, []);
+
   const handleSaveProfile = useCallback(async () => {
     if (!user) return;
     
@@ -245,8 +268,8 @@ export default function ConversationsScreen() {
     );
   };
 
-  // Swipeable Conversation Component
-  const SwipeableConversationItem = ({ item }: { item: Conversation }) => {
+  // Swipeable Conversation Component (Memoized to prevent flickering)
+  const SwipeableConversationItem = memo(({ item }: { item: Conversation }) => {
     if (!user) return null;
     
     const translateX = useSharedValue(0);
@@ -290,6 +313,8 @@ export default function ConversationsScreen() {
       return () => unsubscribe();
     }, [item.id, user.uid, item.participantDetails]);
 
+    const hasVibrated = useRef(false);
+
     const panGesture = useMemo(() => Gesture.Pan()
       .activeOffsetX([-40, 40]) // Improved: 40px threshold for more reliable activation
       .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (prioritize scrolling)
@@ -298,10 +323,23 @@ export default function ConversationsScreen() {
         // Only allow left swipe (negative translation) and limit to -80px
         if (event.translationX < 0) {
           translateX.value = Math.max(event.translationX, -80);
+          
+          // Haptic feedback at threshold
+          if (event.translationX < -40 && !hasVibrated.current) {
+            runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
+            hasVibrated.current = true;
+          }
+          
+          // Reset if swipe back
+          if (event.translationX > -40 && hasVibrated.current) {
+            hasVibrated.current = false;
+          }
         }
       })
       .onEnd((event) => {
         'worklet';
+        hasVibrated.current = false; // Reset for next swipe
+        
         if (event.translationX < -40) {
           // Threshold reached - reveal delete button (lowered to 40px for easier access)
           translateX.value = withSpring(-80);
@@ -445,21 +483,33 @@ export default function ConversationsScreen() {
         </GestureDetector>
       </View>
     );
-  };
-
-  const renderItem = ({ item }: { item: Conversation }) => {
-    return <SwipeableConversationItem item={item} />;
-  };
-
-  // Loading state
-  if (loading) {
+  }, (prevProps, nextProps) => {
+    // Custom comparison function - only re-render if these properties changed
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading conversations...</Text>
-      </View>
+      prevProps.item.id === nextProps.item.id &&
+      prevProps.item.lastMessage?.text === nextProps.item.lastMessage?.text &&
+      prevProps.item.lastMessage?.timestamp?.getTime() === nextProps.item.lastMessage?.timestamp?.getTime() &&
+      JSON.stringify(prevProps.item.unreadCounts) === JSON.stringify(nextProps.item.unreadCounts) &&
+      JSON.stringify(prevProps.item.participantDetails) === JSON.stringify(nextProps.item.participantDetails)
     );
-  }
+  });
+
+  const renderItem = useCallback(({ item, index }: { item: Conversation; index: number }) => {
+    return (
+      <Animated.View entering={FadeInDown.delay(index * 50).springify()}>
+        <SwipeableConversationItem item={item} />
+      </Animated.View>
+    );
+  }, [presenceMap, user]);
+
+  // Animated styles for cross-fade
+  const skeletonStyle = useAnimatedStyle(() => ({
+    opacity: skeletonOpacity.value,
+  }));
+
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+  }));
 
   // Error state
   if (error) {
@@ -480,18 +530,49 @@ export default function ConversationsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <FlatList
-        data={conversations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>💬</Text>
-            <Text style={styles.emptyText}>No conversations yet</Text>
-            <Text style={styles.emptySubtext}>Go to Contacts to start chatting</Text>
-          </View>
-        }
-      />
+      {/* Skeleton loading state (fades out) */}
+      {loading && (
+        <Animated.View style={[styles.centerContainer, skeletonStyle]}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>Loading conversations...</Text>
+        </Animated.View>
+      )}
+      
+      {/* Content (fades in) */}
+      {!error && (
+        <Animated.View style={[{ flex: 1 }, contentStyle]}>
+          <FlatList
+            data={conversations}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            windowSize={10}
+            initialNumToRender={10}
+            ListEmptyComponent={
+              !loading ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyIcon}>💬</Text>
+                  <Text style={styles.emptyText}>No conversations yet</Text>
+                  <Text style={styles.emptySubtext}>Go to Contacts to start chatting</Text>
+                </View>
+              ) : null
+            }
+          />
+        </Animated.View>
+      )}
+      
+      {/* Error state */}
+      {error && (
+        <View style={styles.centerContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#FF3B30" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Apple-Style Profile Modal */}
       <Modal

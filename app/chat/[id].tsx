@@ -3,7 +3,7 @@ import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSh
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, SlideInUp, withTiming } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
@@ -925,8 +925,28 @@ export default function ChatScreen() {
     // Get sender info for group chats
     const senderInfo = !isOwnMessage && isGroupChat ? getSenderInfo(message.senderId) : null;
     
+    // Optimistic UI opacity animation
+    const messageOpacity = useSharedValue(
+      message.status === 'sending' ? 0.7 : 
+      message.status === 'queued' ? 0.6 : 
+      1
+    );
+    
+    useEffect(() => {
+      if (message.status === 'sent' || message.status === 'delivered') {
+        messageOpacity.value = withTiming(1, { duration: 300 });
+      }
+    }, [message.status]);
+    
+    const messageAnimatedStyle = useAnimatedStyle(() => ({
+      opacity: messageOpacity.value
+    }));
+    
     return (
-      <View style={styles.messageRow}>
+      <Animated.View 
+        entering={SlideInUp.duration(300).springify()} 
+        style={[styles.messageRow, messageAnimatedStyle]}
+      >
         {isOwnMessage ? (
           // Blue bubbles: All move together with container gesture
           <GestureDetector gesture={containerPanGesture}>
@@ -1092,7 +1112,7 @@ export default function ChatScreen() {
             </View>
           </View>
         )}
-      </View>
+      </Animated.View>
     );
   });
 

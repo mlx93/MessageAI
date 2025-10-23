@@ -24,6 +24,7 @@ import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { pickAndUploadProfilePicture } from '../../services/imageService';
 import Avatar from '../../components/Avatar';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 export default function EditProfileScreen() {
   const { user, userProfile, refreshUserProfile } = useAuth();
@@ -104,7 +105,7 @@ export default function EditProfileScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.content}>
+          <Animated.View entering={FadeIn.duration(300)} style={styles.content}>
             <Text style={styles.title}>Edit Profile</Text>
             <Text style={styles.subtitle}>Update your account information</Text>
 
@@ -127,6 +128,8 @@ export default function EditProfileScreen() {
               )}
               <Text style={styles.avatarText}>Tap to change photo</Text>
             </TouchableOpacity>
+            
+            <Text style={styles.avatarHint}>Pinch to zoom when cropping for a closer shot</Text>
 
             <TouchableOpacity
               style={[styles.uploadPhotoButton, isUploadingAvatar && styles.buttonDisabled]}
@@ -198,7 +201,7 @@ export default function EditProfileScreen() {
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -255,6 +258,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 14,
     color: '#007AFF',
+  },
+  avatarHint: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontStyle: 'italic',
   },
   uploadPhotoButton: {
     alignSelf: 'center',

@@ -8,6 +8,7 @@ import { createOrGetConversation, updateConversationLastMessage } from '../servi
 import { sendMessage } from '../services/messageService';
 import { v4 as uuidv4 } from 'uuid';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface Contact {
   uid: string;
@@ -113,14 +114,15 @@ export default function NewMessageScreen() {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-      <KeyboardAvoidingView 
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
-      >
-        {/* To: field with selected users */}
-        <View style={styles.toContainer}>
+    <Animated.View entering={FadeIn.duration(300)} style={{ flex: 1 }}>
+      <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+        <KeyboardAvoidingView 
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
+        >
+          {/* To: field with selected users */}
+          <View style={styles.toContainer}>
         <Text style={styles.toLabel}>To:</Text>
         <View style={styles.toContent}>
           <ScrollView 
@@ -227,9 +229,10 @@ export default function NewMessageScreen() {
         >
           <Text style={styles.sendButtonText}>↑</Text>
         </TouchableOpacity>
-      </View>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+        </View>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
+    </Animated.View>
   );
 }
 
