@@ -146,7 +146,7 @@ export default function ChatScreen() {
 
           navigation.setOptions({
             title: isAddMode ? '' : title,
-            headerBackTitle: 'Messages',
+            headerBackTitle: '',
             headerTitle: isAddMode || conversation.type !== 'direct' ? undefined : () => (
               <View style={{ flexDirection: 'column', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -201,7 +201,7 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.error('Failed to load conversation:', error);
-        navigation.setOptions({ title: 'Chat', headerBackTitle: 'Messages' });
+        navigation.setOptions({ title: 'Chat', headerBackTitle: '' });
       }
     };
     loadConversationTitle();

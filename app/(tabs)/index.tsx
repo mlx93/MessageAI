@@ -10,6 +10,9 @@ import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { collection, query, onSnapshot } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import ConversationTypingIndicator from '../../components/ConversationTypingIndicator';
 
 export default function ConversationsScreen() {
   const navigation = useNavigation();
@@ -253,12 +256,47 @@ export default function ConversationsScreen() {
     
     const translateX = useSharedValue(0);
     const [isNavigating, setIsNavigating] = useState(false);
+    const [typingUsers, setTypingUsers] = useState<string[]>([]);
     const unreadCount = item.unreadCounts?.[user.uid] || 0;
     const otherUserId = item.type === 'direct' 
       ? item.participants.find(id => id !== user.uid)
       : null;
     const isOnline = otherUserId ? presenceMap[otherUserId]?.online : false;
     const isInApp = otherUserId ? presenceMap[otherUserId]?.inApp : false;
+
+    // Subscribe to typing indicators for this conversation
+    useEffect(() => {
+      if (!item.id) return;
+      
+      const typingRef = collection(db, `conversations/${item.id}/typing`);
+      const typingQuery = query(typingRef);
+      
+      const unsubscribe = onSnapshot(typingQuery, (snapshot) => {
+        const now = Date.now();
+        const activeTypers: string[] = [];
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const userId = doc.id;
+          
+          // Only show if typing within last 3 seconds and not current user
+          if (userId !== user.uid && data.timestamp) {
+            const typingTime = data.timestamp.toMillis();
+            if (now - typingTime < 3000) {
+              // Get user's display name from participant details
+              const userDetails = item.participantDetails?.[userId];
+              if (userDetails?.displayName) {
+                activeTypers.push(userDetails.displayName);
+              }
+            }
+          }
+        });
+        
+        setTypingUsers(activeTypers);
+      });
+      
+      return () => unsubscribe();
+    }, [item.id, user.uid, item.participantDetails]);
 
     const panGesture = useMemo(() => Gesture.Pan()
       .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
@@ -378,27 +416,31 @@ export default function ConversationsScreen() {
                 </View>
                 
                 <View style={styles.footer}>
-                  <Text style={styles.lastMessage} numberOfLines={1}>
-                    {(() => {
-                      // Check if there's actual text content
-                      if (item.lastMessage?.text && item.lastMessage.text.trim() !== '') {
-                        return item.lastMessage.text;
-                      }
-                      
-                      // Check if there's a valid timestamp (meaning messages were sent)
-                      const timestamp = item.lastMessage?.timestamp;
-                      if (timestamp) {
-                        const time = typeof timestamp.getTime === 'function' ? timestamp.getTime() : 0;
-                        // Check if it's a real message time (not just initialization)
-                        // Messages sent in the last 10 years would be > this value
-                        if (time > new Date('2015-01-01').getTime()) {
-                          return 'Photo';
+                  {typingUsers.length > 0 ? (
+                    <ConversationTypingIndicator typingUserNames={typingUsers} />
+                  ) : (
+                    <Text style={styles.lastMessage} numberOfLines={1}>
+                      {(() => {
+                        // Check if there's actual text content
+                        if (item.lastMessage?.text && item.lastMessage.text.trim() !== '') {
+                          return item.lastMessage.text;
                         }
-                      }
-                      
-                      return 'Start a conversation';
-                    })()}
-                  </Text>
+                        
+                        // Check if there's a valid timestamp (meaning messages were sent)
+                        const timestamp = item.lastMessage?.timestamp;
+                        if (timestamp) {
+                          const time = typeof timestamp.getTime === 'function' ? timestamp.getTime() : 0;
+                          // Check if it's a real message time (not just initialization)
+                          // Messages sent in the last 10 years would be > this value
+                          if (time > new Date('2015-01-01').getTime()) {
+                            return 'Photo';
+                          }
+                        }
+                        
+                        return 'Start a conversation';
+                      })()}
+                    </Text>
+                  )}
                   {unreadCount > 0 && (
                     <View style={styles.unreadBadge}>
                       <Text style={styles.unreadText}>{unreadCount}</Text>
@@ -603,7 +645,7 @@ export default function ConversationsScreen() {
                   <Text style={styles.appleEditFieldLabel}>Email</Text>
                   <View style={[styles.appleEditFieldInput, styles.appleViewFieldAsInput]}>
                     <Text style={[styles.appleViewFieldText, !userProfile?.email && styles.appleViewFieldPlaceholder]}>
-                      {userProfile?.email || 'Not set'}
+                      {userProfile?.email || 'Email'}
                     </Text>
                   </View>
                 </TouchableOpacity>
