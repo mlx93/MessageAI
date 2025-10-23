@@ -172,13 +172,21 @@ function AppContent() {
       <Stack.Screen name="auth/setup-profile" />
       <Stack.Screen name="auth/edit-profile" />
       {/* DEPRECATED: complete-profile removed - setup-profile handles all profile completion */}
-      <Stack.Screen name="(tabs)" />
+      <Stack.Screen 
+        name="(tabs)" 
+        options={{
+          headerShown: false,
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+        }}
+      />
       <Stack.Screen 
         name="contacts/import" 
         options={{ 
           headerShown: true,
           title: 'Import Contacts',
           headerBackTitleVisible: false,
+          headerBackTitle: '',
           presentation: 'card',
         }} 
       />
@@ -187,8 +195,8 @@ function AppContent() {
         options={{ 
           headerShown: true,
           title: '',
-          headerBackTitleVisible: true,
-          headerBackTitle: 'Messages',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
           presentation: 'card',
           gestureEnabled: true,
           animation: 'slide_from_right',
