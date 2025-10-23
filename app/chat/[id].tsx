@@ -1046,10 +1046,15 @@ export default function ChatScreen() {
           onLayout={() => {
             // Scroll to bottom on initial layout without animation (prevents visible scroll on Android)
             if (!hasScrolledToEnd.current && messages.length > 0) {
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: false });
-                hasScrolledToEnd.current = true;
-              }, 100);
+              // Use requestAnimationFrame for better timing
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  if (flatListRef.current && messages.length > 0) {
+                    flatListRef.current.scrollToEnd({ animated: false });
+                    hasScrolledToEnd.current = true;
+                  }
+                }, 50);
+              });
             }
           }}
           onContentSizeChange={() => {
