@@ -260,16 +260,51 @@ export default function ChatScreen() {
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
       );
       
-      setMessages(visibleMessages);
+      // Smart update: Only update state if messages actually changed
+      // This prevents re-renders on every read receipt/delivery status update
+      setMessages(prevMessages => {
+        // Quick check: if lengths differ, definitely update
+        if (prevMessages.length !== visibleMessages.length) {
+          // Cache only NEW messages (not already in state)
+          const newMsgIds = new Set(prevMessages.map(m => m.id));
+          visibleMessages
+            .filter(m => !newMsgIds.has(m.id))
+            .forEach(m => cacheMessageBatched(m));
+          
+          return visibleMessages;
+        }
+        
+        // Check if any message actually changed (status, readBy, deliveredTo)
+        let hasChanges = false;
+        const updatedMessages = visibleMessages.map(newMsg => {
+          const oldMsg = prevMessages.find(m => m.id === newMsg.id);
+          if (!oldMsg) {
+            hasChanges = true;
+            cacheMessageBatched(newMsg); // Cache new message
+            return newMsg;
+          }
+          
+          // Check if important fields changed
+          if (oldMsg.status !== newMsg.status ||
+              oldMsg.readBy.length !== newMsg.readBy.length ||
+              oldMsg.deliveredTo.length !== newMsg.deliveredTo.length) {
+            hasChanges = true;
+            cacheMessageBatched(newMsg); // Cache changed message
+            return newMsg;
+          }
+          
+          // No change, keep old reference to prevent re-render
+          return oldMsg;
+        });
+        
+        // Only update if something changed
+        return hasChanges ? updatedMessages : prevMessages;
+      });
+      
       // Only animate scroll if we've already done the initial scroll (not first load)
       if (hasScrolledToEnd.current) {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       }
-      
-      // Cache messages (batched for performance)
-      visibleMessages.forEach(m => {
-        cacheMessageBatched(m);
-      });
       
       // Mark messages as delivered
       visibleMessages.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
@@ -283,7 +318,6 @@ export default function ChatScreen() {
       
       if (unreadMessages.length > 0) {
         markMessagesAsRead(conversationId, user!.uid, unreadMessages.map(m => m.id));
-        console.log(`✅ Marked ${unreadMessages.length} message(s) as read in active chat`);
       }
     });
 
@@ -1245,6 +1279,10 @@ export default function ChatScreen() {
           windowSize={21}
           initialNumToRender={20}
           initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10,
+          }}
           onScrollToIndexFailed={(info) => {
             // Fallback if initialScrollIndex fails
             const wait = new Promise(resolve => setTimeout(resolve, 100));

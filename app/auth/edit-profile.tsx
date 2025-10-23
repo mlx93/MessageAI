@@ -73,10 +73,6 @@ export default function EditProfileScreen() {
     }
   };
 
-  const handleCancel = () => {
-    router.back();
-  };
-
   const handleUploadAvatar = async () => {
     if (!user) return;
     
@@ -106,9 +102,6 @@ export default function EditProfileScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeIn.duration(300)} style={styles.content}>
-            <Text style={styles.title}>Edit Profile</Text>
-            <Text style={styles.subtitle}>Update your account information</Text>
-
             {/* Profile Picture */}
             <TouchableOpacity 
               style={styles.avatarContainer} 
@@ -193,14 +186,6 @@ export default function EditProfileScreen() {
                 <Text style={styles.buttonText}>Save Changes</Text>
               )}
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={handleCancel}
-              disabled={loading}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -222,21 +207,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
   },
   avatarContainer: {
     alignSelf: 'center',

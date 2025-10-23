@@ -78,25 +78,27 @@ export const cacheMessage = (message: Message): Promise<void> => {
 /**
  * Batched version of cacheMessage
  * Buffers messages and writes them in batches to reduce main thread blocking
+ * 
+ * Key optimization: Deduplicates messages to prevent caching the same message
+ * multiple times when Firestore listener fires on read receipts/delivery status updates
  */
-let writeBuffer: Message[] = [];
+let writeBuffer: Map<string, Message> = new Map(); // Use Map to deduplicate by message ID
 let writeTimer: NodeJS.Timeout | null = null;
 
 export const cacheMessageBatched = (message: Message) => {
-  writeBuffer.push(message);
+  // Deduplicate: Only keep the latest version of each message
+  writeBuffer.set(message.id, message);
   
   // Clear existing timer
   if (writeTimer) clearTimeout(writeTimer);
   
   // Flush after 500ms of no new messages
   writeTimer = setTimeout(async () => {
-    if (writeBuffer.length > 0) {
-      const batch = [...writeBuffer];
-      writeBuffer = [];
+    if (writeBuffer.size > 0) {
+      const batch = Array.from(writeBuffer.values());
+      writeBuffer.clear();
       
-      if (__DEV__) console.log(`💾 Batching ${batch.length} SQLite writes`);
-      
-      // Write all at once
+      // Write all at once (console logs removed to prevent re-renders)
       try {
         batch.forEach(msg => {
           db.runSync(
@@ -116,7 +118,6 @@ export const cacheMessageBatched = (message: Message) => {
             ]
           );
         });
-        if (__DEV__) console.log(`✅ Successfully wrote ${batch.length} messages to SQLite`);
       } catch (error) {
         console.error('Batched SQLite write failed:', error);
       }
@@ -129,10 +130,10 @@ export const cacheMessageBatched = (message: Message) => {
  */
 export const flushCacheBuffer = async () => {
   if (writeTimer) clearTimeout(writeTimer);
-  if (writeBuffer.length > 0) {
-    const batch = [...writeBuffer];
-    writeBuffer = [];
-    if (__DEV__) console.log(`💾 Flushing ${batch.length} messages from cache buffer`);
+  if (writeBuffer.size > 0) {
+    const batch = Array.from(writeBuffer.values());
+    writeBuffer.clear();
+    // Silent flush (no console log)
     batch.forEach(msg => cacheMessage(msg));
   }
 };

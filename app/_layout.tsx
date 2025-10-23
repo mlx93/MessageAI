@@ -175,7 +175,30 @@ function AppContent() {
       <Stack.Screen name="auth/phone-login" />
       <Stack.Screen name="auth/verify-otp" />
       <Stack.Screen name="auth/setup-profile" />
-      <Stack.Screen name="auth/edit-profile" />
+      <Stack.Screen 
+        name="auth/edit-profile"
+        options={({ navigation }) => ({
+          headerShown: true,
+          title: 'Edit Profile',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={{
+                marginLeft: 0,
+                paddingLeft: 12,
+                paddingRight: 12,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 5, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={30} color="#007AFF" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
       {/* DEPRECATED: complete-profile removed - setup-profile handles all profile completion */}
       <Stack.Screen 
         name="(tabs)" 
