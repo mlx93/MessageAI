@@ -186,12 +186,12 @@ export default function ChatScreen() {
               <TouchableOpacity 
                 onPress={buttonAction} 
                 style={{ 
-                  marginRight: 8,
-                  paddingRight: 8,
+                  marginRight: 12,
                   width: 32,
                   height: 32,
                   justifyContent: 'center',
-                  alignItems: 'center',
+                  alignItems: 'flex-end',
+                  paddingRight: 4,
                 }}
               >
                 <Ionicons 
@@ -1043,21 +1043,19 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
-          initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
-          onScrollToIndexFailed={(info) => {
-            // Fallback if initialScrollIndex fails
-            const wait = new Promise(resolve => setTimeout(resolve, 100));
-            wait.then(() => {
-              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-            });
+          onLayout={() => {
+            // Scroll to bottom on initial layout without animation (prevents visible scroll on Android)
+            if (!hasScrolledToEnd.current && messages.length > 0) {
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: false });
+                hasScrolledToEnd.current = true;
+              }, 100);
+            }
           }}
           onContentSizeChange={() => {
             // Only scroll on subsequent updates (new messages), not initial load
             if (hasScrolledToEnd.current && messages.length > 0) {
               flatListRef.current?.scrollToEnd({ animated: true });
-            } else if (messages.length > 0) {
-              // Mark as scrolled on first load (initialScrollIndex handles position)
-              hasScrolledToEnd.current = true;
             }
           }}
           ListFooterComponent={() => (
