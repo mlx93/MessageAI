@@ -185,7 +185,7 @@ export default function ChatScreen() {
               <TouchableOpacity 
                 onPress={buttonAction} 
                 style={{ 
-                  marginRight: 12,
+                  marginRight: 4,
                   width: 32,
                   height: 32,
                   justifyContent: 'center',
@@ -1479,7 +1479,7 @@ const styles = StyleSheet.create({
     height: 36,
     marginBottom: 4,
     marginLeft: 6,
-    marginRight: 4,
+    marginRight: 12,
   },
   sendButtonDisabled: {
     backgroundColor: '#C0C0C0',

@@ -6,8 +6,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, TouchableOpacity } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initDB } from '../services/sqliteService';
@@ -193,17 +194,32 @@ function AppContent() {
       />
       <Stack.Screen 
         name="chat/[id]" 
-        options={{ 
+        options={({ navigation }) => ({ 
           headerShown: true,
           title: '',
           headerBackTitleVisible: false,
           headerBackTitle: '',
+          headerLeft: () => (
+            <TouchableOpacity 
+              onPress={() => navigation.goBack()}
+              style={{ 
+                marginLeft: 0, 
+                paddingLeft: 12,
+                paddingRight: 12,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 5, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={30} color="#007AFF" />
+            </TouchableOpacity>
+          ),
           presentation: 'card',
           gestureEnabled: true,
           animation: 'slide_from_right',
           // Force full gesture handler reset on unmount
           animationTypeForReplace: 'push',
-        }} 
+        })} 
       />
       <Stack.Screen 
         name="new-message" 
