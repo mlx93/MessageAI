@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Message } from '../types';
 
@@ -40,22 +40,25 @@ export const subscribeToMessages = (
   );
   
   return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        conversationId,
-        text: data.text || '',
-        senderId: data.senderId,
-        timestamp: data.timestamp?.toDate() || new Date(),
-        status: data.status || 'sent',
-        type: data.type || 'text',
-        mediaURL: data.mediaURL,
-        localId: data.localId,
-        readBy: data.readBy || [],
-        deliveredTo: data.deliveredTo || []
-      } as Message;
-    });
+    const messages = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          conversationId,
+          text: data.text || '',
+          senderId: data.senderId,
+          timestamp: data.timestamp?.toDate() || new Date(),
+          status: data.status || 'sent',
+          type: data.type || 'text',
+          mediaURL: data.mediaURL,
+          localId: data.localId,
+          readBy: data.readBy || [],
+          deliveredTo: data.deliveredTo || [],
+          deleted: data.deleted || false
+        } as Message;
+      })
+      .filter(msg => !msg.deleted); // Filter out deleted messages
     callback(messages);
   });
 };
@@ -137,5 +140,44 @@ export const sendImageMessage = async (
   caption?: string
 ): Promise<string> => {
   return sendMessage(conversationId, caption || 'Image', senderId, localId, imageUrl);
+};
+
+/**
+ * Delete a message (soft delete)
+ * Marks message as deleted instead of removing it
+ */
+export const deleteMessage = async (
+  conversationId: string,
+  messageId: string,
+  userId: string
+): Promise<void> => {
+  const messageRef = doc(db, `conversations/${conversationId}/messages/${messageId}`);
+  const messageSnap = await getDoc(messageRef);
+  
+  if (!messageSnap.exists()) {
+    throw new Error('Message not found');
+  }
+  
+  const message = messageSnap.data();
+  
+  // Only allow deletion of own messages
+  if (message.senderId !== userId) {
+    throw new Error('Cannot delete messages from other users');
+  }
+  
+  // Soft delete: Mark as deleted instead of removing
+  await updateDoc(messageRef, {
+    deleted: true,
+    deletedAt: Timestamp.now(),
+    text: 'Message deleted' // Preserve for notification history
+  });
+  
+  // Update conversation last message if this was the last message
+  const { getConversation } = await import('./conversationService');
+  const conversation = await getConversation(conversationId);
+  if (conversation && conversation.lastMessage.senderId === userId) {
+    const { updateConversationLastMessage } = await import('./conversationService');
+    await updateConversationLastMessage(conversationId, 'Message deleted', userId, messageId);
+  }
 };
 

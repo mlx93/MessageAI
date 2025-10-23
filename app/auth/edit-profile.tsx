@@ -17,11 +17,13 @@ import {
   Platform,
   ScrollView,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { updateUserProfile } from '../../services/authService';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
+import { uploadProfilePicture } from '../../services/imageService';
 
 export default function EditProfileScreen() {
   const { user, userProfile, refreshUserProfile } = useAuth();
@@ -29,6 +31,7 @@ export default function EditProfileScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   useEffect(() => {
     if (userProfile) {
@@ -73,6 +76,24 @@ export default function EditProfileScreen() {
     router.back();
   };
 
+  const handleUploadPhoto = async () => {
+    if (!user) return;
+    
+    setIsUploadingPhoto(true);
+    try {
+      const photoURL = await uploadProfilePicture(user.uid);
+      if (photoURL) {
+        await updateUserProfile(user.uid, { photoURL });
+        await refreshUserProfile();
+        Alert.alert('Success', 'Profile picture updated');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to upload profile picture');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -87,6 +108,35 @@ export default function EditProfileScreen() {
             <Text style={styles.title}>Edit Profile</Text>
             <Text style={styles.subtitle}>Update your account information</Text>
 
+            {/* Profile Photo Section */}
+            <View style={styles.photoSection}>
+              <TouchableOpacity 
+                onPress={handleUploadPhoto}
+                disabled={isUploadingPhoto || loading}
+              >
+                <View style={styles.avatarLarge}>
+                  {userProfile?.photoURL ? (
+                    <Image source={{ uri: userProfile.photoURL }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarInitials}>{userProfile?.initials}</Text>
+                  )}
+                  {isUploadingPhoto && (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="large" color="#007AFF" />
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={handleUploadPhoto} 
+                disabled={isUploadingPhoto || loading}
+              >
+                <Text style={styles.changePhotoText}>
+                  {isUploadingPhoto ? 'Uploading...' : 'Change Photo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <TextInput
               style={styles.input}
               placeholder="First Name"
@@ -94,7 +144,7 @@ export default function EditProfileScreen() {
               onChangeText={setFirstName}
               autoCapitalize="words"
               editable={!loading}
-              autoFocus={true}
+              autoFocus={false}
             />
 
             <TextInput
@@ -235,6 +285,48 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#333',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  photoSection: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  avatarLarge: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  avatarImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  avatarInitials: {
+    fontSize: 36,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  changePhotoText: {
+    fontSize: 16,
+    color: '#007AFF',
     fontWeight: '600',
   },
 });

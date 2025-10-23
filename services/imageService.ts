@@ -296,3 +296,59 @@ export const pickAndUploadImage = async (conversationId: string): Promise<string
   }
 };
 
+/**
+ * Pick and upload profile picture
+ * Returns download URL or null
+ */
+export const uploadProfilePicture = async (userId: string): Promise<string | null> => {
+  try {
+    // Request permissions
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Required',
+        'Please allow access to your photos in Settings to upload a profile picture.',
+        [{ text: 'OK' }]
+      );
+      return null;
+    }
+    
+    // Pick image
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1], // Square crop
+      quality: 0.8
+    });
+    
+    if (result.canceled || !result.assets[0]) {
+      return null;
+    }
+    
+    const uri = result.assets[0].uri;
+    
+    // Compress image (profile pics should be small)
+    const compressed = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 400 } }], // Max 400px
+      {
+        compress: 0.8,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    
+    // Upload to Storage
+    const response = await fetch(compressed.uri);
+    const blob = await response.blob();
+    
+    const storageRef = ref(storage, `profile-pictures/${userId}/${Date.now()}.jpg`);
+    await uploadBytes(storageRef, blob);
+    
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
+  } catch (error) {
+    console.error('Failed to upload profile picture:', error);
+    throw error;
+  }
+};
+

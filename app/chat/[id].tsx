@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, ActionSheetIOS } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered } from '../../services/messageService';
+import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
 import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
 import { cacheMessage, cacheMessageBatched, getCachedMessages, flushCacheBuffer } from '../../services/sqliteService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
@@ -21,6 +21,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { Message } from '../../types';
 import { Ionicons } from '@expo/vector-icons';
 import ImageViewer from '../../components/ImageViewer';
+import * as Clipboard from 'expo-clipboard';
 
 interface Participant {
   uid: string;
@@ -150,38 +151,60 @@ export default function ChatScreen() {
             title: isAddMode ? '' : title,
             headerBackTitleVisible: false,
             headerBackTitle: '',
-            headerTitle: isAddMode || conversation.type !== 'direct' ? undefined : () => (
-              <View style={{ flexDirection: 'column', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
-                    {title}
-                  </Text>
-                  {(() => {
-                    // Check staleness before showing indicator (22s threshold)
-                    const secondsAgo = otherUserLastSeen 
-                      ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
-                      : Infinity;
-                    const isStale = secondsAgo >= 22;
-                    
-                    return otherUserOnline && !isStale && (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if background
-                        }}
-                      />
-                    );
-                  })()}
+            headerTitle: isAddMode ? undefined : () => {
+              // For groups, make header tappable to view group info
+              if (conversation.type === 'group') {
+                return (
+                  <TouchableOpacity onPress={handleViewGroupInfo}>
+                    <View style={{ flexDirection: 'column', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
+                          {title}
+                        </Text>
+                        <Ionicons name="information-circle-outline" size={18} color="#007AFF" />
+                      </View>
+                      <Text style={{ fontSize: 12, color: '#8E8E93', marginTop: 2 }}>
+                        {conversation.participants.length} participants
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }
+              
+              // For direct chats, show presence status
+              return (
+                <View style={{ flexDirection: 'column', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
+                      {title}
+                    </Text>
+                    {(() => {
+                      // Check staleness before showing indicator (22s threshold)
+                      const secondsAgo = otherUserLastSeen 
+                        ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+                        : Infinity;
+                      const isStale = secondsAgo >= 22;
+                      
+                      return otherUserOnline && !isStale && (
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A', // Green if in app, yellow if background
+                          }}
+                        />
+                      );
+                    })()}
+                  </View>
+                  {subtitle && (
+                    <Text style={{ fontSize: 12, color: '#666' }}>
+                      {subtitle}
+                    </Text>
+                  )}
                 </View>
-                {subtitle && (
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    {subtitle}
-                  </Text>
-                )}
-              </View>
-            ),
+              );
+            },
             headerRight: () => (
               <TouchableOpacity 
                 onPress={buttonAction} 
@@ -782,6 +805,80 @@ export default function ChatScreen() {
     }
   }, []);
 
+  // Navigate to group info screen
+  const handleViewGroupInfo = () => {
+    router.push(`/chat/group-info?id=${conversationId}`);
+  };
+
+  // Show message actions (Copy, Delete)
+  const showMessageActions = useCallback((message: Message) => {
+    const options = ['Copy', 'Cancel'];
+    
+    // Add Delete option only for own messages
+    if (message.senderId === user?.uid && !message.deleted) {
+      options.unshift('Delete');
+    }
+    
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: options.length - 1,
+          destructiveButtonIndex: message.senderId === user?.uid ? 0 : undefined,
+        },
+        async (buttonIndex) => {
+          if (message.senderId === user?.uid) {
+            // Options: Delete, Copy, Cancel
+            if (buttonIndex === 0) {
+              // Delete
+              try {
+                await deleteMessage(conversationId, message.id, user.uid);
+              } catch (error) {
+                Alert.alert('Error', 'Failed to delete message');
+              }
+            } else if (buttonIndex === 1) {
+              // Copy
+              await Clipboard.setStringAsync(message.text);
+            }
+          } else {
+            // Options: Copy, Cancel
+            if (buttonIndex === 0) {
+              // Copy
+              await Clipboard.setStringAsync(message.text);
+            }
+          }
+        }
+      );
+    } else {
+      // Android: Use Alert with buttons
+      const buttons: any[] = [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Copy', 
+          onPress: async () => {
+            await Clipboard.setStringAsync(message.text);
+          }
+        }
+      ];
+      
+      if (message.senderId === user?.uid && !message.deleted) {
+        buttons.push({
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessage(conversationId, message.id, user.uid);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete message');
+            }
+          }
+        });
+      }
+      
+      Alert.alert('Message Actions', null, buttons);
+    }
+  }, [conversationId, user]);
+
   // Memoized MessageRow component for FlatList performance
   const MessageRow = memo(({ item: message, index }: { item: Message; index: number }) => {
     const isOwnMessage = message.senderId === user!.uid;
@@ -804,6 +901,7 @@ export default function ChatScreen() {
                 {isImageMessage ? (
                   <TouchableOpacity 
                     onPress={() => setViewerImageUrl(message.mediaURL!)}
+                    onLongPress={() => showMessageActions(message)}
                     style={[styles.imageMessageContainer, styles.ownImageContainer]}
                   >
                     <Image 
@@ -813,16 +911,21 @@ export default function ChatScreen() {
                     />
                   </TouchableOpacity>
                 ) : (
-                  <View 
-                    style={[
-                      styles.messageBubble,
-                      styles.ownMessage,
-                    ]}
+                  <TouchableOpacity 
+                    onLongPress={() => showMessageActions(message)}
+                    activeOpacity={0.9}
                   >
-                    <Text style={[styles.messageText, { color: '#fff' }]}>
-                      {message.text}
-                    </Text>
-                  </View>
+                    <View 
+                      style={[
+                        styles.messageBubble,
+                        styles.ownMessage,
+                      ]}
+                    >
+                      <Text style={[styles.messageText, { color: '#fff' }]}>
+                        {message.text}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
                 )}
                 
                 {/* Read receipt below bubble - always visible */}
@@ -881,6 +984,7 @@ export default function ChatScreen() {
               {isImageMessage ? (
                 <TouchableOpacity 
                   onPress={() => setViewerImageUrl(message.mediaURL!)}
+                  onLongPress={() => showMessageActions(message)}
                   style={styles.imageMessageContainer}
                 >
                   <Image 
@@ -890,16 +994,21 @@ export default function ChatScreen() {
                   />
                 </TouchableOpacity>
               ) : (
-                <View 
-                  style={[
-                    styles.messageBubble,
-                    styles.otherMessage,
-                  ]}
+                <TouchableOpacity 
+                  onLongPress={() => showMessageActions(message)}
+                  activeOpacity={0.9}
                 >
-                  <Text style={[styles.messageText, { color: '#000' }]}>
-                    {message.text}
-                  </Text>
-                </View>
+                  <View 
+                    style={[
+                      styles.messageBubble,
+                      styles.otherMessage,
+                    ]}
+                  >
+                    <Text style={[styles.messageText, { color: '#000' }]}>
+                      {message.text}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               )}
               
               {/* Read receipt below bubble */}

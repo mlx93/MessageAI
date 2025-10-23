@@ -33,6 +33,7 @@ export interface Message {
   localId: string; // For optimistic updates and deduplication
   readBy: string[]; // Array of user IDs who have read this message
   deliveredTo: string[]; // Array of user IDs who have received this message
+  deleted?: boolean; // Soft delete flag
 }
 
 export interface Conversation {
