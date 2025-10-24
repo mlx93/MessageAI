@@ -10,6 +10,19 @@
 
 ---
 
+## 🚀 Start Here (Concise Core)
+
+- `../memory_bank/projectbrief.md` — What we’re building and why, scope/non-goals, success criteria
+- `../memory_bank/productContext.md` — UX goals and key user journeys
+- `../memory_bank/systemPatterns.md` — Architecture, data model, determinism, offline, stability
+- `../memory_bank/techContext.md` — Tech stack, constraints, locations, decisions
+- `../memory_bank/activeContext.md` — Current focus, next steps, guardrails
+- `../memory_bank/progress.md` — Status, what’s left, known limitations
+
+These six files summarize the entire project and reflect the current codebase.
+
+---
+
 ## 📚 Memory Bank Contents
 
 This folder contains comprehensive documentation of aiMessage's development journey from initial setup to production-ready MVP, including key decisions, technical architecture, and product direction.
@@ -300,13 +313,11 @@ firebase emulators:start    # Alternative command
 
 ## 📝 How to Use This Memory Bank
 
-1. **Quick Status:** Read `00_INDEX.md` (this file)
-2. **Understanding Architecture:** Check `02_tech_stack_architecture.md`
-3. **Feature Scope:** Review `03_core_features_scope.md`
-4. **Current State:** Check `05_current_codebase_state.md`
-5. **Latest Progress:** See `06_active_context_progress.md`
-6. **Troubleshooting:** Refer to `04_setup_issues_solutions.md`
-7. **Product Direction:** Review `08_product_direction_post_mvp.md`
+1. Read the concise core: `../memory_bank/projectbrief.md` → `../memory_bank/productContext.md` → `../memory_bank/systemPatterns.md` → `../memory_bank/techContext.md` → `../memory_bank/activeContext.md` → `../memory_bank/progress.md`
+2. Deep dive (reference): `02_tech_stack_architecture.md`, `03_core_features_scope.md`, `05_current_codebase_state.md`
+3. Latest detailed session notes: `06_active_context_progress.md`, `13_oct24_session16_image_scroll_fixes.md`
+4. Troubleshooting: `04_setup_issues_solutions.md`
+5. Product direction: `08_product_direction_post_mvp.md`
 
 ---
 

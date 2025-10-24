@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { sendMessage } from './messageService';
-import { updateConversationLastMessage, updateConversationLastMessageBatched } from './conversationService';
+import { updateConversationLastMessageBatched } from './conversationService';
 
 const QUEUE_KEY = 'offline_messages';
 
@@ -11,6 +10,8 @@ export interface QueuedMessage {
   localId: string;
   retryCount: number;
   timestamp: number;
+  mediaURL?: string;
+  type?: string;
 }
 
 /**
@@ -71,10 +72,11 @@ export const processQueue = async (): Promise<{ sent: number; failed: number }> 
         msg.text, 
         msg.senderId, 
         msg.localId,
-        undefined,
+        msg.mediaURL,
         5000
       );
-      updateConversationLastMessageBatched(msg.conversationId, msg.text, msg.senderId, msg.localId);
+      const previewText = msg.type === 'image' ? '📷 Image' : msg.text;
+      updateConversationLastMessageBatched(msg.conversationId, previewText, msg.senderId, msg.localId);
       
       // Remove from queue on successful send
       await removeFromQueue(msg.localId);
@@ -148,10 +150,11 @@ export const retryMessage = async (localId: string): Promise<boolean> => {
       message.text, 
       message.senderId, 
       message.localId,
-      undefined,
+      message.mediaURL,
       10000
     );
-    updateConversationLastMessageBatched(message.conversationId, message.text, message.senderId, message.localId);
+    const previewText = message.type === 'image' ? '📷 Image' : message.text;
+    updateConversationLastMessageBatched(message.conversationId, previewText, message.senderId, message.localId);
     
     // Remove from queue on successful send
     await removeFromQueue(message.localId);

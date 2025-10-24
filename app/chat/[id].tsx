@@ -70,6 +70,7 @@ export default function ChatScreen() {
   const hasLayoutCompleted = useRef(false); // Track if initial layout is done
   const lockScrollToBottom = useRef(false); // Lock scroll at bottom during image loading
   const [shouldRenderImages, setShouldRenderImages] = useState(false); // Defer image rendering until after scroll
+  const lastOnlineStatusRef = useRef(isOnline);
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -90,6 +91,8 @@ export default function ChatScreen() {
   // Load conversation details and participants
   useEffect(() => {
     if (!user) return;
+
+    lastOnlineStatusRef.current = isOnline;
 
     const loadConversationData = async () => {
       try {
@@ -129,11 +132,12 @@ export default function ChatScreen() {
     });
 
     // Network status
-    const unsubscribeNet = NetInfo.addEventListener(async (state) => {
-      const wasOnline = isOnline;
-      setIsOnline(!!state.isConnected);
+    const unsubscribeNet = NetInfo.addEventListener((state) => {
+      const nextOnline = !!state.isConnected;
+      const wasOnline = lastOnlineStatusRef.current;
+      setIsOnline(nextOnline);
       
-      if (state.isConnected && !wasOnline) {
+      if (nextOnline && !wasOnline) {
         // Just reconnected
         setIsReconnecting(true);
         
@@ -142,6 +146,8 @@ export default function ChatScreen() {
           setIsReconnecting(false);
         }, 2000);
       }
+
+      lastOnlineStatusRef.current = nextOnline;
     });
 
     // Subscribe to real-time messages
@@ -220,7 +226,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isOnline]);
+  }, [conversationId, user]);
   
   // Separate effect for updating header when presence/add mode changes
   // This prevents re-subscribing to messages on every presence update
@@ -474,12 +480,13 @@ export default function ChatScreen() {
     };
 
     // 1. QUEUE FIRST (pessimistic - guarantees persistence)
-    await queueMessage({
-      conversationId,
-      text: tempMessage.text,
-      senderId: user.uid,
-      localId
-    });
+      await queueMessage({
+        conversationId,
+        text: tempMessage.text,
+        senderId: user.uid,
+        localId,
+        type: 'text'
+      });
     console.log('📦 Message queued first for persistence');
 
     // 2. Show optimistically in UI
@@ -609,12 +616,10 @@ export default function ChatScreen() {
       const imageUrl = await pickAndUploadImage(conversationId);
       
       if (!imageUrl) {
-        // User cancelled or error occurred
-        setIsUploadingImage(false);
         return;
       }
 
-      // Send image message
+      // Queue first for persistence
       const localId = uuidv4();
       const tempMessage: Message = {
         id: localId,
@@ -622,7 +627,7 @@ export default function ChatScreen() {
         text: 'Image',
         senderId: user.uid,
         timestamp: new Date(),
-        status: 'sent',
+        status: 'sending',
         type: 'image',
         mediaURL: imageUrl,
         localId,
@@ -630,27 +635,60 @@ export default function ChatScreen() {
         deliveredTo: []
       };
 
-      // Add to messages
+      await queueMessage({
+        conversationId,
+        text: tempMessage.text,
+        senderId: user.uid,
+        localId,
+        mediaURL: imageUrl,
+        type: 'image'
+      });
+      console.log('📦 Image message queued first for persistence');
+
+      // Optimistically show in UI and cache
       setMessages(prev => [...prev, tempMessage]);
+      await cacheMessage(tempMessage);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
-      // Send to server
       if (isOnline) {
-        await sendImageMessage(conversationId, imageUrl, user.uid, localId);
-        updateConversationLastMessageBatched(conversationId, '📷 Image', user.uid, localId);
-      } else {
-        await queueMessage({
-          conversationId,
-          text: 'Image',
-          senderId: user.uid,
-          localId
-        });
-      }
+        try {
+          await sendImageMessage(conversationId, imageUrl, user.uid, localId);
+          updateConversationLastMessageBatched(conversationId, '📷 Image', user.uid, localId);
 
-      setIsUploadingImage(false);
+          await removeFromQueue(localId);
+          setMessages(prev => prev.map(m => 
+            m.localId === localId || m.id === localId
+              ? { ...m, status: 'sent' }
+              : m
+          ));
+        } catch (error: any) {
+          console.log(`⚠️ Image send failed, message stays in queue: ${localId}`);
+          setMessages(prev => prev.map(m => 
+            m.localId === localId || m.id === localId
+              ? { ...m, status: 'queued' }
+              : m
+          ));
+
+          const isTimeout = error?.message?.includes('timeout');
+          Alert.alert(
+            isTimeout ? 'Slow Connection' : 'Image Queued',
+            isTimeout
+              ? 'Image will send when connection improves'
+              : 'Image will be retried automatically when online'
+          );
+        }
+      } else {
+        console.log('📤 Offline: Image message queued for later sending');
+        setMessages(prev => prev.map(m => 
+          m.localId === localId || m.id === localId
+            ? { ...m, status: 'queued' }
+            : m
+        ));
+      }
     } catch (error: any) {
       console.error('Failed to send image:', error);
       Alert.alert('Error', 'Failed to send image. Please try again.');
+    } finally {
       setIsUploadingImage(false);
     }
   };
@@ -771,14 +809,23 @@ export default function ChatScreen() {
 
       // No split needed - just add participants (removal always requires split above)
       // Add all pending participants
-      for (const participant of pendingParticipants) {
-        await addParticipantToConversation(conversationId, participant.uid);
-        
-        // Add to current participants list
-        setCurrentParticipants(prev => [...prev, {
-          uid: participant.uid,
-          displayName: participant.displayName
-        }]);
+      if (pendingParticipants.length > 0) {
+        await Promise.all(
+          pendingParticipants.map(participant => 
+            addParticipantToConversation(conversationId, participant.uid)
+          )
+        );
+
+        setCurrentParticipants(prev => {
+          const existingIds = new Set(prev.map(p => p.uid));
+          const additions = pendingParticipants
+            .filter(participant => !existingIds.has(participant.uid))
+            .map(participant => ({
+              uid: participant.uid,
+              displayName: participant.displayName
+            }));
+          return [...prev, ...additions];
+        });
       }
       
       // Reset add mode - no success toast
@@ -930,12 +977,13 @@ export default function ChatScreen() {
         message.text,
         message.senderId,
         localId,
-        undefined,
+        message.mediaURL,
         10000
       );
       
       // Update conversation preview (batched)
-      updateConversationLastMessageBatched(message.conversationId, message.text, message.senderId, localId);
+      const previewText = message.type === 'image' ? '📷 Image' : message.text;
+      updateConversationLastMessageBatched(message.conversationId, previewText, message.senderId, localId);
       
       // Success: remove from queue
       await removeFromQueue(localId);
@@ -1404,6 +1452,15 @@ export default function ChatScreen() {
           onContentSizeChange={handleContentSizeChange}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            const fallbackOffset = Math.max(0, (averageItemLength || 80) * index);
+            requestAnimationFrame(() => {
+              flatListRef.current?.scrollToOffset({
+                offset: fallbackOffset,
+                animated: true,
+              });
+            });
+          }}
           ListFooterComponent={() => (
             <>
               {/* Typing Indicator - styled like regular messages with avatar */}
@@ -1453,21 +1510,30 @@ export default function ChatScreen() {
           // Scroll to first queued/failed message
           const firstQueuedIndex = messages.findIndex(m => m.status === 'queued' || m.status === 'failed');
           if (firstQueuedIndex !== -1) {
-            flatListRef.current?.scrollToIndex({ 
-              index: firstQueuedIndex, 
-              animated: true,
-              viewPosition: 0.5 // Center the message
-            });
+            try {
+              flatListRef.current?.scrollToIndex({ 
+                index: firstQueuedIndex, 
+                animated: true,
+                viewPosition: 0.5 // Center the message
+              });
+            } catch {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }
           }
         }}
       />
 
       <View style={styles.inputContainer}>
         <TouchableOpacity 
-          style={styles.imageButton}
+          style={[styles.imageButton, isUploadingImage && styles.imageButtonDisabled]}
           onPress={handlePickImage}
+          disabled={isUploadingImage}
         >
-          <Ionicons name="image-outline" size={26} color="#007AFF" />
+          {isUploadingImage ? (
+            <ActivityIndicator size="small" color="#007AFF" />
+          ) : (
+            <Ionicons name="image-outline" size={26} color="#007AFF" />
+          )}
         </TouchableOpacity>
         <TextInput
           style={styles.input}
@@ -1835,6 +1901,9 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  imageButtonDisabled: {
+    opacity: 0.6,
   },
   input: {
     flex: 1,

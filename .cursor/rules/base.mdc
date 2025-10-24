@@ -1,0 +1,30 @@
+Description: Project intelligence and coding patterns for aiMessage. Read before making changes.
+
+Content:
+- Use Expo Router with `index.ts` importing `expo-router/entry`; do not add `App.tsx`.
+- Architecture uses a service layer. Keep UI components dumb; put business logic in `services/*`.
+- Deterministic conversation previews:
+  - Always pass `messageId` (UUID v4) to preview updates.
+  - Respect `lastMessageId` guard; only update if new ID is lexicographically greater.
+  - Prefer `updateConversationLastMessageBatched` for preview writes (300ms debounce).
+- Offline‑first rules:
+  - Queue‑first on send; show queued chip; support manual retry.
+  - Use `sendMessageWithTimeout` in queue processing and manual retry.
+  - Flush SQLite cache on background/unmount.
+- Rendering stability in chat:
+  - Do not use reanimated `entering` on images.
+  - Keep `renderItem`, `onLayout`, and helpers stable (useCallback/memo).
+  - Render placeholders, scroll to bottom, then enable images.
+  - Use setTimeout sequencing for cross‑platform bottom scroll; lock briefly during image load.
+- Presence & typing:
+  - Split presence effects from message subscriptions; presence updates should not re‑subscribe messages.
+- Notifications:
+  - Use smart delivery (no notification if user active in chat).
+  - Android push requires dev/prod build; handle gracefully in Expo Go.
+- Security/Rules:
+  - Firestore rules enforce participant access; Storage max 10MB images, image MIME only.
+- Testing:
+  - Prefer emulator suite for integration; avoid over‑mocking RN modules.
+  - Keep tests aligned with production paths: `conversations/{id}/messages`.
+- Naming & formatting:
+  - Use descriptive identifiers; avoid abbreviations; match existing code style.
