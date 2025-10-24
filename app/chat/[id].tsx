@@ -101,7 +101,7 @@ export default function ChatScreen() {
           setTimeout(() => {
             setShouldRenderImages(true);
             lockScrollToBottom.current = true;
-            const lockDuration = Platform.OS === 'android' ? 200 : 200;
+            const lockDuration = 400;
             setTimeout(() => {
               lockScrollToBottom.current = false;
             }, lockDuration);
