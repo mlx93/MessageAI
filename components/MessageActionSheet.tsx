@@ -10,6 +10,7 @@ interface MessageActionSheetProps {
   onDelete?: () => void;
   messageText: string;
   isOwnMessage: boolean;
+  deleteLabel?: string;
 }
 
 export default function MessageActionSheet({
@@ -19,6 +20,7 @@ export default function MessageActionSheet({
   onDelete,
   messageText,
   isOwnMessage,
+  deleteLabel = 'Delete',
 }: MessageActionSheetProps) {
   const handleCopy = () => {
     onCopy();
@@ -61,16 +63,16 @@ export default function MessageActionSheet({
           </TouchableOpacity>
 
           {/* Divider */}
-          {isOwnMessage && onDelete && <View style={styles.divider} />}
+          {onDelete && <View style={styles.divider} />}
 
-          {/* Delete Action - only for own messages */}
-          {isOwnMessage && onDelete && (
+          {/* Delete Action */}
+          {onDelete && (
             <TouchableOpacity
               style={styles.actionButton}
               onPress={handleDelete}
               activeOpacity={0.7}
             >
-              <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
+              <Text style={[styles.actionText, styles.deleteText]}>{deleteLabel}</Text>
             </TouchableOpacity>
           )}
 

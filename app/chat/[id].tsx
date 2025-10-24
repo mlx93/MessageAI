@@ -67,10 +67,69 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
   const prevMessageCount = useRef(0); // Track previous message count to detect NEW messages
-  const hasLayoutCompleted = useRef(false); // Track if initial layout is done
   const lockScrollToBottom = useRef(false); // Lock scroll at bottom during image loading
   const [shouldRenderImages, setShouldRenderImages] = useState(false); // Defer image rendering until after scroll
   const lastOnlineStatusRef = useRef(isOnline);
+  const layoutReadyRef = useRef(false);
+  const initialDataReadyRef = useRef(false);
+  const hasSnappedToBottomRef = useRef(false);
+  const pendingInitialSnapRef = useRef(false);
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+  
+  const ensureInitialSnap = useCallback(() => {
+    if (hasSnappedToBottomRef.current || !flatListRef.current) {
+      return;
+    }
+
+    const attemptSnap = () => {
+      if (!layoutReadyRef.current || !initialDataReadyRef.current) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        if (!flatListRef.current) return;
+
+        const targetOffset = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
+
+        try {
+          flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
+          flatListRef.current.scrollToEnd({ animated: false });
+          hasSnappedToBottomRef.current = true;
+          hasScrolledToEnd.current = true;
+
+          setTimeout(() => {
+            setShouldRenderImages(true);
+            lockScrollToBottom.current = true;
+            setTimeout(() => {
+              lockScrollToBottom.current = false;
+              requestAnimationFrame(() => {
+                if (!flatListRef.current) return;
+                flatListRef.current.scrollToEnd({ animated: false });
+              });
+            }, 2000);
+          }, 50);
+        } catch (error) {
+          console.warn('Initial snap failed, retrying...', error);
+          setTimeout(attemptSnap, 32);
+        }
+      });
+    };
+
+    attemptSnap();
+  }, []);
+
+  const markInitialDataReady = useCallback(() => {
+    if (initialDataReadyRef.current) return;
+
+    initialDataReadyRef.current = true;
+
+    if (layoutReadyRef.current) {
+      ensureInitialSnap();
+    } else {
+      pendingInitialSnapRef.current = true;
+    }
+  }, [ensureInitialSnap]);
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -93,6 +152,15 @@ export default function ChatScreen() {
     if (!user) return;
 
     lastOnlineStatusRef.current = isOnline;
+    layoutReadyRef.current = false;
+    initialDataReadyRef.current = false;
+    hasSnappedToBottomRef.current = false;
+    pendingInitialSnapRef.current = false;
+    hasScrolledToEnd.current = false;
+    lockScrollToBottom.current = false;
+    setShouldRenderImages(false);
+    contentHeightRef.current = 0;
+    layoutHeightRef.current = 0;
 
     const loadConversationData = async () => {
       try {
@@ -127,6 +195,7 @@ export default function ChatScreen() {
         const recentMessages = cachedMsgs.slice(-50);
         setMessages(recentMessages);
       }
+      markInitialDataReady();
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
     });
@@ -201,6 +270,7 @@ export default function ChatScreen() {
         // Only update if something changed
         return hasChanges ? updatedMessages : prevMessages;
       });
+      markInitialDataReady();
       
       // Only scroll to bottom when NEW messages arrive (not on status updates)
       if (hasScrolledToEnd.current && isNewMessage) {
@@ -846,36 +916,29 @@ export default function ChatScreen() {
   }, []);
 
   // Stable onLayout callback for FlatList
-  const handleFlatListLayout = useCallback(() => {
-    if (!hasLayoutCompleted.current && !hasScrolledToEnd.current && messages.length > 0) {
-      hasLayoutCompleted.current = true;
-      
-      // Use setTimeout for reliable cross-platform scrolling (works on both iOS and Android)
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-        hasScrolledToEnd.current = true;
-        
-        // Enable image rendering AFTER scroll completes
-        setTimeout(() => {
-          setShouldRenderImages(true);
-          
-          // Lock scroll to bottom during image loading to prevent position shifts
-          lockScrollToBottom.current = true;
-          setTimeout(() => {
-            lockScrollToBottom.current = false;
-          }, 2000);
-        }, 100); // Small delay to ensure scroll completes first
-      }, 50); // Delay to ensure FlatList layout is complete
+  const handleFlatListLayout = useCallback((event?: any) => {
+    if (event?.nativeEvent?.layout?.height) {
+      layoutHeightRef.current = event.nativeEvent.layout.height;
     }
-  }, [messages.length]);
+    layoutReadyRef.current = true;
+    if (initialDataReadyRef.current) {
+      ensureInitialSnap();
+    } else {
+      requestAnimationFrame(() => ensureInitialSnap());
+    }
+  }, [ensureInitialSnap]);
 
   // Handle content size change - keep at bottom if locked (during initial image loading)
-  const handleContentSizeChange = useCallback(() => {
+  const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
+    contentHeightRef.current = contentHeight;
+    if (!hasSnappedToBottomRef.current) {
+      ensureInitialSnap();
+    }
     if (lockScrollToBottom.current) {
       // Force stay at bottom during initial image loading
       flatListRef.current?.scrollToEnd({ animated: false });
     }
-  }, []);
+  }, [ensureInitialSnap]);
 
   // Release lock if user manually scrolls up
   const handleScroll = useCallback((event: any) => {
@@ -887,6 +950,12 @@ export default function ChatScreen() {
       lockScrollToBottom.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (!hasSnappedToBottomRef.current && messages.length > 0) {
+      ensureInitialSnap();
+    }
+  }, [messages, ensureInitialSnap]);
 
   // Stable renderItem to prevent unnecessary MessageRow re-renders
   const renderMessageItem = useCallback(({ item, index }: { item: Message; index: number }) => {
@@ -927,7 +996,7 @@ export default function ChatScreen() {
 
     Alert.alert(
       'Delete Message',
-      'Delete this message for yourself? Others will still see it.',
+      'Remove this message from your device? Other participants will still see it.',
       [
         {
           text: 'Cancel',
@@ -939,7 +1008,6 @@ export default function ChatScreen() {
           onPress: async () => {
             try {
               await deleteMessage(conversationId, selectedMessage.id, user.uid);
-              // Message will be filtered out via real-time listener
             } catch (error) {
               console.error('Failed to delete message:', error);
               Alert.alert('Error', 'Failed to delete message');
@@ -1571,9 +1639,10 @@ export default function ChatScreen() {
           setSelectedMessage(null);
         }}
         onCopy={handleCopyMessage}
-        onDelete={selectedMessage?.senderId === user?.uid ? handleDeleteMessage : undefined}
+        onDelete={handleDeleteMessage}
         messageText={selectedMessage?.text || ''}
         isOwnMessage={selectedMessage?.senderId === user?.uid}
+        deleteLabel={selectedMessage?.senderId === user?.uid ? 'Delete' : 'Delete for me'}
       />
 
     </KeyboardAvoidingView>
