@@ -54,6 +54,19 @@ export {
   checkProactiveTriggers,
 } from "./ai/proactiveTriggers";
 
+export {
+  detectDeadlineConflicts,
+  detectDecisionConflicts,
+  detectOverdueActions,
+  detectContextGaps,
+} from "./ai/enhancedProactiveTriggers";
+
+export {
+  cleanupExpiredCache,
+  generateCacheStats,
+  preloadCommonQueries,
+} from "./ai/cacheMaintenance";
+
 /**
  * Generate 6-digit OTP code
  * @return {string} 6-digit OTP code

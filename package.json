@@ -16,7 +16,12 @@
     "test:emulators:test-rules": "firebase emulators:exec --only auth,firestore --import=./emulator-data 'echo Emulators ready with test rules'",
     "test:emulators:kill": "lsof -ti:9099,8080,5001,9199 | xargs kill -9 || true",
     "test:all": "npm run test:unit && npm run test:integration",
-    "test:ci": "jest --ci --coverage --maxWorkers=2"
+    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    "create-pinecone-index": "ts-node scripts/create-pinecone-index.ts",
+    "embed-messages": "ts-node scripts/embed-existing-messages.ts",
+    "deploy-indexes": "ts-node scripts/deploy-firestore-indexes.ts",
+    "create-indexes-file": "ts-node scripts/create-indexes-file.ts",
+    "fix-index-names": "ts-node scripts/fix-index-field-names.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

@@ -12,8 +12,8 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
 // Suppress console warnings for Android Expo Go limitations
-const originalWarn = console.warn;
-const originalError = console.error;
+const originalWarn = console.warn.bind(console);
+const originalError = console.error.bind(console);
 
 // Filter out known Expo Go Android notification warnings
 console.warn = (...args) => {
@@ -26,7 +26,7 @@ console.warn = (...args) => {
     // Suppress Expo Go Android notification warnings
     return;
   }
-  originalWarn.apply(console, args);
+  originalWarn(...args);
 };
 
 console.error = (...args) => {
@@ -39,7 +39,7 @@ console.error = (...args) => {
     // Suppress Expo Go Android notification errors - these are expected
     return;
   }
-  originalError.apply(console, args);
+  originalError(...args);
 };
 
 /**

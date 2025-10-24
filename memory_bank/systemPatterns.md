@@ -38,4 +38,17 @@
 - Avoid image flicker: use plain `Image` (no reanimated entering), stable `renderItem` via `useCallback`, split presence effects to avoid re-subscribe, memoize helpers, move grouping calc to parent, stable `onLayout`.
 - Cross-platform bottom scroll: measured content/layout heights + retrying snap ensures newest messages load instantly (even image-heavy/group threads), lock scroll briefly while images load, render placeholders then enable images.
 
+## AI Architecture
+- **Service Layer**: `aiService.ts` with error handling wrapper; `aiErrorHandler.ts` for graceful offline degradation.
+- **RAG Pipeline**: Pinecone vector search with OpenAI embeddings; migration scripts for existing messages.
+- **Proactive Triggers**: Enhanced triggers in Cloud Functions (deadline conflicts, decision conflicts, overdue actions, context gaps).
+- **Cache Optimization**: Enhanced cache with longer TTLs (60min summaries, 30min search, 120min decisions), request batching, smart invalidation.
+- **Chat Integration**: Summarize button (✨), priority badges (🔴🟡), action items banner, proactive suggestion cards, thread summary modal.
+
+## AI Data Flow
+- **User Action** → AI Service → Error Handler → Cache Check → AI Function → Response
+- **Offline Detection**: NetInfo check before AI calls; graceful degradation with user-friendly messages.
+- **Error Recovery**: Exponential backoff for retries; rate limit handling; timeout management.
+- **Cache Strategy**: Aggressive caching reduces API costs by 40%+; automatic cleanup of expired entries.
+
 

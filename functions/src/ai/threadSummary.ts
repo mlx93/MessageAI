@@ -2,7 +2,7 @@ import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {openai} from "@ai-sdk/openai";
 import {generateText} from "ai";
 import * as admin from "firebase-admin";
-import {withCache} from "../utils/cache";
+import {cacheSummary} from "../utils/enhancedCache";
 import {openaiKey} from "../utils/openai";
 
 interface SummarizeThreadRequest {
@@ -54,7 +54,7 @@ export const summarizeThread = onCall({
       effectiveDateRange.start
     }_${effectiveDateRange.end}`;
 
-    const summary = await withCache(cacheKey, 5, async () => {
+    const summary = await cacheSummary(cacheKey, async () => {
       const db = admin.firestore();
 
       // Query messages by date range

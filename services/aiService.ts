@@ -12,6 +12,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import {app} from './firebase';
+import {withAIErrorHandling} from './aiErrorHandler';
 
 export interface SearchResult {
   messageId: string;
@@ -46,12 +47,31 @@ export interface Decision {
   status: 'active' | 'superseded' | 'reversed';
 }
 
+export type ProactiveSuggestionType =
+  | 'meeting'
+  | 'reminder'
+  | 'context'
+  | 'deadline_conflict'
+  | 'decision_conflict'
+  | 'overdue_action'
+  | 'context_gap'
+  | 'escalation';
+
+export type ProactiveSuggestionPriority = 'high' | 'medium' | 'low';
+
+export interface ProactiveSuggestionAction {
+  label: string;
+  action: string;
+}
+
 export interface ProactiveSuggestion {
   id: string;
   conversationId: string;
   message: string;
-  type: 'meeting' | 'reminder' | 'context';
-  actions: Array<{label: string; action: string}>;
+  type: ProactiveSuggestionType;
+  priority?: ProactiveSuggestionPriority;
+  confidence?: number;
+  actions?: ProactiveSuggestionAction[];
   status: 'pending' | 'accepted' | 'dismissed';
   createdAt: any;
 }
@@ -83,10 +103,16 @@ class AIService {
   async summarizeThread(
     conversationId: string,
     dateRange?: {start: string; end: string}
-  ): Promise<ThreadSummary> {
-    const summarize = httpsCallable(this.functions, 'summarizeThread');
-    const result = await summarize({conversationId, dateRange});
-    return result.data as ThreadSummary;
+  ): Promise<ThreadSummary | null> {
+    return withAIErrorHandling(
+      async () => {
+        const summarize = httpsCallable(this.functions, 'summarizeThread');
+        const result = await summarize({conversationId, dateRange});
+        return result.data as ThreadSummary;
+      },
+      'summarizeThread',
+      {showAlert: true, retries: 2}
+    );
   }
 
   /**
@@ -95,10 +121,16 @@ class AIService {
   async extractActions(
     conversationId: string,
     dateRange?: {start: string; end: string}
-  ): Promise<{actionItems: ActionItem[]; count: number}> {
-    const extract = httpsCallable(this.functions, 'extractActions');
-    const result = await extract({conversationId, dateRange});
-    return result.data as {actionItems: ActionItem[]; count: number};
+  ): Promise<{actionItems: ActionItem[]; count: number} | null> {
+    return withAIErrorHandling(
+      async () => {
+        const extract = httpsCallable(this.functions, 'extractActions');
+        const result = await extract({conversationId, dateRange});
+        return result.data as {actionItems: ActionItem[]; count: number};
+      },
+      'extractActions',
+      {showAlert: true, retries: 2}
+    );
   }
 
   /**
@@ -110,10 +142,16 @@ class AIService {
       conversationId?: string;
       dateRange?: {start: string; end: string};
     }
-  ): Promise<{results: SearchResult[]; searchTime: number}> {
-    const search = httpsCallable(this.functions, 'smartSearch');
-    const result = await search({query, filters});
-    return result.data as {results: SearchResult[]; searchTime: number};
+  ): Promise<{results: SearchResult[]; searchTime: number} | null> {
+    return withAIErrorHandling(
+      async () => {
+        const search = httpsCallable(this.functions, 'smartSearch');
+        const result = await search({query, filters});
+        return result.data as {results: SearchResult[]; searchTime: number};
+      },
+      'smartSearch',
+      {showAlert: true, retries: 2}
+    );
   }
 
   /**
@@ -122,10 +160,16 @@ class AIService {
   async detectPriority(
     messageText: string,
     conversationContext: {type: string; participantCount: number}
-  ): Promise<PriorityDetection> {
-    const detect = httpsCallable(this.functions, 'detectPriority');
-    const result = await detect({messageText, conversationContext});
-    return result.data as PriorityDetection;
+  ): Promise<PriorityDetection | null> {
+    return withAIErrorHandling(
+      async () => {
+        const detect = httpsCallable(this.functions, 'detectPriority');
+        const result = await detect({messageText, conversationContext});
+        return result.data as PriorityDetection;
+      },
+      'detectPriority',
+      {showAlert: false, retries: 1} // Don't show alert for priority, retry once
+    );
   }
 
   /**
@@ -134,10 +178,16 @@ class AIService {
   async extractDecisions(
     conversationId: string,
     dateRange?: {start: string; end: string}
-  ): Promise<{decisions: Decision[]; count: number}> {
-    const extract = httpsCallable(this.functions, 'extractDecisions');
-    const result = await extract({conversationId, dateRange});
-    return result.data as {decisions: Decision[]; count: number};
+  ): Promise<{decisions: Decision[]; count: number} | null> {
+    return withAIErrorHandling(
+      async () => {
+        const extract = httpsCallable(this.functions, 'extractDecisions');
+        const result = await extract({conversationId, dateRange});
+        return result.data as {decisions: Decision[]; count: number};
+      },
+      'extractDecisions',
+      {showAlert: true, retries: 2}
+    );
   }
 
   /**

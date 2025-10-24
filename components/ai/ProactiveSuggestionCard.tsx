@@ -1,6 +1,10 @@
 import React from 'react';
 import {View, Text, StyleSheet, TouchableOpacity, ActivityIndicator} from 'react-native';
-import {ProactiveSuggestion} from '../../services/aiService';
+import {
+  ProactiveSuggestion,
+  ProactiveSuggestionPriority,
+  ProactiveSuggestionType,
+} from '../../services/aiService';
 import {Ionicons} from '@expo/vector-icons';
 
 interface ProactiveSuggestionCardProps {
@@ -16,35 +20,81 @@ export default function ProactiveSuggestionCard({
   onDismiss,
   loading,
 }: ProactiveSuggestionCardProps) {
-  const getIcon = () => {
-    switch (suggestion.type) {
+  const getVisuals = (
+    type: ProactiveSuggestionType,
+    priority?: ProactiveSuggestionPriority,
+  ) => {
+    switch (type) {
       case 'meeting':
-        return '📅';
+        return {icon: '📅', title: 'Meeting Aid', accent: '#007AFF'};
       case 'reminder':
-        return '⏰';
+        return {icon: '⏰', title: 'Reminder', accent: '#FF9500'};
       case 'context':
-        return '💡';
+        return {icon: '💡', title: 'Context Helper', accent: '#5856D6'};
+      case 'deadline_conflict':
+        return {icon: '🗓️', title: 'Deadline Conflict', accent: '#FF3B30'};
+      case 'decision_conflict':
+        return {icon: '⚖️', title: 'Decision Conflict', accent: '#AF52DE'};
+      case 'overdue_action':
+        return {icon: '📌', title: 'Overdue Action', accent: '#FF2D55'};
+      case 'context_gap':
+        return {icon: '🧭', title: 'Context Gap', accent: '#34C759'};
+      case 'escalation':
+        return {icon: '🚨', title: 'Escalation Needed', accent: '#FF3B30'};
       default:
-        return '🤖';
+        return {icon: '🤖', title: 'Ava Suggests', accent: '#007AFF'};
     }
   };
 
+  const {icon, title, accent} = getVisuals(
+    suggestion.type,
+    suggestion.priority,
+  );
+
+  const getPriorityLabel = (priority?: ProactiveSuggestionPriority) => {
+    switch (priority) {
+      case 'high':
+        return 'High Priority';
+      case 'medium':
+        return 'Medium Priority';
+      case 'low':
+        return 'Low Priority';
+      default:
+        return null;
+    }
+  };
+
+  const priorityLabel = getPriorityLabel(suggestion.priority);
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, {borderLeftColor: accent}]}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.icon}>{getIcon()}</Text>
-          <Text style={styles.title}>Ava suggests</Text>
+          <Text style={styles.icon}>{icon}</Text>
+          <Text style={[styles.title, {color: accent}]}>{title}</Text>
         </View>
         <TouchableOpacity
           onPress={() => onDismiss(suggestion.id)}
           disabled={loading}
           hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-          <Ionicons name="close" size={20} color="#666" />
+          <Ionicons name="close" size={20} color={accent} />
         </TouchableOpacity>
       </View>
 
       <Text style={styles.message}>{suggestion.message}</Text>
+
+      {priorityLabel && (
+        <View style={[styles.priorityPill, {borderColor: accent}]}>
+          <Text style={[styles.priorityText, {color: accent}]}>
+            {priorityLabel}
+          </Text>
+          {typeof suggestion.confidence === 'number' && (
+            <Text style={[styles.confidenceText, {color: accent}]}>
+              {(suggestion.confidence * 100).toFixed(0)}%
+            </Text>
+          )}
+        </View>
+      )}
 
       {suggestion.actions && suggestion.actions.length > 0 && (
         <View style={styles.actionsContainer}>
@@ -53,16 +103,19 @@ export default function ProactiveSuggestionCard({
               key={index}
               style={[
                 styles.actionButton,
+                {borderColor: accent},
                 index === 0 && styles.primaryButton,
+                index === 0 && {backgroundColor: accent, borderColor: accent},
               ]}
               onPress={() => onAccept(suggestion.id, action.action)}
               disabled={loading}>
               {loading ? (
-                <ActivityIndicator size="small" color="#007AFF" />
+                <ActivityIndicator size="small" color={accent} />
               ) : (
                 <Text
                   style={[
                     styles.actionText,
+                    {color: accent},
                     index === 0 && styles.primaryText,
                   ]}>
                   {action.label}
@@ -116,6 +169,27 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
+  priorityPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 12,
+  },
+  priorityText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  confidenceText: {
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
   actionsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -126,19 +200,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#007AFF',
     backgroundColor: '#FFF',
     minWidth: 100,
     alignItems: 'center',
   },
   primaryButton: {
     backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
   },
   actionText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#007AFF',
   },
   primaryText: {
     color: '#FFF',
