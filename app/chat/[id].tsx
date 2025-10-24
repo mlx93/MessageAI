@@ -3,7 +3,7 @@ import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSh
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, SlideInUp, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
@@ -66,6 +66,8 @@ export default function ChatScreen() {
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
+  const prevMessageCount = useRef(0); // Track previous message count to detect NEW messages
+  const hasLayoutCompleted = useRef(false); // Track if initial layout is done
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -87,7 +89,7 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!user) return;
 
-    const loadConversationTitle = async () => {
+    const loadConversationData = async () => {
       try {
         const { getConversation } = await import('../../services/conversationService');
         const conversation = await getConversation(conversationId);
@@ -106,132 +108,19 @@ export default function ChatScreen() {
               displayName: conversation.participantDetails[id]?.displayName || 'Unknown'
             }));
           setCurrentParticipants(participants);
-
-          // Set title based on mode
-          let title = '';
-          let subtitle = '';
-          if (conversation.type === 'direct') {
-            const otherUserId = conversation.participants.find(id => id !== user.uid);
-            title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
-            
-            // Add presence status with staleness detection
-            // If lastSeen is older than 22 seconds, consider user offline (handles force-quit)
-            // 22s = 1.5x heartbeat interval (15s) for reliable detection
-            const secondsAgo = otherUserLastSeen 
-              ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
-              : Infinity;
-            const isStale = secondsAgo >= 22;
-            
-            if (otherUserOnline && otherUserInApp && !isStale) {
-              subtitle = 'online'; // Green indicator - actively using app
-            } else if (otherUserOnline && !otherUserInApp && !isStale) {
-              subtitle = 'background'; // Yellow indicator - app in background but still connected
-            } else if (otherUserLastSeen) {
-              // Offline or stale - show last seen
-              const minutesAgo = Math.floor(secondsAgo / 60);
-              if (secondsAgo < 60) {
-                subtitle = 'Last seen just now';
-              } else if (minutesAgo < 60) {
-                subtitle = `Last seen ${minutesAgo}m ago`;
-              } else if (minutesAgo < 1440) {
-                subtitle = `Last seen ${Math.floor(minutesAgo / 60)}h ago`;
-              } else {
-                subtitle = `Last seen ${Math.floor(minutesAgo / 1440)}d ago`;
-              }
-            }
-          } else {
-            const names = conversation.participants
-              .filter(id => id !== user.uid)
-              .map(id => conversation.participantDetails[id]?.displayName.split(' ')[0])
-              .slice(0, 3)
-              .join(', ');
-            title = names + (conversation.participants.length > 4 ? '...' : '');
-            // Participant count with proper pluralization
-            const count = conversation.participants.length;
-            subtitle = `${count} ${count === 1 ? 'participant' : 'participants'}`;
-          }
-
-          // Determine button based on state
-          const hasPendingChanges = isAddMode && (pendingParticipants.length > 0 || participantsToRemove.length > 0);
-          const buttonAction = hasPendingChanges ? handleConfirmAddUsers : (isAddMode ? handleCancelAdd : handleAddParticipant);
-
-          navigation.setOptions({
-            title: isAddMode ? '' : title,
-            headerBackTitle: '',
-            headerTitle: isAddMode ? undefined : () => {
-              const isGroup = conversation.type === 'group';
-              const HeaderContent = (
-                <View style={{ flexDirection: 'column', alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
-                      {title}
-                    </Text>
-                    {!isGroup && (() => {
-                      // Check staleness before showing indicator (22s threshold)
-                      const secondsAgo = otherUserLastSeen 
-                        ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
-                        : Infinity;
-                      const isStale = secondsAgo >= 22;
-                      
-                      return otherUserOnline && !isStale && (
-                        <View
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: 4,
-                            backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A',
-                          }}
-                        />
-                      );
-                    })()}
-                  </View>
-                  {subtitle && (
-                    <Text style={{ fontSize: 12, color: '#666' }}>
-                      {subtitle}
-                    </Text>
-                  )}
-                </View>
-              );
-
-              // Make group headers tappable
-              return isGroup ? (
-                <TouchableOpacity onPress={() => router.push(`/group/${conversationId}`)}>
-                  {HeaderContent}
-                </TouchableOpacity>
-              ) : HeaderContent;
-            },
-            headerRight: () => (
-              <TouchableOpacity 
-                onPress={buttonAction} 
-                style={{ 
-                  marginRight: 4,
-                  width: 32,
-                  height: 32,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons 
-                  name={isAddMode ? (hasPendingChanges ? "checkmark" : "close") : "person-add-outline"} 
-                  size={24} 
-                  color="#007AFF" 
-                />
-              </TouchableOpacity>
-            ),
-          });
         }
       } catch (error) {
         console.error('Failed to load conversation:', error);
-        navigation.setOptions({ title: 'Chat', headerBackTitle: '' });
       }
     };
-    loadConversationTitle();
+    loadConversationData();
 
-    // Load cached messages first
+    // Load cached messages first (newest 50 for instant display)
     getCachedMessages(conversationId).then(cachedMsgs => {
       if (cachedMsgs.length > 0) {
-        setMessages(cachedMsgs);
-        // onContentSizeChange will handle scrolling to end without visible animation
+        // Load newest 50 messages first for instant display
+        const recentMessages = cachedMsgs.slice(-50);
+        setMessages(recentMessages);
       }
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
@@ -259,6 +148,10 @@ export default function ChatScreen() {
       const visibleMessages = msgs.filter(m => 
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
       );
+      
+      // Check if this is a NEW message (not just an update)
+      const isNewMessage = visibleMessages.length > prevMessageCount.current;
+      prevMessageCount.current = visibleMessages.length;
       
       // Smart update: Only update state if messages actually changed
       // This prevents re-renders on every read receipt/delivery status update
@@ -301,8 +194,8 @@ export default function ChatScreen() {
         return hasChanges ? updatedMessages : prevMessages;
       });
       
-      // Only animate scroll if we've already done the initial scroll (not first load)
-      if (hasScrolledToEnd.current) {
+      // Only scroll to bottom when NEW messages arrive (not on status updates)
+      if (hasScrolledToEnd.current && isNewMessage) {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       }
       
@@ -325,7 +218,131 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, isAddMode, navigation, otherUserOnline, otherUserInApp, otherUserLastSeen, pendingParticipants, participantsToRemove, isOnline]);
+  }, [conversationId, user, isOnline]);
+  
+  // Separate effect for updating header when presence/add mode changes
+  // This prevents re-subscribing to messages on every presence update
+  useEffect(() => {
+    if (!user) return;
+    
+    const updateHeader = async () => {
+      try {
+        const { getConversation } = await import('../../services/conversationService');
+        const conversation = await getConversation(conversationId);
+        if (!conversation) return;
+        
+        // Set title based on mode
+        let title = '';
+        let subtitle = '';
+        if (conversation.type === 'direct') {
+          const otherUserId = conversation.participants.find(id => id !== user.uid);
+          title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
+          
+          // Add presence status with staleness detection
+          const secondsAgo = otherUserLastSeen 
+            ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+            : Infinity;
+          const isStale = secondsAgo >= 22;
+          
+          if (otherUserOnline && otherUserInApp && !isStale) {
+            subtitle = 'online';
+          } else if (otherUserOnline && !otherUserInApp && !isStale) {
+            subtitle = 'background';
+          } else if (otherUserLastSeen) {
+            const minutesAgo = Math.floor(secondsAgo / 60);
+            if (secondsAgo < 60) {
+              subtitle = 'Last seen just now';
+            } else if (minutesAgo < 60) {
+              subtitle = `Last seen ${minutesAgo}m ago`;
+            } else if (minutesAgo < 1440) {
+              subtitle = `Last seen ${Math.floor(minutesAgo / 60)}h ago`;
+            } else {
+              subtitle = `Last seen ${Math.floor(minutesAgo / 1440)}d ago`;
+            }
+          }
+        } else {
+          const names = conversation.participants
+            .filter(id => id !== user.uid)
+            .map(id => conversation.participantDetails[id]?.displayName.split(' ')[0])
+            .slice(0, 3)
+            .join(', ');
+          title = names + (conversation.participants.length > 4 ? '...' : '');
+          const count = conversation.participants.length;
+          subtitle = `${count} ${count === 1 ? 'participant' : 'participants'}`;
+        }
+
+        const hasPendingChanges = isAddMode && (pendingParticipants.length > 0 || participantsToRemove.length > 0);
+        const buttonAction = hasPendingChanges ? handleConfirmAddUsers : (isAddMode ? handleCancelAdd : handleAddParticipant);
+
+        navigation.setOptions({
+          title: isAddMode ? '' : title,
+          headerBackTitle: '',
+          headerTitle: isAddMode ? undefined : () => {
+            const isGroup = conversation.type === 'group';
+            const HeaderContent = (
+              <View style={{ flexDirection: 'column', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 17, fontWeight: '600', marginRight: 6 }}>
+                    {title}
+                  </Text>
+                  {!isGroup && (() => {
+                    const secondsAgo = otherUserLastSeen 
+                      ? Math.floor((new Date().getTime() - otherUserLastSeen.getTime()) / 1000)
+                      : Infinity;
+                    const isStale = secondsAgo >= 22;
+                    
+                    return otherUserOnline && !isStale && (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: otherUserInApp ? '#34C759' : '#FFD60A',
+                        }}
+                      />
+                    );
+                  })()}
+                </View>
+                {subtitle && (
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    {subtitle}
+                  </Text>
+                )}
+              </View>
+            );
+
+            return isGroup ? (
+              <TouchableOpacity onPress={() => router.push(`/group/${conversationId}`)}>
+                {HeaderContent}
+              </TouchableOpacity>
+            ) : HeaderContent;
+          },
+          headerRight: () => (
+            <TouchableOpacity 
+              onPress={buttonAction} 
+              style={{ 
+                marginRight: 4,
+                width: 32,
+                height: 32,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons 
+                name={isAddMode ? (hasPendingChanges ? "checkmark" : "close") : "person-add-outline"} 
+                size={24} 
+                color="#007AFF" 
+              />
+            </TouchableOpacity>
+          ),
+        });
+      } catch (error) {
+        console.error('Failed to update header:', error);
+      }
+    };
+    
+    updateHeader();
+  }, [conversationId, user, isAddMode, otherUserOnline, otherUserInApp, otherUserLastSeen, pendingParticipants, participantsToRemove]);
 
   // Subscribe to presence for direct conversations
   useEffect(() => {
@@ -514,8 +531,8 @@ export default function ChatScreen() {
     }
   }, [inputText, conversationId, user, isOnline]);
 
-  // Format read receipt like iMessage - shows when message was READ, not sent
-  const formatReadReceipt = (message: Message): string | null => {
+  // Format read receipt like iMessage - shows when message was READ, not sent (memoized)
+  const formatReadReceipt = useCallback((message: Message): string | null => {
     if (!message.readBy || message.readBy.length <= 1) return null;
     
     // Get the latest read timestamp (excluding sender)
@@ -540,7 +557,7 @@ export default function ChatScreen() {
         return `Read ${format(readTime, 'M/d/yy')}`;
       }
     }
-  };
+  }, [user]);
 
   // Container-level pan gesture for all blue bubbles (memoized to prevent recreation)
   const containerPanGesture = useMemo(() => Gesture.Pan()
@@ -779,6 +796,18 @@ export default function ChatScreen() {
     setActionSheetVisible(true);
   }, []);
 
+  // Stable onLayout callback for FlatList
+  const handleFlatListLayout = useCallback(() => {
+    if (!hasLayoutCompleted.current && !hasScrolledToEnd.current && messages.length > 0) {
+      hasLayoutCompleted.current = true;
+      // Use requestAnimationFrame for smoother timing
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+        hasScrolledToEnd.current = true;
+      });
+    }
+  }, [messages.length]);
+
   const handleCopyMessage = useCallback(async () => {
     if (!selectedMessage) return;
 
@@ -948,16 +977,33 @@ export default function ChatScreen() {
   }, []);
 
   // Memoized MessageRow component for FlatList performance
-  const MessageRow = memo(({ item: message, index }: { item: Message; index: number }) => {
+  const MessageRow = memo(({ 
+    item: message, 
+    index, 
+    isLastInGroup, 
+    isFirstInGroup 
+  }: { 
+    item: Message; 
+    index: number;
+    isLastInGroup: boolean;
+    isFirstInGroup: boolean;
+  }) => {
     const isOwnMessage = message.senderId === user!.uid;
     const isImageMessage = message.type === 'image' && message.mediaURL;
     const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
-    const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== message.senderId;
-    const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== message.senderId;
     const formattedTime = format(message.timestamp, 'h:mm a');
     
     // Get sender info for group chats
     const senderInfo = !isOwnMessage && isGroupChat ? getSenderInfo(message.senderId) : null;
+    
+    // Stable callbacks to prevent CachedImage re-render
+    const handleImagePress = useCallback(() => {
+      setViewerImageUrl(message.mediaURL!);
+    }, [message.mediaURL]);
+    
+    const handleImageLongPress = useCallback(() => {
+      handleLongPressMessage(message);
+    }, [message]);
     
     // Optimistic UI opacity animation
     const messageOpacity = useSharedValue(
@@ -978,7 +1024,6 @@ export default function ChatScreen() {
     
     return (
       <Animated.View 
-        entering={SlideInUp.duration(300).springify()} 
         style={[styles.messageRow, messageAnimatedStyle]}
       >
         {isOwnMessage ? (
@@ -992,8 +1037,8 @@ export default function ChatScreen() {
                       uri={message.mediaURL!}
                       style={[styles.messageImage, styles.ownMessageImage]}
                       resizeMode="cover"
-                      onPress={() => setViewerImageUrl(message.mediaURL!)}
-                      onLongPress={() => handleLongPressMessage(message)}
+                      onPress={handleImagePress}
+                      onLongPress={handleImageLongPress}
                       delayLongPress={500}
                     />
                   </View>
@@ -1117,8 +1162,8 @@ export default function ChatScreen() {
                     uri={message.mediaURL!}
                     style={[styles.messageImage, styles.otherMessageImage]}
                     resizeMode="cover"
-                    onPress={() => setViewerImageUrl(message.mediaURL!)}
-                    onLongPress={() => handleLongPressMessage(message)}
+                    onPress={handleImagePress}
+                    onLongPress={handleImageLongPress}
                     delayLongPress={500}
                   />
                 </View>
@@ -1147,6 +1192,22 @@ export default function ChatScreen() {
           </View>
         )}
       </Animated.View>
+    );
+  }, (prevProps, nextProps) => {
+    // Only re-render if message content/status or grouping actually changed
+    const prev = prevProps.item;
+    const next = nextProps.item;
+    
+    return (
+      prev.id === next.id &&
+      prev.text === next.text &&
+      prev.status === next.status &&
+      prev.readBy.length === next.readBy.length &&
+      prev.deliveredTo.length === next.deliveredTo.length &&
+      prev.mediaURL === next.mediaURL &&
+      prevProps.index === nextProps.index &&
+      prevProps.isLastInGroup === nextProps.isLastInGroup &&
+      prevProps.isFirstInGroup === nextProps.isFirstInGroup
     );
   });
 
@@ -1270,7 +1331,18 @@ export default function ChatScreen() {
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item, index }) => <MessageRow item={item} index={index} />}
+          renderItem={({ item, index }) => {
+            const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== item.senderId;
+            const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== item.senderId;
+            return (
+              <MessageRow 
+                item={item} 
+                index={index}
+                isLastInGroup={isLastInGroup}
+                isFirstInGroup={isFirstInGroup}
+              />
+            );
+          }}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={true}
@@ -1278,27 +1350,7 @@ export default function ChatScreen() {
           maxToRenderPerBatch={20}
           windowSize={21}
           initialNumToRender={20}
-          initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
-          maintainVisibleContentPosition={{
-            minIndexForVisible: 0,
-            autoscrollToTopThreshold: 10,
-          }}
-          onScrollToIndexFailed={(info) => {
-            // Fallback if initialScrollIndex fails
-            const wait = new Promise(resolve => setTimeout(resolve, 100));
-            wait.then(() => {
-              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-            });
-          }}
-          onContentSizeChange={() => {
-            // Only scroll on subsequent updates (new messages), not initial load
-            if (hasScrolledToEnd.current && messages.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            } else if (messages.length > 0) {
-              // Mark as scrolled on first load (initialScrollIndex handles position)
-              hasScrolledToEnd.current = true;
-            }
-          }}
+          onLayout={handleFlatListLayout}
           ListFooterComponent={() => (
             <>
               {/* Typing Indicator - styled like regular messages with avatar */}

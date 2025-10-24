@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { View, Image, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Pressable } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
@@ -13,7 +13,7 @@ interface CachedImageProps {
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
-export default function CachedImage({ uri, style, resizeMode = 'cover', onPress, onLongPress, delayLongPress = 500 }: CachedImageProps) {
+const CachedImage = memo(({ uri, style, resizeMode = 'cover', onPress, onLongPress, delayLongPress = 500 }: CachedImageProps) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
@@ -87,7 +87,16 @@ export default function CachedImage({ uri, style, resizeMode = 'cover', onPress,
   }
 
   return content;
-}
+}, (prevProps, nextProps) => {
+  // Only re-render if URI or handlers changed
+  return (
+    prevProps.uri === nextProps.uri &&
+    prevProps.onPress === nextProps.onPress &&
+    prevProps.onLongPress === nextProps.onLongPress
+  );
+});
+
+export default CachedImage;
 
 const PressableWrapper = ({ onPress, onLongPress, delayLongPress, children }: {
   onPress?: () => void;
