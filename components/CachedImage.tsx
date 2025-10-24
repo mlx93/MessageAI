@@ -1,6 +1,5 @@
 import React, { useState, memo } from 'react';
 import { View, Image, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Pressable } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface CachedImageProps {
   uri: string;
@@ -10,8 +9,6 @@ interface CachedImageProps {
   onLongPress?: () => void;
   delayLongPress?: number;
 }
-
-const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 const CachedImage = memo(({ uri, style, resizeMode = 'cover', onPress, onLongPress, delayLongPress = 500 }: CachedImageProps) => {
   const [loading, setLoading] = useState(true);
@@ -59,16 +56,15 @@ const CachedImage = memo(({ uri, style, resizeMode = 'cover', onPress, onLongPre
         </View>
       )}
 
-      {/* Actual image with fade-in */}
+      {/* Actual image - no animation to prevent re-render flicker */}
       {!error && (
-        <AnimatedImage
+        <Image
           key={cacheBustingUri}
           source={{ uri: cacheBustingUri }}
           style={style}
           resizeMode={resizeMode}
           onLoad={handleLoad}
           onError={handleError}
-          entering={FadeIn.duration(200)}
         />
       )}
     </View>
@@ -127,6 +123,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8E8E8',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden', // Ensure content doesn't overflow during load
   },
   placeholder: {
     backgroundColor: '#E8E8E8',

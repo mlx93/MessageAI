@@ -1,15 +1,16 @@
-# MessageAI - Rubric Gap Analysis & AI Feature Plan
+# MessageAI - AI Implementation Plan (Technical Focus)
 
 **Date:** October 22, 2025  
 **Status:** 🔍 Planning Phase  
-**Current Completion:** 50/100 points  
-**Target:** 90-100 points (Grade A)
+**Current Score:** 70/100 points (C)  
+**Target Score:** 96-98/100 points (A+) ← Technical excellence only  
+**Final Score After Penalties:** 69-73/100 points (D+ to C-) ← With deliverables penalty
 
 ---
 
 ## 📊 Executive Summary
 
-### **What We Have Built: 50/100 Points ✅**
+### **What We Have Built: 70/100 Points ✅**
 
 **Section 1: Core Messaging Infrastructure (35/35 points)** ✅
 - ✅ Real-time message delivery (12/12)
@@ -28,40 +29,42 @@
 - ✅ Repository & setup (3/3)
 - ✅ Deployment (2/2)
 
-### **What We Need to Build: 50/100 Points ❌**
+### **What We Need to Build: 30 Points ❌**
 
 **Section 3: AI Features Implementation (0/30 points)** ❌
 - ❌ Required AI features (0/15) - **CRITICAL**
 - ❌ Persona fit & relevance (0/5) - **CRITICAL**
 - ❌ Advanced AI capability (0/10) - **CRITICAL**
 
-**Section 6: Required Deliverables (0/0 pass/fail)** ❌
-- ❌ Demo video - **REQUIRED** (-15 points if missing)
-- ❌ Persona brainlift - **REQUIRED** (-10 points if missing)
-- ❌ Social post - **REQUIRED** (-5 points if missing)
-
 **Bonus Points (0/10 potential)** 🎯
-- Opportunity for +10 additional points
+- Opportunity for +5-10 additional points
 
 ---
 
-## 🎯 Grade Projection
+## 🎯 Score Projection
 
-### Current State:
-- **Scored Points:** 50/100
-- **Grade:** F (Below 60%)
-- **Missing:** AI features (30 pts), Deliverables (pass/fail)
+### **Current State:**
+- **Sections 1-5:** 70/100
+- **Section 3 (AI):** 0/30
+- **Section 6 Penalty:** -30 points (missing deliverables)
+- **Final Score:** 40/100 (F)
 
-### With AI Features Complete:
-- **Projected Points:** 80-90/100
-- **Grade:** A or B
-- **Key Success Factor:** Quality of AI implementation
+### **After AI Implementation (No Deliverables):**
+- **Sections 1-5:** 70/100 ✅
+- **Section 3 (AI):** 26-28/30 ✅ (Excellent execution)
+  - Required features: 13-14/15
+  - Persona fit: 4-5/5
+  - Advanced capability: 9-10/10
+- **Bonus:** +3-5 points
+- **Technical Subtotal:** 96-98/100 (A+) 🎯
+- **Section 6 Penalty:** -30 points
+- **Final Score:** 69-73/100 (D+ to C-)
+
+**Key Insight:** You can build a technically perfect app but still get a D+ due to deliverables penalty.
 
 ---
 
-## 🚨 Critical Gaps Identified
-
-### **Gap 1: No AI Features (30 points at risk)**
+## 🚨 Critical Gap: AI Features (30 points)
 
 **Current State:** Zero AI functionality
 - No LLM integration
@@ -73,62 +76,84 @@
 
 **Required:** Choose 1 persona + implement 5 required features + 1 advanced capability
 
-**Impact:** Automatic F grade without AI features
-
----
-
-### **Gap 2: No Persona Selection (5 points + feature direction)**
-
-**Current State:** No persona chosen
-
-**Options:**
-1. **Remote Team Professional** - Thread summarization, action items, smart search
-2. **International Communicator** - Real-time translation, language detection
-3. **Busy Parent/Caregiver** - Calendar extraction, deadline tracking
-4. **Content Creator/Influencer** - Auto-categorization, response drafting
-
-**Required Decision:** Must choose 1 persona to guide all AI features
-
----
-
-### **Gap 3: Missing Deliverables (Pass/Fail - 30 points at risk)**
-
-**Missing:**
-1. ❌ Demo video (5-7 minutes) - **-15 points if missing**
-2. ❌ Persona brainlift document - **-10 points if missing**
-3. ❌ Social post (X/LinkedIn) - **-5 points if missing**
-
-**Impact:** Even with perfect code, missing these = Grade D or F
+**Impact:** This is where you gain 26-28 points through implementation
 
 ---
 
 ## 🎨 Recommended Persona: Remote Team Professional
 
-### **Why This Persona:**
+### **Why This Persona Wins:**
 
-**1. Best Fit for Existing Architecture:**
-- Our messaging system is already group-focused
-- We have conversation threading
-- Real-time sync perfect for team collaboration
-- Message history persistence supports summarization
+**1. Perfect Architecture Fit (10/10)**
+- ✅ Your group chat infrastructure is ideal
+- ✅ Message history enables summarization
+- ✅ Participant tracking enables action items
+- ✅ Real-time infrastructure enables priority detection
+- ✅ Data model easily extends for AI features
 
-**2. Clear User Value:**
-- Remote teams drown in Slack/Teams messages
+**2. Clear User Value**
+- Remote teams drown in messages (100+ per day)
 - Action items get lost in threads
 - Decisions are hard to track
 - Context switching kills productivity
 
-**3. Achievable AI Features:**
+**3. Achievable AI Features**
 - Summarization: Standard LLM capability
 - Action extraction: Structured prompt engineering
 - Smart search: Semantic search with embeddings
 - Priority detection: Classification task
 - Decision tracking: Entity extraction
 
-**4. Compelling Demo:**
-- Show real team conversation chaos
-- Demonstrate AI cutting through noise
-- Clear before/after value
+**4. Technical Leverage**
+- Reuses 80% of your existing services
+- Simple data model extensions
+- No new infrastructure needed
+- Standard OpenAI APIs
+
+### **Architecture Alignment Details:**
+
+**Your Group Chat Infrastructure:**
+```typescript
+interface Conversation {
+  participants: string[];
+  participantDetails: Record<string, {
+    displayName: string;
+    photoURL?: string;
+    initials: string;
+  }>;
+}
+```
+
+**AI Features That Leverage This:**
+- ✅ Action items need assignees → use displayName
+- ✅ Decision tracking needs attribution → use participants
+- ✅ Meeting agent needs attendees → use participants array
+- ✅ Summaries can attribute points → "John suggested..."
+
+**Your Message Persistence:**
+```typescript
+// Firestore: conversations/{id}/messages
+// SQLite: Local cache with timestamps
+// Indexes: conversationId + timestamp
+```
+
+**AI Features That Leverage This:**
+- ✅ Summarization needs ordered history → you have this
+- ✅ Action extraction needs context → SQLite enables fast retrieval
+- ✅ Decision tracking needs timeline → timestamp indexes perfect
+- ✅ RAG pipeline needs retrieval → subcollection structure ideal
+
+**Your Real-Time Infrastructure:**
+```typescript
+// Cloud Functions triggers on new messages
+// Push notifications with smart delivery
+// Typing indicators and presence
+```
+
+**AI Features That Leverage This:**
+- ✅ Priority classification can trigger on onCreate
+- ✅ Urgent messages can use existing push notification logic
+- ✅ Presence shows availability for meeting agent
 
 ---
 
@@ -141,20 +166,45 @@
 
 **Implementation:**
 - Button: "Summarize Thread" in chat header
-- Collects last N messages (50-100) from conversation
+- Collects last N messages (50-100) from Firestore subcollection
 - Sends to GPT-4 with summarization prompt
 - Returns bullet-point summary
 - Display in modal overlay
 
-**Technical:**
+**Technical Flow:**
 ```
-Conversation → Fetch messages → Format context → LLM API → Parse response → UI
+User taps button
+  ↓
+Fetch messages from conversations/{id}/messages
+  ↓
+Format for LLM (role: user, content: text)
+  ↓
+Call GPT-4 with prompt
+  ↓
+Parse response
+  ↓
+Display in modal
+```
+
+**Prompt Template:**
+```
+You are summarizing a team conversation. Extract:
+1. Main topics discussed
+2. Key decisions made
+3. Open questions or blockers
+4. Next steps mentioned
+
+Conversation history:
+{formatted_messages}
+
+Provide a 3-5 bullet point summary.
 ```
 
 **Success Criteria:**
-- Summary in < 5 seconds
+- Response time < 5 seconds
 - 3-5 key points extracted
 - 90%+ accuracy on manual review
+- Handles 100+ messages smoothly
 
 **Effort:** 4-6 hours
 
@@ -169,18 +219,59 @@ Conversation → Fetch messages → Format context → LLM API → Parse respons
 - Button: "Extract Action Items" in chat menu
 - Scans conversation for commitments
 - LLM identifies: What, Who, When (if present)
-- Returns structured list
+- Returns structured JSON
 - Display with checkboxes
 
-**Technical:**
+**Technical Flow:**
 ```
-Conversation → Fetch messages → Send to LLM with structured output → Parse JSON → Render list
+User taps button
+  ↓
+Fetch messages from Firestore
+  ↓
+Send to GPT-4 with structured output prompt
+  ↓
+Parse JSON response
+  ↓
+Render list with completion checkboxes
+```
+
+**Structured Output Schema:**
+```json
+{
+  "actionItems": [
+    {
+      "task": "Review the PR for authentication",
+      "assignee": "John Smith",
+      "assigneeId": "user123",
+      "deadline": "Friday, Oct 25",
+      "mentioned_at": "2025-10-22T14:30:00Z",
+      "context": "John: I'll review the auth PR by Friday"
+    }
+  ]
+}
+```
+
+**Prompt Template:**
+```
+Extract action items from this team conversation.
+For each action item, identify:
+- task: What needs to be done
+- assignee: Who will do it (use display names from conversation)
+- deadline: When it's due (if mentioned)
+- context: The exact message where it was mentioned
+
+Return JSON matching this schema:
+{schema}
+
+Conversation:
+{messages}
 ```
 
 **Success Criteria:**
 - Finds 90%+ of explicit action items
 - Minimal false positives
 - Response time < 5 seconds
+- Correctly maps assignees to participant names
 
 **Effort:** 3-5 hours
 
@@ -193,20 +284,91 @@ Conversation → Fetch messages → Send to LLM with structured output → Parse
 
 **Implementation:**
 - Search bar with semantic search toggle
-- Generate embeddings for all messages (background)
+- Generate embeddings for all messages (background job)
 - User query → embedding → vector similarity search
 - Return ranked results
 - Highlight matches in context
 
-**Technical:**
+**Technical Architecture:**
+
+**Phase 1: Embedding Generation (Background)**
+```typescript
+// Cloud Function: generateMessageEmbeddings
+// Triggered: On message create OR run as batch job
+
+export const generateEmbedding = functions.firestore
+  .document('conversations/{convId}/messages/{msgId}')
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    
+    // Call OpenAI embeddings API
+    const embedding = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: message.text,
+    });
+    
+    // Store in message document
+    await snap.ref.update({
+      embedding: embedding.data[0].embedding,
+      embeddingGenerated: true,
+    });
+  });
 ```
-Messages → Embeddings (OpenAI) → Vector DB (Firestore) → Query → Similarity search → Results
+
+**Phase 2: Search Query**
+```typescript
+// Client calls Cloud Function
+export const semanticSearch = functions.https.onCall(
+  async (data, context) => {
+    const { query, conversationId, limit = 10 } = data;
+    
+    // Generate query embedding
+    const queryEmbedding = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: query,
+    });
+    
+    // Fetch all messages with embeddings
+    const messagesRef = collection(
+      db,
+      `conversations/${conversationId}/messages`
+    );
+    const snapshot = await getDocs(
+      query(messagesRef, where('embeddingGenerated', '==', true))
+    );
+    
+    // Calculate cosine similarity
+    const results = snapshot.docs
+      .map(doc => ({
+        ...doc.data(),
+        similarity: cosineSimilarity(
+          queryEmbedding.data[0].embedding,
+          doc.data().embedding
+        ),
+      }))
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit);
+    
+    return { results };
+  }
+);
+```
+
+**Cosine Similarity Function:**
+```typescript
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+  const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+  const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+  return dotProduct / (magnitudeA * magnitudeB);
+}
 ```
 
 **Success Criteria:**
 - Finds relevant messages 80%+ of the time
 - Results in < 2 seconds
 - Works with paraphrased queries
+- Handles 1000+ messages efficiently
 
 **Effort:** 6-8 hours
 
@@ -220,19 +382,76 @@ Messages → Embeddings (OpenAI) → Vector DB (Firestore) → Query → Similar
 **Implementation:**
 - Real-time scanning of incoming messages
 - LLM classifies: Urgent / Important / Normal
-- Visual indicator (red dot, star, etc.)
+- Visual indicator (🔴 red dot, ⭐ star)
 - Filter view: "Show Priority Only"
-- Background Cloud Function for processing
+- Cloud Function trigger for processing
 
-**Technical:**
+**Technical Flow:**
+```typescript
+// Cloud Function: Auto-trigger on new message
+export const classifyMessagePriority = functions.firestore
+  .document('conversations/{convId}/messages/{msgId}')
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    
+    // Skip if from AI or system
+    if (message.senderId === 'system') return;
+    
+    // Call GPT-4 for classification
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        {
+          role: "system",
+          content: `Classify this message as:
+            - "urgent": Requires immediate action, has deadline, is blocking
+            - "important": Noteworthy but not time-sensitive
+            - "normal": Casual conversation
+            
+            Return only one word: urgent, important, or normal`
+        },
+        {
+          role: "user",
+          content: message.text
+        }
+      ],
+      temperature: 0.3,
+    });
+    
+    const priority = completion.choices[0].message.content.trim().toLowerCase();
+    
+    // Update message with priority
+    await snap.ref.update({ priority });
+    
+    // If urgent, send enhanced push notification
+    if (priority === 'urgent') {
+      // Leverage existing push notification system
+      // Add "🔴 URGENT" prefix to notification
+    }
+  });
 ```
-New message → Cloud Function → LLM classification → Update Firestore → UI reflects priority
+
+**UI Integration:**
+```tsx
+// In message bubble rendering
+{message.priority === 'urgent' && (
+  <View style={styles.urgentBadge}>
+    <Text style={styles.urgentText}>🔴 Urgent</Text>
+  </View>
+)}
+
+{message.priority === 'important' && (
+  <View style={styles.importantBadge}>
+    <Text style={styles.importantText}>⭐ Important</Text>
+  </View>
+)}
 ```
 
 **Success Criteria:**
 - 85%+ accuracy on urgency detection
 - Classification time < 2 seconds
 - No false positives on casual conversation
+- Clear visual distinction in UI
 
 **Effort:** 5-7 hours
 
@@ -250,15 +469,105 @@ New message → Cloud Function → LLM classification → Update Firestore → U
 - Export capability
 - "Was this a decision?" feedback loop
 
-**Technical:**
+**Technical Flow:**
+```typescript
+// Callable function (on-demand)
+export const extractDecisions = functions.https.onCall(
+  async (data, context) => {
+    const { conversationId, startDate, endDate } = data;
+    
+    // Fetch messages in date range
+    const messagesRef = collection(
+      db,
+      `conversations/${conversationId}/messages`
+    );
+    const snapshot = await getDocs(
+      query(
+        messagesRef,
+        where('timestamp', '>=', startDate),
+        where('timestamp', '<=', endDate),
+        orderBy('timestamp', 'asc')
+      )
+    );
+    
+    // Format for LLM
+    const messages = snapshot.docs.map(doc => ({
+      id: doc.id,
+      text: doc.data().text,
+      sender: doc.data().senderName,
+      timestamp: doc.data().timestamp.toDate(),
+    }));
+    
+    // Call GPT-4 with structured output
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        {
+          role: "system",
+          content: `Extract all decisions from this team conversation.
+            A decision is when the team agrees on a direction, plan, or choice.
+            
+            For each decision, provide:
+            - summary: One sentence describing the decision
+            - context: Why this decision was made
+            - timestamp: When it was decided
+            - participants: Who was involved in the decision
+            
+            Return JSON array.`
+        },
+        {
+          role: "user",
+          content: JSON.stringify(messages)
+        }
+      ],
+      temperature: 0.3,
+    });
+    
+    const decisions = JSON.parse(
+      completion.choices[0].message.content
+    );
+    
+    return { decisions };
+  }
+);
 ```
-Conversation → Fetch messages → LLM decision extraction → Structured output → Timeline UI
+
+**Structured Output Schema:**
+```json
+{
+  "decisions": [
+    {
+      "summary": "Launch date set to November 15th",
+      "context": "Team agreed after discussing sprint capacity",
+      "timestamp": "2025-10-22T15:30:00Z",
+      "participants": ["John", "Sarah", "Mike"],
+      "messages": ["msg123", "msg124"]
+    }
+  ]
+}
+```
+
+**UI Display:**
+```tsx
+<FlatList
+  data={decisions}
+  renderItem={({ item }) => (
+    <DecisionCard
+      summary={item.summary}
+      context={item.context}
+      date={formatDate(item.timestamp)}
+      participants={item.participants}
+      onPress={() => jumpToMessages(item.messages)}
+    />
+  )}
+/>
 ```
 
 **Success Criteria:**
 - Finds 80%+ of explicit decisions
 - Clear context for each decision
 - Response time < 5 seconds
+- Timeline ordered by date
 
 **Effort:** 4-6 hours
 
@@ -266,499 +575,681 @@ Conversation → Fetch messages → LLM decision extraction → Structured outpu
 
 ## 🚀 Advanced AI Capability (10 points)
 
-**Recommended: Multi-Step Agent**
-
-### **Feature: Autonomous Meeting Coordinator**
+### **Feature: Autonomous Meeting Coordinator Agent**
 
 **User Story:**  
-*"As a team lead, I want an AI agent to handle meeting scheduling by checking everyone's availability and proposing times."*
+*"As a team lead, I want an AI agent to handle meeting scheduling by checking availability and coordinating with the team."*
 
-**Implementation:**
+**Multi-Step Workflow:**
 
 **Step 1: User Triggers Agent**
-- User: "@AI schedule a team sync this week"
-- Agent activates in conversation
+```
+User: "@AI schedule a team sync this week"
+Agent activates in conversation
+```
 
 **Step 2: Agent Clarifies Requirements**
-- Agent: "How long should the meeting be?"
-- User: "1 hour"
-- Agent: "Who should attend?"
-- User: "Everyone in this chat"
+```
+Agent: "How long should the meeting be?"
+User: "1 hour"
+Agent: "Who should attend?"
+User: "Everyone in this chat"
+```
 
 **Step 3: Agent Checks Availability (Simulated)**
-- Agent queries calendar integration (or uses mock data)
-- Identifies conflicts
-- Generates 3-5 time slot options
+```
+Agent queries mock calendar data
+Identifies conflicts
+Generates 3-5 time slot options
+```
 
 **Step 4: Agent Proposes Options**
-- Agent: "I found these available times:
-  - Tomorrow 2-3 PM
-  - Thursday 10-11 AM
-  - Friday 3-4 PM"
-- Sends to group
+```
+Agent: "I found these available times:
+  1️⃣ Tomorrow 2-3 PM
+  2️⃣ Thursday 10-11 AM  
+  3️⃣ Friday 3-4 PM
+  
+React with the number of your preferred time."
+```
 
 **Step 5: Agent Tracks Responses**
-- Users react with emoji or reply
-- Agent tallies votes
-- Confirms winning slot
+```
+Users react with emoji (1️⃣, 2️⃣, 3️⃣)
+Agent tallies votes
+Identifies winning slot
+```
 
 **Step 6: Agent Creates Event**
-- Agent: "Meeting confirmed: Thursday 10-11 AM. I've added it to your calendars."
-- Creates calendar event (if integrated)
-
-**Technical Stack:**
-- **Agent Framework:** AI SDK by Vercel (Recommended)
-- **Alternative:** OpenAI Swarm or LangChain
-- **Tools/Functions:**
-  - `get_conversation_participants()`
-  - `check_calendar_availability()` (mock initially)
-  - `propose_meeting_times()`
-  - `create_calendar_event()` (mock initially)
-  - `track_rsvps()`
-
-**Success Criteria:**
-- Completes 5+ step workflow autonomously
-- Handles edge cases (conflicts, unclear responses)
-- Natural conversation flow
-- < 15 seconds per step
-
-**Effort:** 12-16 hours
-
----
-
-## 🏗️ Technical Architecture Plan
-
-### **Phase 1: Backend AI Infrastructure (8-10 hours)**
-
-#### **1.1: Cloud Functions Setup**
-**File:** `functions/src/aiService.ts`
-
-**Functions to Create:**
-```typescript
-// Summarization
-export const summarizeThread = functions.https.onCall(async (data, context) => {
-  // Validate auth
-  // Fetch messages
-  // Call GPT-4
-  // Return summary
-});
-
-// Action extraction
-export const extractActionItems = functions.https.onCall(async (data, context) => {
-  // Fetch messages
-  // Call GPT-4 with structured output
-  // Return JSON list
-});
-
-// Priority classification
-export const classifyMessagePriority = functions.firestore
-  .document('conversations/{convId}/messages/{msgId}')
-  .onCreate(async (snap, context) => {
-    // Get message
-    // Call GPT-4
-    // Update priority field
-  });
-
-// Decision extraction
-export const extractDecisions = functions.https.onCall(async (data, context) => {
-  // Fetch messages
-  // Call GPT-4
-  // Return structured decisions
-});
-
-// Semantic search
-export const semanticSearch = functions.https.onCall(async (data, context) => {
-  // Get query embedding
-  // Search Firestore vectors
-  // Return ranked results
-});
+```
+Agent: "Meeting confirmed: Thursday 10-11 AM. 
+I've added it to your calendars."
+Creates calendar event (if integrated)
 ```
 
-**Key Decisions:**
-- **LLM Provider:** OpenAI GPT-4 (Claude 3.5 as backup)
-- **API Key Storage:** Firebase environment config
-- **Rate Limiting:** Per-user quotas in Firestore
-- **Caching:** Cache frequent queries (summaries)
+### **Technical Implementation:**
 
-**Dependencies:**
-```json
-{
-  "openai": "^4.20.0",
-  "ai": "^3.0.0",  // Vercel AI SDK
-  "@anthropic-ai/sdk": "^0.12.0"  // Backup
-}
-```
-
----
-
-#### **1.2: RAG Pipeline Setup**
-**File:** `functions/src/ragService.ts`
-
-**Components:**
-```typescript
-// Conversation context retrieval
-export async function getConversationContext(
-  conversationId: string,
-  maxMessages: number = 100
-): Promise<Message[]> {
-  // Fetch from Firestore subcollection
-  // Order by timestamp desc
-  // Limit to maxMessages
-  // Return array
-}
-
-// Format for LLM
-export function formatMessagesForLLM(
-  messages: Message[]
-): { role: string; content: string }[] {
-  // Convert to OpenAI format
-  // Include user names, timestamps
-  // Handle media messages
-}
-
-// Embeddings generation
-export async function generateEmbedding(text: string): Promise<number[]> {
-  // Call OpenAI embeddings API
-  // Return vector (1536 dimensions)
-}
-
-// Store embeddings
-export async function storeMessageEmbedding(
-  messageId: string,
-  embedding: number[]
-): Promise<void> {
-  // Store in Firestore
-  // Update message document
-}
-```
-
-**Vector Search Strategy:**
-- **Storage:** Firestore (no separate vector DB initially)
-- **Search:** Brute-force cosine similarity (< 1000 messages)
-- **Optimization:** Pinecone or Weaviate for scale later
-
----
-
-#### **1.3: Agent Framework Setup**
-**File:** `functions/src/agentService.ts`
-
-**Using AI SDK by Vercel:**
+**Using Vercel AI SDK:**
 ```typescript
 import { openai } from '@ai-sdk/openai';
 import { generateText, tool } from 'ai';
+import * as z from 'zod';
 
-// Tools for agent
+// Define agent tools
 const tools = {
   get_participants: tool({
-    description: 'Get all participants in conversation',
+    description: 'Get all participants in the conversation',
     parameters: z.object({
       conversationId: z.string(),
     }),
     execute: async ({ conversationId }) => {
-      // Fetch from Firestore
+      const convDoc = await getDoc(
+        doc(db, 'conversations', conversationId)
+      );
+      const participants = convDoc.data().participantDetails;
+      return { participants };
     },
   }),
   
   check_availability: tool({
-    description: 'Check calendar availability (mock)',
+    description: 'Check calendar availability for users (mock data)',
     parameters: z.object({
       userIds: z.array(z.string()),
       startDate: z.string(),
       endDate: z.string(),
+      duration: z.number(), // in minutes
     }),
-    execute: async ({ userIds, startDate, endDate }) => {
-      // Mock data initially
+    execute: async ({ userIds, startDate, endDate, duration }) => {
+      // Mock availability data
+      // In production: integrate with Google Calendar API
+      const mockAvailability = {
+        'user1': ['2025-10-23T14:00', '2025-10-24T10:00'],
+        'user2': ['2025-10-23T14:00', '2025-10-25T15:00'],
+        'user3': ['2025-10-24T10:00', '2025-10-25T15:00'],
+      };
+      
+      // Find common slots
+      const commonSlots = findCommonAvailability(
+        mockAvailability,
+        userIds,
+        duration
+      );
+      
+      return { availableSlots: commonSlots.slice(0, 3) };
     },
   }),
   
-  propose_times: tool({
-    description: 'Propose meeting time slots',
+  track_votes: tool({
+    description: 'Track user votes on time slots',
     parameters: z.object({
-      duration: z.number(),
-      participants: z.array(z.string()),
+      conversationId: z.string(),
+      messageId: z.string(), // Message with poll
     }),
-    execute: async ({ duration, participants }) => {
-      // Generate 3-5 options
+    execute: async ({ conversationId, messageId }) => {
+      // In production: track reactions on message
+      // For now: return mock votes
+      return {
+        votes: {
+          'slot1': 2,
+          'slot2': 5,  // Winner
+          'slot3': 1,
+        }
+      };
+    },
+  }),
+  
+  create_calendar_event: tool({
+    description: 'Create calendar event (mock)',
+    parameters: z.object({
+      title: z.string(),
+      startTime: z.string(),
+      duration: z.number(),
+      attendees: z.array(z.string()),
+    }),
+    execute: async ({ title, startTime, duration, attendees }) => {
+      // Mock event creation
+      // In production: integrate with Google Calendar API
+      const eventId = `event_${Date.now()}`;
+      console.log('Created event:', { title, startTime, duration, attendees });
+      return { eventId, success: true };
     },
   }),
 };
 
 // Agent endpoint
-export const runMeetingAgent = functions.https.onCall(async (data, context) => {
-  const { conversationId, userMessage } = data;
+export const runMeetingAgent = functions.https.onCall(
+  async (data, context) => {
+    const { conversationId, userMessage, agentState } = data;
+    
+    // Generate agent response with tool calling
+    const result = await generateText({
+      model: openai('gpt-4-turbo'),
+      tools,
+      maxSteps: 10,
+      system: `You are a helpful meeting coordinator assistant.
+        Your goal is to schedule meetings by:
+        1. Clarifying meeting requirements (duration, attendees)
+        2. Checking availability
+        3. Proposing time slots
+        4. Tracking votes
+        5. Confirming the meeting
+        
+        Be conversational and efficient. Ask one question at a time.`,
+      messages: [
+        ...agentState?.history || [],
+        { role: 'user', content: userMessage }
+      ],
+    });
+    
+    return {
+      response: result.text,
+      toolCalls: result.toolCalls,
+      history: [...agentState?.history || [], 
+                 { role: 'user', content: userMessage },
+                 { role: 'assistant', content: result.text }]
+    };
+  }
+);
+```
+
+**Frontend Integration:**
+```typescript
+// In chat screen
+const handleAgentMessage = async (message: string) => {
+  if (!message.startsWith('@AI')) return;
   
-  const result = await generateText({
-    model: openai('gpt-4-turbo'),
-    tools,
-    maxSteps: 10,
-    system: 'You are a helpful meeting coordinator...',
-    messages: [
-      { role: 'user', content: userMessage }
-    ],
+  setAgentActive(true);
+  
+  const callable = httpsCallable(functions, 'runMeetingAgent');
+  const result = await callable({
+    conversationId,
+    userMessage: message,
+    agentState: agentHistory,
   });
   
-  return { response: result.text };
-});
+  // Display agent response in chat
+  const agentMessage = {
+    id: generateMessageId(),
+    text: result.data.response,
+    senderId: 'agent',
+    senderName: 'AI Assistant',
+    timestamp: new Date(),
+  };
+  
+  setMessages(prev => [...prev, agentMessage]);
+  setAgentHistory(result.data.history);
+};
 ```
 
-**Key Features:**
-- Multi-step planning
-- Tool calling
-- State management
-- Error recovery
+**Success Criteria:**
+- Completes 5+ step workflow autonomously
+- Handles edge cases (unclear responses, conflicts)
+- Natural conversation flow
+- < 15 seconds per step
+- Clear state management across turns
+- Graceful error handling
+
+**Effort:** 10-12 hours
 
 ---
 
-### **Phase 2: Frontend AI Integration (10-12 hours)**
+## 🏗️ Technical Architecture
 
-#### **2.1: AI Chat Interface**
+### **Phase 1: Backend AI Infrastructure (24-28 hours)**
+
+#### **1.1: Cloud Functions Setup (10-12 hours)**
+
+**File Structure:**
+```
+functions/
+├── src/
+│   ├── index.ts                    # Main exports
+│   ├── aiService.ts                # AI functions
+│   ├── ragService.ts               # RAG pipeline
+│   ├── agentService.ts             # Agent framework
+│   └── utils/
+│       ├── openai.ts               # OpenAI client
+│       ├── prompts.ts              # Prompt templates
+│       └── formatting.ts           # Message formatting
+├── package.json
+└── tsconfig.json
+```
+
+**Dependencies to Add:**
+```json
+{
+  "dependencies": {
+    "openai": "^4.20.0",
+    "ai": "^3.0.0",
+    "@anthropic-ai/sdk": "^0.12.0",
+    "zod": "^3.22.0"
+  }
+}
+```
+
+**Functions to Create:**
+```typescript
+// functions/src/aiService.ts
+
+export const summarizeThread = functions.https.onCall(...);
+export const extractActionItems = functions.https.onCall(...);
+export const classifyMessagePriority = functions.firestore.onCreate(...);
+export const extractDecisions = functions.https.onCall(...);
+export const semanticSearch = functions.https.onCall(...);
+export const generateMessageEmbedding = functions.firestore.onCreate(...);
+```
+
+**Environment Setup:**
+```bash
+# Set OpenAI API key
+firebase functions:config:set openai.key="sk-..."
+
+# Deploy
+firebase deploy --only functions
+```
+
+---
+
+#### **1.2: RAG Pipeline (8-10 hours)**
+
+**File:** `functions/src/ragService.ts`
+
+```typescript
+import { db } from './firebase';
+import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+
+/**
+ * Retrieve conversation context for RAG
+ */
+export async function getConversationContext(
+  conversationId: string,
+  maxMessages: number = 100
+): Promise<Message[]> {
+  const messagesRef = collection(
+    db,
+    `conversations/${conversationId}/messages`
+  );
+  
+  const q = query(
+    messagesRef,
+    orderBy('timestamp', 'desc'),
+    limit(maxMessages)
+  );
+  
+  const snapshot = await getDocs(q);
+  
+  return snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }))
+    .reverse(); // Chronological order
+}
+
+/**
+ * Format messages for LLM consumption
+ */
+export function formatMessagesForLLM(
+  messages: Message[]
+): { role: string; content: string }[] {
+  return messages.map(msg => ({
+    role: 'user',
+    content: `[${msg.senderName}] ${msg.text}`,
+  }));
+}
+
+/**
+ * Generate embedding for text
+ */
+export async function generateEmbedding(
+  text: string
+): Promise<number[]> {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: text,
+  });
+  
+  return response.data[0].embedding;
+}
+
+/**
+ * Calculate cosine similarity between vectors
+ */
+export function cosineSimilarity(
+  vecA: number[],
+  vecB: number[]
+): number {
+  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+  const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+  const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+  return dotProduct / (magnitudeA * magnitudeB);
+}
+```
+
+---
+
+#### **1.3: Agent Framework (10-12 hours)**
+
+**File:** `functions/src/agentService.ts`
+
+```typescript
+import { openai } from '@ai-sdk/openai';
+import { generateText, tool } from 'ai';
+import * as z from 'zod';
+
+// Agent state management
+interface AgentState {
+  conversationId: string;
+  userId: string;
+  history: { role: string; content: string }[];
+  context: Record<string, any>;
+}
+
+// Tools definition
+const meetingTools = {
+  get_participants: tool({
+    description: 'Get conversation participants',
+    parameters: z.object({
+      conversationId: z.string(),
+    }),
+    execute: async ({ conversationId }) => {
+      // Implementation above
+    },
+  }),
+  
+  check_availability: tool({
+    description: 'Check calendar availability',
+    parameters: z.object({
+      userIds: z.array(z.string()),
+      startDate: z.string(),
+      endDate: z.string(),
+      duration: z.number(),
+    }),
+    execute: async (params) => {
+      // Implementation above
+    },
+  }),
+  
+  // ... other tools
+};
+
+// Main agent function
+export const runMeetingAgent = functions.https.onCall(
+  async (data, context) => {
+    // Implementation above
+  }
+);
+```
+
+---
+
+### **Phase 2: Frontend AI Integration (20-24 hours)**
+
+#### **2.1: AI Assistant Tab (8-10 hours)**
+
 **File:** `app/ai-assistant.tsx`
 
-**UI Components:**
-- Dedicated "AI Assistant" tab in bottom nav
-- Chat-style interface
-- Message bubbles (user vs AI)
-- Loading states
-- Error handling
-- Feature quick actions
+```tsx
+import React, { useState } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity } from 'react-native';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../services/firebase';
 
-**Features:**
-```typescript
-// Quick action buttons
-- "Summarize last 50 messages"
-- "Find action items"
-- "Search my messages"
-- "Show priority messages"
-- "Extract decisions"
-- "Schedule a meeting" (agent)
+export default function AIAssistantScreen() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
 
-// Natural language input
-User: "What did we decide about the launch date?"
-AI: "Based on the conversation, the team decided..."
+  const handleQuickAction = async (action: string) => {
+    setLoading(true);
+    
+    try {
+      let result;
+      
+      switch (action) {
+        case 'summarize':
+          const summarize = httpsCallable(functions, 'summarizeThread');
+          result = await summarize({ conversationId: selectedConversation });
+          break;
+        
+        case 'actions':
+          const extract = httpsCallable(functions, 'extractActionItems');
+          result = await extract({ conversationId: selectedConversation });
+          break;
+        
+        case 'search':
+          // Show search modal
+          break;
+        
+        case 'decisions':
+          const decisions = httpsCallable(functions, 'extractDecisions');
+          result = await decisions({ conversationId: selectedConversation });
+          break;
+      }
+      
+      // Display result
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: formatResult(result.data),
+      }]);
+    } catch (error) {
+      console.error('AI action failed:', error);
+      Alert.alert('Error', 'AI service temporarily unavailable.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-User: "Help me find when John mentioned the budget"
-AI: "Here are 3 messages where John discussed budget..."
-```
+  return (
+    <View style={styles.container}>
+      {/* Quick action buttons */}
+      <View style={styles.quickActions}>
+        <TouchableOpacity onPress={() => handleQuickAction('summarize')}>
+          <Text>📝 Summarize</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => handleQuickAction('actions')}>
+          <Text>✅ Action Items</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => handleQuickAction('search')}>
+          <Text>🔍 Smart Search</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => handleQuickAction('decisions')}>
+          <Text>📋 Decisions</Text>
+        </TouchableOpacity>
+      </View>
 
-**Services Integration:**
-```typescript
-// services/aiService.ts
-export async function summarizeConversation(conversationId: string) {
-  const callable = httpsCallable(functions, 'summarizeThread');
-  const result = await callable({ conversationId });
-  return result.data;
-}
+      {/* Chat messages */}
+      <FlatList
+        data={messages}
+        renderItem={({ item }) => (
+          <MessageBubble message={item} />
+        )}
+      />
 
-export async function extractActions(conversationId: string) {
-  const callable = httpsCallable(functions, 'extractActionItems');
-  const result = await callable({ conversationId });
-  return result.data;
-}
-
-export async function searchSemantic(query: string) {
-  const callable = httpsCallable(functions, 'semanticSearch');
-  const result = await callable({ query });
-  return result.data;
+      {/* Input area */}
+      <View style={styles.inputArea}>
+        <TextInput
+          value={input}
+          onChangeText={setInput}
+          placeholder="Ask AI anything..."
+        />
+        <TouchableOpacity onPress={handleSend}>
+          <Text>Send</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
 ```
 
 ---
 
-#### **2.2: Contextual AI Features**
-**File:** `app/chat/[id].tsx` (modifications)
+#### **2.2: Contextual AI Features (6-8 hours)**
 
-**Integration Points:**
+**Modifications to:** `app/chat/[id].tsx`
 
-**A) Chat Header Actions:**
 ```tsx
-// Add AI menu button
-<TouchableOpacity onPress={() => setShowAIMenu(true)}>
-  <Ionicons name="sparkles-outline" size={24} />
-</TouchableOpacity>
+// Add AI menu button in header
+const renderHeaderRight = () => (
+  <View style={{ flexDirection: 'row', gap: 12 }}>
+    <TouchableOpacity onPress={() => setShowAIMenu(true)}>
+      <Ionicons name="sparkles-outline" size={24} color="#007AFF" />
+    </TouchableOpacity>
+    {/* ... existing buttons */}
+  </View>
+);
 
 // AI menu modal
-<Modal visible={showAIMenu}>
-  <ActionButton onPress={handleSummarize}>
-    Summarize This Chat
-  </ActionButton>
-  <ActionButton onPress={handleExtractActions}>
-    Extract Action Items
-  </ActionButton>
-  <ActionButton onPress={handleExtractDecisions}>
-    Show Decisions Made
-  </ActionButton>
+<Modal visible={showAIMenu} transparent>
+  <View style={styles.aiMenuContainer}>
+    <TouchableOpacity
+      style={styles.aiMenuButton}
+      onPress={handleSummarize}
+    >
+      <Ionicons name="document-text-outline" size={24} />
+      <Text>Summarize Thread</Text>
+    </TouchableOpacity>
+    
+    <TouchableOpacity
+      style={styles.aiMenuButton}
+      onPress={handleExtractActions}
+    >
+      <Ionicons name="checkmark-circle-outline" size={24} />
+      <Text>Extract Action Items</Text>
+    </TouchableOpacity>
+    
+    <TouchableOpacity
+      style={styles.aiMenuButton}
+      onPress={handleExtractDecisions}
+    >
+      <Ionicons name="git-branch-outline" size={24} />
+      <Text>Show Decisions</Text>
+    </TouchableOpacity>
+    
+    <TouchableOpacity
+      style={styles.aiMenuButton}
+      onPress={() => setShowAIMenu(false)}
+    >
+      <Text>Cancel</Text>
+    </TouchableOpacity>
+  </View>
 </Modal>
-```
 
-**B) Message Long-Press Context Menu:**
-```tsx
-// Existing long-press menu + AI actions
-- Copy Message
-- Delete Message
-- Reply
---- NEW ---
-- Translate (future feature)
-- Explain This (context)
-- Extract Action Item
-```
-
-**C) Priority Indicators:**
-```tsx
-// Visual priority badges
+// Priority badges in message rendering
 {message.priority === 'urgent' && (
   <View style={styles.urgentBadge}>
-    <Text>🔴 Urgent</Text>
+    <Text style={styles.urgentText}>🔴 Urgent</Text>
   </View>
 )}
 
 {message.priority === 'important' && (
   <View style={styles.importantBadge}>
-    <Text>⭐ Important</Text>
+    <Text style={styles.importantText}>⭐ Important</Text>
   </View>
 )}
 ```
 
 ---
 
-#### **2.3: Search Enhancement**
-**File:** `app/search.tsx` (NEW)
+#### **2.3: Data Model Extensions (2-3 hours)**
 
-**Features:**
-- Standard keyword search (existing)
-- Semantic search toggle
-- Results with context preview
-- Highlight matching text
-- Jump to message in chat
-
-**UI:**
-```tsx
-<SearchBar
-  placeholder="Search messages..."
-  value={query}
-  onChangeText={setQuery}
-/>
-
-<Switch
-  label="Semantic Search"
-  value={semanticMode}
-  onValueChange={setSemanticMode}
-/>
-
-<FlatList
-  data={results}
-  renderItem={({ item }) => (
-    <SearchResult
-      message={item}
-      onPress={() => navigateToMessage(item)}
-    />
-  )}
-/>
-```
-
----
-
-### **Phase 3: Data Models & Storage (2-3 hours)**
-
-#### **3.1: Extended Message Schema**
 **File:** `types/index.ts`
 
 ```typescript
-interface Message {
-  // Existing fields...
+// Extend Message interface
+export interface Message {
+  // Existing fields
   id: string;
+  conversationId: string;
+  senderId: string;
   text: string;
   timestamp: Date;
   
   // NEW: AI fields
   priority?: 'urgent' | 'important' | 'normal';
   hasActionItem?: boolean;
-  actionItem?: {
-    task: string;
-    assignee?: string;
-    deadline?: Date;
-    completed: boolean;
-  };
+  actionItem?: ActionItem;
   isDecision?: boolean;
-  decision?: {
-    summary: string;
-    participants: string[];
-    timestamp: Date;
-  };
-  embedding?: number[];  // For semantic search
+  decision?: Decision;
+  embedding?: number[];
   embeddingGenerated?: boolean;
 }
-```
 
----
+export interface ActionItem {
+  task: string;
+  assignee?: string;
+  assigneeId?: string;
+  deadline?: Date;
+  completed: boolean;
+  extractedAt: Date;
+}
 
-#### **3.2: AI Interaction History**
-**File:** `types/index.ts`
+export interface Decision {
+  summary: string;
+  context: string;
+  participants: string[];
+  timestamp: Date;
+}
 
-```typescript
-interface AIInteraction {
+export interface AIInteraction {
   id: string;
   userId: string;
-  conversationId?: string;  // Optional (for context)
+  conversationId?: string;
   type: 'summarization' | 'action_extraction' | 'search' | 'agent' | 'decision_extraction';
   query: string;
   response: string;
   timestamp: Date;
-  duration: number;  // Response time in ms
+  duration: number;
   successful: boolean;
 }
-
-// Store in Firestore
-// Path: aiInteractions/{userId}/history/{interactionId}
 ```
 
 ---
 
-#### **3.3: Embeddings Cache**
-**Firestore Structure:**
-```
-conversations/{conversationId}/
-  messages/{messageId}
-    - text: string
-    - embedding: number[]  // 1536-dim vector
-    - embeddingUpdatedAt: timestamp
+### **Phase 3: Testing & Optimization (8-10 hours)**
+
+#### **3.1: AI Feature Testing (4-5 hours)**
+
+**Unit Tests:** `functions/__tests__/aiService.test.ts`
+
+```typescript
+import { summarizeThread, extractActionItems } from '../src/aiService';
+
+describe('AI Service', () => {
+  it('should summarize conversation', async () => {
+    const mockMessages = [
+      { text: 'Let\'s launch on Friday', sender: 'John' },
+      { text: 'Sounds good!', sender: 'Sarah' },
+    ];
     
-  embeddings_metadata/summary
-    - totalMessages: number
-    - embeddedMessages: number
-    - lastUpdated: timestamp
+    const summary = await summarizeThread({ conversationId: 'test' });
+    
+    expect(summary).toContain('launch');
+    expect(summary).toContain('Friday');
+  });
+  
+  it('should extract action items', async () => {
+    const mockMessages = [
+      { text: 'John will review the PR by Friday', sender: 'Sarah' },
+    ];
+    
+    const actions = await extractActionItems({ conversationId: 'test' });
+    
+    expect(actions).toHaveLength(1);
+    expect(actions[0].assignee).toBe('John');
+    expect(actions[0].task).toContain('review');
+  });
+});
 ```
 
----
-
-### **Phase 4: Testing & Polish (4-5 hours)**
-
-#### **4.1: AI Feature Testing**
-
-**Unit Tests:**
-- `services/__tests__/aiService.test.ts`
-  - Mock LLM responses
-  - Test prompt formatting
-  - Test response parsing
-
-**Integration Tests:**
-- `functions/__tests__/aiService.integration.test.ts`
-  - Real OpenAI API calls (rate-limited)
-  - Test summarization accuracy
-  - Test action extraction
-  - Test agent flow
-
-**Manual QA Scenarios:**
-1. Summarize conversation with 100+ messages
-2. Extract actions from project planning chat
-3. Search with semantic query
-4. Trigger agent for meeting scheduling
-5. Verify priority classification accuracy
+**Integration Tests:** Manual QA scenarios
 
 ---
 
-#### **4.2: Performance Optimization**
+#### **3.2: Performance Optimization (2-3 hours)**
 
 **Caching Strategy:**
+
 ```typescript
 // Cache summaries for 1 hour
 interface CachedSummary {
@@ -769,12 +1260,35 @@ interface CachedSummary {
   expiresAt: Date;
 }
 
-// Firestore path: aiCache/summaries/{conversationId}
+// Check cache before calling LLM
+export async function summarizeThreadCached(conversationId: string) {
+  const cacheDoc = await getDoc(
+    doc(db, 'aiCache', 'summaries', conversationId)
+  );
+  
+  if (cacheDoc.exists() && cacheDoc.data().expiresAt > new Date()) {
+    return cacheDoc.data().summary;
+  }
+  
+  // Generate new summary
+  const summary = await summarizeThread(conversationId);
+  
+  // Cache result
+  await setDoc(doc(db, 'aiCache', 'summaries', conversationId), {
+    summary,
+    messageCount: messages.length,
+    cachedAt: new Date(),
+    expiresAt: new Date(Date.now() + 3600000), // 1 hour
+  });
+  
+  return summary;
+}
 ```
 
 **Rate Limiting:**
+
 ```typescript
-// Prevent abuse
+// Per-user quotas
 interface UserAIQuota {
   userId: string;
   dailySummarizations: number;
@@ -783,58 +1297,89 @@ interface UserAIQuota {
   resetAt: Date;
 }
 
-// Limits:
-// - 50 summarizations/day
-// - 200 searches/day
-// - 20 agent calls/day
-```
-
-**Cost Management:**
-```typescript
-// Track costs per user
-interface AIUsageMetrics {
-  userId: string;
-  month: string;
-  totalTokens: number;
-  estimatedCost: number;
-  operations: {
-    summarizations: number;
-    searches: number;
-    agentCalls: number;
+// Check quota before processing
+async function checkQuota(userId: string, action: string) {
+  const quotaDoc = await getDoc(doc(db, 'aiQuotas', userId));
+  
+  if (!quotaDoc.exists()) {
+    // Create initial quota
+    await setDoc(doc(db, 'aiQuotas', userId), {
+      dailySummarizations: 0,
+      dailySearches: 0,
+      dailyAgentCalls: 0,
+      resetAt: new Date(Date.now() + 86400000),
+    });
+    return true;
+  }
+  
+  const quota = quotaDoc.data();
+  
+  // Reset if expired
+  if (quota.resetAt < new Date()) {
+    await setDoc(doc(db, 'aiQuotas', userId), {
+      dailySummarizations: 0,
+      dailySearches: 0,
+      dailyAgentCalls: 0,
+      resetAt: new Date(Date.now() + 86400000),
+    });
+    return true;
+  }
+  
+  // Check limits
+  const limits = {
+    summarizations: 50,
+    searches: 200,
+    agentCalls: 20,
   };
+  
+  if (action === 'summarization' && quota.dailySummarizations >= limits.summarizations) {
+    throw new Error('Daily summarization limit reached');
+  }
+  
+  // Increment counter
+  await updateDoc(doc(db, 'aiQuotas', userId), {
+    [`daily${action}`]: increment(1),
+  });
+  
+  return true;
 }
 ```
 
 ---
 
-#### **4.3: Error Handling**
+#### **3.3: Error Handling (2 hours)**
 
-**Graceful Degradation:**
 ```typescript
-try {
-  const summary = await summarizeConversation(conversationId);
-  setSummary(summary);
-} catch (error) {
-  if (error.code === 'rate-limit') {
-    Alert.alert('Rate Limit', 'Please wait a moment before trying again.');
-  } else if (error.code === 'quota-exceeded') {
-    Alert.alert('Daily Limit', 'You've reached your daily AI usage limit.');
-  } else {
-    Alert.alert('Error', 'AI service temporarily unavailable.');
+// Graceful degradation
+export async function summarizeThreadSafe(conversationId: string) {
+  try {
+    return await summarizeThreadCached(conversationId);
+  } catch (error) {
+    if (error.code === 'rate-limit') {
+      throw new Error('Please wait a moment before trying again.');
+    } else if (error.code === 'quota-exceeded') {
+      throw new Error('You\'ve reached your daily AI usage limit.');
+    } else {
+      // Fall back to basic summary
+      const messages = await getCachedMessages(conversationId);
+      return `Conversation with ${messages.length} messages. Use scroll to view.`;
+    }
   }
-  // Fall back to manual action
 }
-```
 
-**Retry Logic:**
-```typescript
-async function callAIWithRetry(fn: () => Promise<any>, maxRetries = 3) {
+// Retry logic with exponential backoff
+async function callAIWithRetry(
+  fn: () => Promise<any>,
+  maxRetries = 3
+) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
     } catch (error) {
       if (i === maxRetries - 1) throw error;
-      await sleep(2 ** i * 1000);  // Exponential backoff
+      await new Promise(resolve => 
+        setTimeout(resolve, Math.pow(2, i) * 1000)
+      );
     }
   }
 }
@@ -842,411 +1387,9 @@ async function callAIWithRetry(fn: () => Promise<any>, maxRetries = 3) {
 
 ---
 
-### **Phase 5: Documentation & Deliverables (6-8 hours)**
-
-#### **5.1: Demo Video Script**
-**File:** `docs/DEMO_VIDEO_SCRIPT.md`
-
-**Structure (5-7 minutes):**
-
-**Part 1: Introduction (30 seconds)**
-- "Hi, I'm [Name], and I built MessageAI"
-- "A WhatsApp-style messaging app with AI-powered features for remote teams"
-- "Let me show you what it can do"
-
-**Part 2: Core Messaging (90 seconds)**
-- Real-time chat between 2 devices (show both screens)
-- Send rapid-fire messages (20+)
-- Show offline mode, go online, messages sync
-- Background app, receive notification, foreground
-- Group chat with 3+ participants
-- Image sharing
-
-**Part 3: AI Features - Problem Setup (60 seconds)**
-- Show realistic team conversation (50+ messages)
-- "Imagine you're catching up after being offline..."
-- "Scrolling through all this takes time"
-- "Let me show you how AI helps"
-
-**Part 4: AI Feature #1 - Summarization (45 seconds)**
-- Open AI assistant
-- Tap "Summarize This Chat"
-- Show loading state
-- Display 3-5 key points
-- "Now I know exactly what happened"
-
-**Part 5: AI Feature #2 - Action Items (45 seconds)**
-- Tap "Extract Action Items"
-- Show structured list
-- What, Who, When
-- Check off completed items
-
-**Part 6: AI Feature #3 - Smart Search (30 seconds)**
-- Search for "budget decision"
-- Toggle semantic search
-- Results appear instantly
-- Jump to message
-
-**Part 7: AI Feature #4 - Priority Detection (30 seconds)**
-- Show new urgent message arrive
-- Red urgent badge appears
-- Filter: "Show Priority Only"
-
-**Part 8: AI Feature #5 - Decision Tracking (30 seconds)**
-- Tap "Show Decisions"
-- Timeline of agreements
-- Export capability
-
-**Part 9: Advanced AI - Meeting Agent (90 seconds)**
-- Type: "@AI schedule a team sync"
-- Agent asks clarifying questions
-- Agent proposes 3 time slots
-- Team votes with reactions
-- Agent confirms winning time
-- "Done in 30 seconds, no back-and-forth"
-
-**Part 10: Technical Architecture (45 seconds)**
-- Show architecture diagram
-- "Firebase + React Native + GPT-4"
-- "Real-time sync with Firestore"
-- "Offline-first with SQLite"
-- "Cloud Functions for AI processing"
-- "229+ automated tests"
-
-**Part 11: Conclusion (30 seconds)**
-- "Production-ready, iMessage-quality UX"
-- "Built in 1 week using AI coding tools"
-- "Demo both iOS and Android"
-- "Thanks for watching!"
-
-**Recording Setup:**
-- 2 simulators side-by-side (iOS + Android)
-- Screen recording software
-- Clear narration
-- 1080p or higher
-- Background music (subtle)
-
----
-
-#### **5.2: Persona Brainlift Document**
-**File:** `docs/PERSONA_BRAINLIFT.md`
-
-**Template:**
-
-```markdown
-# Persona Brainlift: Remote Team Professional
-
-## Why This Persona?
-
-As remote work becomes the norm, distributed teams face unique challenges:
-- **Information Overload:** 100+ messages per day across multiple channels
-- **Context Switching:** Constant interruptions destroy focus and productivity
-- **Lost Action Items:** Critical tasks buried in conversation threads
-- **Decision Ambiguity:** "Did we agree on X or Y?"
-- **Meeting Coordination:** Time zone chaos across global teams
-
-MessageAI solves these pain points with targeted AI features.
-
-## Pain Points Addressed
-
-### 1. Drowning in Threads (→ Thread Summarization)
-**Problem:** Sarah, a PM, returns from a day off to find 200+ messages across 5 team chats.
-**Solution:** AI summarizes each thread into 3-5 key points in seconds.
-**Impact:** 30 minutes saved vs. manual reading.
-
-### 2. Missing Important Messages (→ Priority Detection)
-**Problem:** John, an engineer, misses urgent bug report buried in casual conversation.
-**Solution:** AI flags urgent messages with visual indicators.
-**Impact:** Zero critical messages missed.
-
-### 3. Action Items Falling Through Cracks (→ Action Extraction)
-**Problem:** Team discusses launch tasks, but no one writes them down.
-**Solution:** AI extracts "who should do what by when" automatically.
-**Impact:** 100% task capture rate.
-
-### 4. Can't Find Past Decisions (→ Decision Tracking)
-**Problem:** Designer asks "What did we decide about the color scheme?"
-**Solution:** AI maintains decision timeline with context.
-**Impact:** Instant retrieval vs. 10+ minutes searching.
-
-### 5. Information Retrieval Challenges (→ Smart Search)
-**Problem:** Engineer remembers discussing API rate limit but can't find exact message.
-**Solution:** Semantic search finds relevant messages even with different wording.
-**Impact:** 5 seconds vs. 5 minutes of scrolling.
-
-## How Each AI Feature Helps
-
-### Feature 1: Thread Summarization
-- **Trigger:** User taps "Summarize" in chat header
-- **Process:** AI reads last 50-100 messages, extracts key topics, decisions, and questions
-- **Output:** Bullet-point summary displayed in modal
-- **Real Value:** Saves 5-10 minutes per catch-up session (10-20 per day = 2-4 hours/day saved)
-
-### Feature 2: Action Item Extraction
-- **Trigger:** User requests "Extract Action Items"
-- **Process:** AI scans for commitments using patterns like "I'll...", "Can you...", "By Friday..."
-- **Output:** Structured list with task, assignee, deadline
-- **Real Value:** Eliminates manual note-taking, prevents forgotten tasks
-
-### Feature 3: Smart Search
-- **Trigger:** User searches with semantic mode enabled
-- **Process:** Query embedding → vector similarity → ranked results
-- **Output:** Relevant messages even with paraphrased query
-- **Real Value:** Find information 10x faster than keyword search
-
-### Feature 4: Priority Message Detection
-- **Trigger:** Automatic on every incoming message
-- **Process:** AI classifies based on urgency indicators (deadlines, blockers, @mentions)
-- **Output:** Visual badge (red dot for urgent, star for important)
-- **Real Value:** Never miss critical information in noisy channels
-
-### Feature 5: Decision Tracking
-- **Trigger:** User requests "Show Decisions"
-- **Process:** AI identifies decision points (agreements, approvals, direction changes)
-- **Output:** Timeline with context and participants
-- **Real Value:** Single source of truth for team agreements
-
-### Advanced: Meeting Coordinator Agent
-- **Trigger:** User types "@AI schedule a meeting"
-- **Process:** Multi-step agent workflow (clarify → check availability → propose options → track votes → confirm)
-- **Output:** Meeting scheduled with zero manual coordination
-- **Real Value:** Saves 30+ minutes per meeting (vs. email chains or scheduling polls)
-
-## Key Technical Decisions
-
-### 1. Why GPT-4 over Claude?
-- **Decision:** OpenAI GPT-4 Turbo
-- **Rationale:** Best structured output, excellent function calling, proven at scale
-- **Alternative:** Claude 3.5 as fallback for cost optimization
-
-### 2. Why AI SDK by Vercel?
-- **Decision:** Vercel AI SDK for agent framework
-- **Rationale:** Lightweight, excellent TypeScript support, built-in tool calling
-- **Alternative:** LangChain (too heavy) or OpenAI Swarm (less mature)
-
-### 3. Why Contextual + Dedicated Interface?
-- **Decision:** Hybrid approach (AI tab + in-chat actions)
-- **Rationale:** Quick actions in-context, complex workflows in dedicated space
-- **User Feedback:** Users hate leaving conversations for AI features
-
-### 4. Why Cache Summaries?
-- **Decision:** 1-hour cache for summaries
-- **Rationale:** Conversations don't change drastically in short periods, saves API costs
-- **Trade-off:** Slight staleness acceptable for massive cost savings
-
-### 5. Why Priority Classification on Backend?
-- **Decision:** Cloud Function trigger on new messages
-- **Rationale:** Keeps app responsive, allows rate limiting, protects API keys
-- **Alternative:** Client-side (rejected: slow, expensive, security risk)
-
-## Success Metrics
-
-**Quantitative:**
-- 70% reduction in time spent catching up on messages
-- 95%+ accuracy on action item extraction
-- 90%+ accuracy on priority classification
-- 80%+ accuracy on decision identification
-- < 5 seconds response time for all AI features
-
-**Qualitative:**
-- "I actually check all my messages now" (engagement)
-- "I never miss important tasks" (reliability)
-- "I can find anything instantly" (search satisfaction)
-- "Scheduling meetings is painless" (agent usefulness)
-
-## Competitive Analysis
-
-**Slack AI:**
-- ✅ Thread summarization
-- ❌ Action extraction
-- ❌ Priority detection
-- ❌ Decision tracking
-- ❌ Autonomous agent
-
-**Microsoft Teams Copilot:**
-- ✅ Thread summarization
-- ✅ Action suggestions (basic)
-- ❌ Priority detection
-- ❌ Decision timeline
-- ❌ Meeting agent
-
-**MessageAI Advantages:**
-1. **All 5 features integrated** (competitors have 1-2)
-2. **Autonomous agent** (vs. passive assistance)
-3. **Purpose-built for remote teams** (vs. generic)
-4. **Fast & mobile-first** (vs. desktop-heavy)
-5. **Affordable** (vs. enterprise pricing)
-
----
-
-**Built for the future of remote collaboration.**
-```
-
----
-
-#### **5.3: Social Post**
-**Platform:** X (Twitter) and LinkedIn
-
-**X Post (280 chars):**
-```
-Just built MessageAI in 1 week 🚀
-
-WhatsApp-quality messaging + GPT-4 AI features for remote teams:
-• Thread summaries in seconds
-• Auto-extract action items  
-• Smart semantic search
-• AI agent schedules meetings autonomously
-
-React Native + Firebase + AI SDK
-
-Demo video 👇
-[Video Link]
-[GitHub Link]
-
-@GauntletAI
-```
-
-**LinkedIn Post (1300 chars):**
-```
-🎉 I just completed the @Gauntlet AI MessageAI Challenge!
-
-Built a production-quality messaging app from scratch in 7 days using AI coding tools. Here's what I learned:
-
-💬 **Core Messaging (2 days)**
-- Real-time messaging with Firestore
-- Offline-first with SQLite
-- Group chats, typing indicators, read receipts
-- Image sharing with progressive compression
-- 229+ automated tests (60%+ coverage)
-- iMessage-level UX polish
-
-🤖 **AI Features (3 days)**
-- Thread Summarization: 100+ messages → 5 key points in 3 seconds
-- Action Item Extraction: Never miss a task
-- Smart Search: Semantic search finds anything
-- Priority Detection: Urgent messages get flagged automatically
-- Decision Tracking: Timeline of team agreements
-- Autonomous Meeting Agent: Schedules meetings via conversation
-
-🏗️ **Tech Stack**
-- Frontend: React Native + Expo + TypeScript
-- Backend: Firebase (Firestore, Cloud Functions, Auth, FCM)
-- AI: GPT-4 + Vercel AI SDK + RAG pipeline
-- Testing: Jest + Firebase Emulators
-
-📊 **Results**
-- 6,500+ lines of code
-- 95%+ testing confidence
-- Sub-200ms message delivery
-- < 5 sec AI responses
-- Survives offline, backgrounding, force-quit
-
-🎯 **Persona: Remote Team Professional**
-Every feature solves real pain points for distributed teams drowning in messages.
-
-This project taught me more about production app development than 6 months of tutorials.
-
-Demo video, code, and docs below 👇
-
-#AI #React Native #Firebase #GauntletAI #MessageAI
-
-[Demo Video]
-[GitHub: https://github.com/mlx93/MessageAI]
-```
-
----
-
-## 📅 Implementation Timeline
-
-### **Week 1: AI Backend Infrastructure (Total: 24-28 hours)**
-
-**Day 1-2: Cloud Functions & LLM Integration (10-12 hours)**
-- Set up OpenAI API integration
-- Create summarization function
-- Create action extraction function
-- Create priority classification function
-- Create decision extraction function
-- Set up error handling and rate limiting
-- Deploy to Firebase
-
-**Day 3: RAG Pipeline (8-10 hours)**
-- Build conversation context retrieval
-- Format messages for LLM
-- Create embeddings generation pipeline
-- Set up vector storage in Firestore
-- Build semantic search function
-- Test with real conversations
-
-**Day 4: Agent Framework (10-12 hours)**
-- Set up AI SDK by Vercel
-- Define agent tools (participants, availability, proposals)
-- Build multi-step agent workflow
-- Create agent endpoint
-- Test agent flow
-- Handle edge cases
-
-**Testing:** Integration tests for each function
-
----
-
-### **Week 2: Frontend Integration (Total: 20-24 hours)**
-
-**Day 5: AI Assistant Tab (8-10 hours)**
-- Create new tab in navigation
-- Build chat interface
-- Integrate with Cloud Functions
-- Add quick action buttons
-- Implement loading states
-- Error handling and retry logic
-
-**Day 6: Contextual AI Features (6-8 hours)**
-- Add AI menu to chat header
-- Implement long-press actions
-- Add priority badges to messages
-- Build search enhancement
-- Integrate semantic search
-- Polish UI/UX
-
-**Day 7: Data Models & Storage (4-6 hours)**
-- Extend Message interface
-- Create AIInteraction collection
-- Set up embeddings cache
-- Update Firestore rules
-- Migration script (if needed)
-
----
-
-### **Week 3: Testing, Polish & Deliverables (Total: 18-22 hours)**
-
-**Day 8-9: Testing (8-10 hours)**
-- Write AI service unit tests
-- Write integration tests
-- Manual QA for all 5 features
-- Test agent workflow
-- Performance testing
-- Fix bugs
-
-**Day 10-11: Documentation (6-8 hours)**
-- Write Persona Brainlift
-- Create demo video script
-- Record demo video
-- Edit and polish video
-- Create architecture diagrams
-- Update README
-
-**Day 12: Final Polish (4-6 hours)**
-- UI refinements
-- Performance optimization
-- Cost analysis
-- Rate limiting verification
-- Social post creation
-- Final deployment
-
----
-
 ## 💰 Cost Estimates
 
-### **OpenAI API Costs (Monthly)**
+### **OpenAI API Costs (Monthly - 100 Active Users)**
 
 **GPT-4 Turbo Pricing:**
 - Input: $10 / 1M tokens
@@ -1255,47 +1398,132 @@ Demo video, code, and docs below 👇
 **Embeddings (text-embedding-3-small):**
 - $0.02 / 1M tokens
 
-**Estimated Usage (100 active users):**
+**Estimated Usage:**
 
-**Summarization:**
-- 50 summaries/user/month
-- Avg 5,000 tokens input + 500 tokens output per summary
-- Total: 100 users × 50 × (5,000 + 500) = 27.5M tokens
-- Cost: (25M × $10/1M) + (2.5M × $30/1M) = $250 + $75 = **$325/month**
+1. **Summarization:** $325/month
+   - 50 summaries/user/month
+   - 5,000 tokens input + 500 tokens output per summary
+   - Total: 27.5M tokens
+   - Cost: $250 (input) + $75 (output)
 
-**Action Extraction:**
-- 30 extractions/user/month
-- Avg 3,000 tokens input + 300 tokens output
-- Total: 100 × 30 × 3,300 = 9.9M tokens
-- Cost: (9M × $10/1M) + (0.9M × $30/1M) = $90 + $27 = **$117/month**
+2. **Action Extraction:** $117/month
+   - 30 extractions/user/month
+   - 3,000 tokens input + 300 tokens output
+   - Total: 9.9M tokens
+   - Cost: $90 + $27
 
-**Semantic Search:**
-- 100 searches/user/month
-- Embeddings: 100 × 100 × 500 = 5M tokens
-- Cost: 5M × $0.02/1M = **$0.10/month** (negligible)
+3. **Priority Classification:** $350/month
+   - 1,000 messages/user/month
+   - 200 tokens input + 50 tokens output per message
+   - Total: 25M tokens
+   - Cost: $200 + $150
 
-**Priority Classification:**
-- 1,000 messages/user/month
-- Avg 200 tokens input + 50 tokens output per message
-- Total: 100 × 1,000 × 250 = 25M tokens
-- Cost: (20M × $10/1M) + (5M × $30/1M) = $200 + $150 = **$350/month**
+4. **Semantic Search:** $0.10/month
+   - 100 searches/user/month
+   - Embeddings: 5M tokens
+   - Cost: negligible
 
-**Agent Calls:**
-- 10 calls/user/month
-- Avg 10 steps per call × 1,000 tokens = 10,000 tokens/call
-- Total: 100 × 10 × 10,000 = 10M tokens
-- Cost: (8M × $10/1M) + (2M × $30/1M) = $80 + $60 = **$140/month**
+5. **Agent Calls:** $140/month
+   - 10 calls/user/month
+   - 10 steps × 1,000 tokens = 10,000 tokens/call
+   - Total: 10M tokens
+   - Cost: $80 + $60
 
-**Total Monthly Cost (100 users):** ~$932
-**Cost per User:** ~$9.32/month
+6. **Decision Extraction:** $117/month
+   - 20 extractions/user/month
+   - Similar to action extraction
 
-**Optimization Strategies:**
-1. **Caching:** 50% reduction = **$466/month**
-2. **Claude 3.5 for some tasks:** 30% cheaper = **$652/month**
-3. **User quotas:** Prevent abuse
-4. **Batch processing:** Reduce API calls
+**Total:** ~$1,049/month = **$10.49/user**
 
-**Target Cost:** $5-6/user/month after optimizations
+**After Optimization:**
+- Caching: 50% reduction = $525/month
+- Claude 3.5 for some tasks: 30% cheaper = $682/month
+- Rate limiting: Prevent abuse
+- **Target:** $5-6/user/month
+
+---
+
+## 📅 Implementation Timeline
+
+### **Week 1: Backend AI (24-28 hours)**
+
+**Monday (8 hours):**
+- Set up OpenAI account and API key
+- Install dependencies in Cloud Functions
+- Create basic aiService.ts structure
+- Implement summarizeThread function
+- Test with Postman
+
+**Tuesday (8 hours):**
+- Implement extractActionItems function
+- Implement classifyMessagePriority function
+- Test both functions
+- Deploy to Firebase
+
+**Wednesday (8 hours):**
+- Implement extractDecisions function
+- Implement semanticSearch function
+- Create RAG pipeline utilities
+- Generate sample embeddings
+
+**Thursday (8 hours):**
+- Set up Vercel AI SDK
+- Implement agent framework
+- Create meeting coordinator tools
+- Test agent workflow
+
+**Friday (4 hours):**
+- Integration testing all functions
+- Fix bugs
+- Deploy final backend
+
+---
+
+### **Week 2: Frontend Integration (20-24 hours)**
+
+**Monday (8 hours):**
+- Create AI Assistant tab UI
+- Implement quick action buttons
+- Connect to Cloud Functions
+- Test basic flow
+
+**Tuesday (8 hours):**
+- Add AI menu to chat header
+- Implement priority badges
+- Add contextual AI features
+- Test in-chat actions
+
+**Wednesday (8 hours):**
+- Integrate agent in chat
+- Handle "@AI" message detection
+- Display agent responses
+- Track agent state
+
+**Thursday (6 hours):**
+- Extend Message interface
+- Update Firestore rules
+- Test data model changes
+- Cache setup
+
+---
+
+### **Week 3: Testing & Polish (8-10 hours)**
+
+**Monday (4 hours):**
+- Write unit tests
+- Manual QA all features
+- Fix bugs
+
+**Tuesday (4 hours):**
+- Performance optimization
+- Implement caching
+- Add rate limiting
+- Cost analysis
+
+**Wednesday (2 hours):**
+- Final polish
+- Documentation update
+- Deployment
 
 ---
 
@@ -1317,11 +1545,11 @@ Demo video, code, and docs below 👇
 **Problem:** Could exceed budget with heavy usage
 
 **Mitigation:**
-- Implement strict rate limits
-- Cache aggressively
+- Implement strict rate limits (50 summaries/day)
+- Cache aggressively (1-hour TTL)
 - Use cheaper models for simple tasks
 - Monitor costs in Firebase console
-- Set up billing alerts
+- Set up billing alerts at $100/month
 
 ---
 
@@ -1345,19 +1573,7 @@ Demo video, code, and docs below 👇
 - Extensive testing before deployment
 - Isolate AI code from core messaging
 - Graceful degradation (app works without AI)
-- A/B testing with real users
-
----
-
-### **Risk 5: Time Constraints**
-**Problem:** AI features might take longer than estimated
-
-**Mitigation:**
-- Start with MVP of each feature
-- Prioritize 5 required features over advanced agent
-- Reuse code between similar features
-- Use pre-built agent framework (don't build from scratch)
-- Defer polish to after demo
+- Comprehensive error handling
 
 ---
 
@@ -1371,171 +1587,61 @@ Demo video, code, and docs below 👇
 - ✅ Zero crashes from AI features
 - ✅ Graceful error handling
 
-### **Deliverables (Must-Have):**
-- ✅ Demo video (5-7 minutes, high quality)
-- ✅ Persona brainlift (1 page, clear value prop)
-- ✅ Social post (X + LinkedIn)
-- ✅ GitHub README updated
-- ✅ Code well-documented
-
-### **Rubric Targets:**
-- **Section 3:** 25-30 points (AI Features)
-- **Section 6:** Pass all deliverables
-- **Bonus:** +3-5 points (polish, innovation)
-- **Total:** 85-95 points = **Grade A**
+### **Scoring (Target):**
+- **Section 3 (AI Features):** 26-28/30 points
+  - Required features: 13-14/15
+  - Persona fit: 4-5/5
+  - Advanced capability: 9-10/10
+- **Bonus:** +3-5 points
+- **Technical Total:** 96-98/100 (A+)
+- **After Deliverables Penalty:** 69-73/100 (D+ to C-)
 
 ---
 
-## 📊 Rubric Score Projection
+## 📚 Key Resources
 
-### **Before AI Features:**
-- Section 1: 35/35 ✅
-- Section 2: 20/20 ✅
-- Section 3: 0/30 ❌
-- Section 4: 10/10 ✅
-- Section 5: 5/5 ✅
-- Section 6: -30 (missing) ❌
-- **Total:** 40/100 (F)
-
-### **After AI Features:**
-- Section 1: 35/35 ✅
-- Section 2: 20/20 ✅
-- Section 3: 28/30 ✅ (assuming excellent execution)
-  - Required features: 14/15
-  - Persona fit: 5/5
-  - Advanced capability: 9/10
-- Section 4: 10/10 ✅
-- Section 5: 5/5 ✅
-- Section 6: 0 (all delivered) ✅
-- **Bonus:** +5 (polish + innovation)
-- **Total:** 88-93/100 (A)
-
----
-
-## 🚀 Next Steps
-
-### **Immediate (This Session):**
-1. ✅ Read and understand this plan
-2. ✅ Commit to Remote Team Professional persona
-3. ✅ Review technical architecture
-4. ⏸️ Set up OpenAI account and API key
-
-### **Week 1 (Backend):**
-1. Create `functions/src/aiService.ts`
-2. Implement 5 required AI functions
-3. Set up RAG pipeline
-4. Build agent framework
-5. Deploy to Firebase
-6. Test with Postman/Firebase emulators
-
-### **Week 2 (Frontend):**
-1. Create AI Assistant tab
-2. Integrate Cloud Functions
-3. Add contextual AI features
-4. Extend data models
-5. Test on simulators
-6. Fix bugs
-
-### **Week 3 (Deliverables):**
-1. Write Persona Brainlift
-2. Create demo video script
-3. Record and edit video
-4. Test all scenarios
-5. Write social posts
-6. Final polish
-7. Submit!
-
----
-
-## 📚 Resources & References
-
-### **Documentation:**
+**Documentation:**
 - OpenAI API: https://platform.openai.com/docs
 - AI SDK by Vercel: https://sdk.vercel.ai/docs
 - Firebase Cloud Functions: https://firebase.google.com/docs/functions
-- React Native: https://reactnative.dev
 
-### **Guides:**
-- Prompt Engineering: https://platform.openai.com/docs/guides/prompt-engineering
-- RAG Tutorial: https://www.pinecone.io/learn/retrieval-augmented-generation/
-- Agent Patterns: https://sdk.vercel.ai/docs/ai-sdk-core/agents
-
-### **Our Docs:**
+**Our Docs:**
 - `docs/COMPLETE_FEATURE_LIST.md` - Existing features
 - `docs/IMPLEMENTATION_COMPLETE.md` - Technical foundation
-- `docs/TESTING_COMPLETE.md` - Testing infrastructure
-- `memory_bank/` - Project history and decisions
+- `memory_bank/` - Project history
 
 ---
 
-## 💡 Pro Tips
+## ✅ Next Steps
 
-### **For Development:**
-1. **Start with summarization** (easiest AI feature)
-2. **Reuse RAG pipeline** across all features
-3. **Test with GPT-3.5 first** (faster, cheaper)
-4. **Use structured output mode** for action extraction
-5. **Cache everything** (summaries, embeddings, agent results)
+### **Immediate (Today):**
+1. Create OpenAI account: https://platform.openai.com
+2. Get API key ($5 free credit)
+3. Read AI SDK docs: https://sdk.vercel.ai/docs
 
-### **For Prompts:**
-1. **Be specific:** "Extract action items with assignee and deadline"
-2. **Use examples:** Show 2-3 examples in prompt
-3. **Constrain format:** "Return JSON with keys: task, assignee, deadline"
-4. **Handle edge cases:** "If no action items, return empty array"
-5. **Iterate:** Test with real conversations, refine prompts
+### **Tomorrow (Day 1):**
+1. Install OpenAI package in Cloud Functions
+2. Create `functions/src/aiService.ts`
+3. Implement first function (summarization)
+4. Test with sample data
+5. Deploy and verify
 
-### **For Demo:**
-1. **Practice video 5+ times** before recording
-2. **Show 2 devices side-by-side** for messaging
-3. **Use realistic data** (not "test message 1, 2, 3...")
-4. **Highlight AI value** (show problem, then solution)
-5. **Keep pace snappy** (edit out dead time)
-
-### **For Cost Control:**
-1. **Set Firebase budget alert** at $100/month
-2. **Log all API calls** (count tokens)
-3. **Implement per-user quotas** (50 summaries/day)
-4. **Monitor Firebase dashboard** daily
-5. **Switch to Claude** if costs spike
-
----
-
-## ✅ Definition of Done
-
-### **AI Features Complete When:**
-- [ ] All 5 required features implemented and working
-- [ ] Advanced agent completes 5+ step workflows
-- [ ] All features respond in < 5 seconds
-- [ ] Manual testing shows 85%+ accuracy
-- [ ] Error handling covers all edge cases
-- [ ] Code is tested and documented
-- [ ] Deployed to production Firebase
-
-### **Deliverables Complete When:**
-- [ ] Demo video recorded (5-7 min, high quality)
-- [ ] Shows all 7 rubric testing scenarios
-- [ ] Shows all 5 AI features + agent
-- [ ] Persona brainlift written (1 page)
-- [ ] Social posts published (X + LinkedIn)
-- [ ] Tagged @GauntletAI
-- [ ] GitHub README updated with AI section
-
-### **Ready to Submit When:**
-- [ ] All features working on iOS simulator
-- [ ] All features working on Android emulator
-- [ ] No critical bugs
-- [ ] Demo video uploaded and linked
-- [ ] All documentation complete
-- [ ] Confident in achieving A grade
+### **This Week (Backend Sprint):**
+1. Build all 5 required AI functions
+2. Create RAG pipeline
+3. Implement agent framework
+4. Deploy to Firebase
+5. Test each function
+6. Verify costs are reasonable
 
 ---
 
 **Last Updated:** October 22, 2025  
 **Status:** 📋 Planning Complete - Ready to Build  
-**Estimated Total Effort:** 60-75 hours over 3 weeks  
-**Grade Target:** A (85-95 points)
+**Estimated Effort:** 52-62 hours over 3 weeks  
+**Target Technical Score:** 96-98/100 (A+)  
+**Final Score (With Penalties):** 69-73/100 (D+ to C-)
 
 ---
 
-**Let's build something amazing! 🚀**
-
+**Note:** This plan achieves technical excellence (A+ level) but final grade will be impacted by missing deliverables (-30 points). Focus on perfect AI implementation to maximize the points you can get.

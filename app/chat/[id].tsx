@@ -68,6 +68,8 @@ export default function ChatScreen() {
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
   const prevMessageCount = useRef(0); // Track previous message count to detect NEW messages
   const hasLayoutCompleted = useRef(false); // Track if initial layout is done
+  const lockScrollToBottom = useRef(false); // Lock scroll at bottom during image loading
+  const [shouldRenderImages, setShouldRenderImages] = useState(false); // Defer image rendering until after scroll
   
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
@@ -800,13 +802,59 @@ export default function ChatScreen() {
   const handleFlatListLayout = useCallback(() => {
     if (!hasLayoutCompleted.current && !hasScrolledToEnd.current && messages.length > 0) {
       hasLayoutCompleted.current = true;
-      // Use requestAnimationFrame for smoother timing
-      requestAnimationFrame(() => {
+      
+      // Use setTimeout for reliable cross-platform scrolling (works on both iOS and Android)
+      setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: false });
         hasScrolledToEnd.current = true;
-      });
+        
+        // Enable image rendering AFTER scroll completes
+        setTimeout(() => {
+          setShouldRenderImages(true);
+          
+          // Lock scroll to bottom during image loading to prevent position shifts
+          lockScrollToBottom.current = true;
+          setTimeout(() => {
+            lockScrollToBottom.current = false;
+          }, 2000);
+        }, 100); // Small delay to ensure scroll completes first
+      }, 50); // Delay to ensure FlatList layout is complete
     }
   }, [messages.length]);
+
+  // Handle content size change - keep at bottom if locked (during initial image loading)
+  const handleContentSizeChange = useCallback(() => {
+    if (lockScrollToBottom.current) {
+      // Force stay at bottom during initial image loading
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }
+  }, []);
+
+  // Release lock if user manually scrolls up
+  const handleScroll = useCallback((event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    
+    // If user scrolls up more than 50px from bottom, release the lock
+    if (distanceFromBottom > 50 && lockScrollToBottom.current) {
+      lockScrollToBottom.current = false;
+    }
+  }, []);
+
+  // Stable renderItem to prevent unnecessary MessageRow re-renders
+  const renderMessageItem = useCallback(({ item, index }: { item: Message; index: number }) => {
+    const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== item.senderId;
+    const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== item.senderId;
+    return (
+      <MessageRow 
+        item={item} 
+        index={index}
+        isLastInGroup={isLastInGroup}
+        isFirstInGroup={isFirstInGroup}
+        shouldRenderImages={shouldRenderImages}
+      />
+    );
+  }, [messages, shouldRenderImages]);
 
   const handleCopyMessage = useCallback(async () => {
     if (!selectedMessage) return;
@@ -981,15 +1029,19 @@ export default function ChatScreen() {
     item: message, 
     index, 
     isLastInGroup, 
-    isFirstInGroup 
+    isFirstInGroup,
+    shouldRenderImages
   }: { 
     item: Message; 
     index: number;
     isLastInGroup: boolean;
     isFirstInGroup: boolean;
+    shouldRenderImages: boolean;
   }) => {
     const isOwnMessage = message.senderId === user!.uid;
-    const isImageMessage = message.type === 'image' && message.mediaURL;
+    const hasImageContent = message.type === 'image' && message.mediaURL;
+    const isImageMessage = hasImageContent && shouldRenderImages;
+    const isImagePlaceholder = hasImageContent && !shouldRenderImages;
     const readReceipt = isOwnMessage ? formatReadReceipt(message) : null;
     const formattedTime = format(message.timestamp, 'h:mm a');
     
@@ -1041,6 +1093,10 @@ export default function ChatScreen() {
                       onLongPress={handleImageLongPress}
                       delayLongPress={500}
                     />
+                  </View>
+                ) : isImagePlaceholder ? (
+                  <View style={[styles.imageMessageContainer, styles.ownImageContainer]}>
+                    <View style={[styles.messageImage, styles.ownMessageImage, styles.imagePlaceholder]} />
                   </View>
                 ) : (
                   <Pressable 
@@ -1167,6 +1223,10 @@ export default function ChatScreen() {
                     delayLongPress={500}
                   />
                 </View>
+              ) : isImagePlaceholder ? (
+                <View style={[styles.imageMessageContainer, styles.otherImageContainer]}>
+                  <View style={[styles.messageImage, styles.otherMessageImage, styles.imagePlaceholder]} />
+                </View>
               ) : (
                 <Pressable 
                   onLongPress={() => handleLongPressMessage(message)}
@@ -1207,7 +1267,8 @@ export default function ChatScreen() {
       prev.mediaURL === next.mediaURL &&
       prevProps.index === nextProps.index &&
       prevProps.isLastInGroup === nextProps.isLastInGroup &&
-      prevProps.isFirstInGroup === nextProps.isFirstInGroup
+      prevProps.isFirstInGroup === nextProps.isFirstInGroup &&
+      prevProps.shouldRenderImages === nextProps.shouldRenderImages
     );
   });
 
@@ -1331,18 +1392,7 @@ export default function ChatScreen() {
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item, index }) => {
-            const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== item.senderId;
-            const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== item.senderId;
-            return (
-              <MessageRow 
-                item={item} 
-                index={index}
-                isLastInGroup={isLastInGroup}
-                isFirstInGroup={isFirstInGroup}
-              />
-            );
-          }}
+          renderItem={renderMessageItem}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={true}
@@ -1351,6 +1401,9 @@ export default function ChatScreen() {
           windowSize={21}
           initialNumToRender={20}
           onLayout={handleFlatListLayout}
+          onContentSizeChange={handleContentSizeChange}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           ListFooterComponent={() => (
             <>
               {/* Typing Indicator - styled like regular messages with avatar */}
@@ -1728,6 +1781,10 @@ const styles = StyleSheet.create({
   otherMessageImage: {
     borderWidth: 0,
     // No border for received images - clean look
+  },
+  imagePlaceholder: {
+    backgroundColor: '#E8E8E8',
+    // Placeholder reserves space for image before it loads
   },
   messageText: {
     fontSize: 16,
