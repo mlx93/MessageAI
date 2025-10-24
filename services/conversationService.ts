@@ -201,7 +201,7 @@ export const updateConversationLastMessage = async (
     // Update with new message (when a new message arrives, conversation reappears for users who deleted it)
     await updateDoc(convRef, {
       lastMessage: {
-        text: text || 'Photo',
+        text: text || '📷 Image',
         senderId,
         timestamp: serverTimestamp(),
       },

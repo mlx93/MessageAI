@@ -69,7 +69,7 @@ export default function RegisterScreen() {
   };
 
   const navigateToLogin = () => {
-    router.back();
+    router.push('/auth/phone-login');
   };
 
   return (

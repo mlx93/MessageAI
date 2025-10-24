@@ -19,7 +19,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
-import { updateUserProfile } from '../../services/authService';
+import { updateUserProfile, signOut } from '../../services/authService';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { pickAndUploadProfilePicture } from '../../services/imageService';
@@ -89,6 +89,32 @@ export default function EditProfileScreen() {
     } finally {
       setIsUploadingAvatar(false);
     }
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+              router.replace('/auth/phone-login');
+            } catch (error: any) {
+              console.error('Failed to sign out:', error);
+              Alert.alert('Error', 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -185,6 +211,13 @@ export default function EditProfileScreen() {
               ) : (
                 <Text style={styles.buttonText}>Save Changes</Text>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.signOutButton}
+              onPress={handleSignOut}
+            >
+              <Text style={styles.signOutText}>Sign Out</Text>
             </TouchableOpacity>
           </Animated.View>
         </ScrollView>
@@ -290,6 +323,20 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  signOutButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  signOutText: {
+    color: '#FF3B30',
     fontSize: 16,
     fontWeight: '600',
   },

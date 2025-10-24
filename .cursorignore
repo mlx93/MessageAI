@@ -1,0 +1,22 @@
+# API Keys - Do not index or show in Cursor
+openAI_key
+messageAI-pinecone-apikey
+*_key
+*-apikey
+
+# Credentials folder
+creds/
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# Node modules
+node_modules/
+functions/node_modules/
+
+# Build artifacts
+functions/lib/
+dist/
+

@@ -64,7 +64,20 @@ export default function ConversationsScreen() {
     try {
       setError(null);
       const unsubscribe = getUserConversations(user.uid, (convos) => {
-        setConversations(convos);
+        // Filter out conversations that have no actual messages
+        const conversationsWithMessages = convos.filter(conversation => {
+          // Only show conversations that have actual message content
+          const hasMessageText = conversation.lastMessage?.text && 
+                                conversation.lastMessage.text.trim() !== '' && 
+                                conversation.lastMessage.text !== 'Photo' &&
+                                conversation.lastMessage.text !== '📷 Image' &&
+                                conversation.lastMessage.text !== 'Start a conversation';
+          
+          // Must have actual message text to appear in the list
+          return hasMessageText;
+        });
+        
+        setConversations(conversationsWithMessages);
         setLoading(false);
       });
       
@@ -463,7 +476,7 @@ export default function ConversationsScreen() {
                           // Check if it's a real message time (not just initialization)
                           // Messages sent in the last 10 years would be > this value
                           if (time > new Date('2015-01-01').getTime()) {
-                            return 'Photo';
+                            return '📷 Image';
                           }
                         }
                         

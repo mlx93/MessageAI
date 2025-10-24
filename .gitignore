@@ -59,3 +59,9 @@ Thumbs.db
 .env
 .env.local
 .env*.local
+
+# API Keys - NEVER commit!
+openAI_key
+messageAI-pinecone-apikey
+*_key
+*-apikey

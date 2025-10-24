@@ -17,6 +17,39 @@ admin.initializeApp();
 // Set global options
 setGlobalOptions({maxInstances: 10});
 
+// ============================================
+// AI Features
+// ============================================
+export {
+  detectPriority,
+  detectPriorityOnMessage,
+} from "./ai/priorityDetection";
+
+export {
+  batchEmbedMessages,
+  markMessageForEmbedding,
+} from "./ai/batchEmbedding";
+
+export {
+  summarizeThread,
+} from "./ai/threadSummary";
+
+export {
+  extractActions,
+} from "./ai/actionItems";
+
+export {
+  smartSearch,
+} from "./ai/smartSearch";
+
+export {
+  extractDecisions,
+} from "./ai/decisionTracking";
+
+export {
+  proactiveAgent,
+} from "./ai/proactiveAgent";
+
 /**
  * Generate 6-digit OTP code
  * @return {string} 6-digit OTP code
