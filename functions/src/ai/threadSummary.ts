@@ -40,10 +40,19 @@ export const summarizeThread = onCall({
   }
 
   try {
+    // If no date range provided, default to last 7 days
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const effectiveDateRange = dateRange || {
+      start: sevenDaysAgo.toISOString(),
+      end: now.toISOString(),
+    };
+
     // Create cache key based on conversation + date range
     const cacheKey = `summary_${conversationId}_${
-      dateRange?.start || "all"
-    }_${dateRange?.end || "now"}`;
+      effectiveDateRange.start
+    }_${effectiveDateRange.end}`;
 
     const summary = await withCache(cacheKey, 5, async () => {
       const db = admin.firestore();
@@ -51,19 +60,17 @@ export const summarizeThread = onCall({
       // Query messages by date range
       let query = db.collection("messages")
         .where("conversationId", "==", conversationId)
-        .orderBy("timestamp", "desc");
+        .orderBy("timestamp", "asc");
 
-      if (dateRange?.start) {
-        query = query.where("timestamp", ">=",
-          new Date(dateRange.start).getTime());
-      }
-      if (dateRange?.end) {
-        query = query.where("timestamp", "<=",
-          new Date(dateRange.end).getTime());
-      }
+      // Always apply date range (either provided or last 7 days)
+      query = query.where("timestamp", ">=",
+        new Date(effectiveDateRange.start).getTime());
+      query = query.where("timestamp", "<=",
+        new Date(effectiveDateRange.end).getTime());
 
       const snapshot = await query.limit(500).get();
-      const messages = snapshot.docs.map((doc) => doc.data());
+      const messages = snapshot.docs.map((doc) => doc.data())
+        .reverse(); // Reverse to get chronological order
 
       if (messages.length === 0) {
         return {summary: "No messages in this date range."};
@@ -97,7 +104,10 @@ Keep it concise but capture all important points.`,
       return {
         summary: result.text,
         messageCount: messages.length,
-        dateRange: dateRange || {start: null, end: null},
+        dateRange: {
+          start: effectiveDateRange.start,
+          end: effectiveDateRange.end,
+        },
         generatedAt: Date.now(),
       };
     });

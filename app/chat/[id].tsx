@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, memo, useLayoutEffect } from 'react';
 import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, AppState } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
@@ -26,8 +26,13 @@ import ImageViewer from '../../components/ImageViewer';
 import MessageActionSheet from '../../components/MessageActionSheet';
 import CachedImage from '../../components/CachedImage';
 import QueueVisibilityBanner from '../../components/QueueVisibilityBanner';
+import PriorityBadge from '../../components/ai/PriorityBadge';
+import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
+import ProactiveSuggestionCard from '../../components/ai/ProactiveSuggestionCard';
+import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import aiService, { ProactiveSuggestion } from '../../services/aiService';
 
 interface Participant {
   uid: string;
@@ -67,6 +72,10 @@ export default function ChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
+  // AI-related state
+  const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+  const [proactiveSuggestions, setProactiveSuggestions] = useState<ProactiveSuggestion[]>([]);
+  const [loadingSuggestion, setLoadingSuggestion] = useState<string | null>(null);
   const lastLoadTime = useRef(0); // Throttle loading
   const maxMessagesInMemory = useRef(200); // Phase 3: Memory management
   const appStateSubscription = useRef<any>(null); // Phase 4: App state subscription
@@ -83,72 +92,109 @@ export default function ChatScreen() {
   const pendingInitialSnapRef = useRef(false);
   const contentHeightRef = useRef(0);
   const layoutHeightRef = useRef(0);
+  const isGestureActiveRef = useRef(false);
+  const pendingScrollReasonRef = useRef<string | null>(null);
+  const scrollRequestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentSizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDeletedThreadRef = useRef(false);
+
+  const logDeletedThreadEvent = useCallback((message: string) => {
+    if (__DEV__ && isDeletedThreadRef.current) {
+      console.log(`[DeletedThread] ${message}`);
+    }
+  }, []);
   
+  const ensureInitialSnapRef = useRef<() => void>(() => {});
+
+  const cancelPendingScrollRequest = useCallback(() => {
+    if (scrollRequestTimeoutRef.current) {
+      clearTimeout(scrollRequestTimeoutRef.current);
+      scrollRequestTimeoutRef.current = null;
+      logDeletedThreadEvent('Cancelled pending scroll request');
+    }
+  }, [logDeletedThreadEvent]);
+
+  const requestScrollToBottom = useCallback((reason: string) => {
+    pendingScrollReasonRef.current = reason;
+    cancelPendingScrollRequest();
+    scrollRequestTimeoutRef.current = setTimeout(() => {
+      scrollRequestTimeoutRef.current = null;
+      ensureInitialSnapRef.current();
+    }, 16);
+    logDeletedThreadEvent(`Scroll requested (${reason})`);
+  }, [cancelPendingScrollRequest, logDeletedThreadEvent]);
+
   const ensureInitialSnap = useCallback(() => {
-    if (hasSnappedToBottomRef.current || !flatListRef.current) {
+    if (!flatListRef.current || !layoutReadyRef.current || !initialDataReadyRef.current) {
       return;
     }
 
-    const attemptSnap = () => {
-      if (!layoutReadyRef.current || !initialDataReadyRef.current) {
+    const targetOffset = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
+
+    const performSnap = () => {
+      if (!flatListRef.current) return;
+      if (isGestureActiveRef.current) {
+        logDeletedThreadEvent('Ensure snap blocked by gesture, scheduling follow-up');
+        requestScrollToBottom('gesture-active');
         return;
       }
 
-      requestAnimationFrame(() => {
-        if (!flatListRef.current) return;
+      try {
+        logDeletedThreadEvent(`Performing snap via reason ${pendingScrollReasonRef.current ?? 'direct'} (targetOffset=${targetOffset})`);
+        flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
 
-        const targetOffset = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
+        hasSnappedToBottomRef.current = true;
+        hasScrolledToEnd.current = true;
+        pendingScrollReasonRef.current = null;
 
-        try {
-          // Use platform-specific scrolling for smoother transitions
-          if (Platform.OS === 'android') {
-            // Android: Use animated scroll to prevent layout jumps
-            flatListRef.current.scrollToEnd({ animated: true });
-            // Double-check positioning after animation completes
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 300);
-          } else {
-            // iOS: Use non-animated scroll for instant positioning
-            flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
-            flatListRef.current.scrollToEnd({ animated: false });
-            // Double-check for deleted messages
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 50);
-          }
-          hasSnappedToBottomRef.current = true;
-          hasScrolledToEnd.current = true;
-
+        requestAnimationFrame(() => {
+          setShouldRenderImages(true);
+          lockScrollToBottom.current = true;
           setTimeout(() => {
-            setShouldRenderImages(true);
-            lockScrollToBottom.current = true;
-            const lockDuration = 400;
-            setTimeout(() => {
-              lockScrollToBottom.current = false;
-            }, lockDuration);
-          }, 50);
-        } catch (error) {
-          console.warn('Initial snap failed, retrying...', error);
-          setTimeout(attemptSnap, 32);
-        }
-      });
+            lockScrollToBottom.current = false;
+          }, 300);
+        });
+        logDeletedThreadEvent('Snap complete');
+      } catch (error) {
+        console.warn('Initial snap failed, retrying...', error);
+        requestScrollToBottom('retry');
+      }
     };
 
-    attemptSnap();
-  }, []);
+    requestAnimationFrame(performSnap);
+  }, [requestScrollToBottom, logDeletedThreadEvent]);
+
+  useLayoutEffect(() => {
+    ensureInitialSnapRef.current = ensureInitialSnap;
+    return () => {
+      if (ensureInitialSnapRef.current === ensureInitialSnap) {
+        ensureInitialSnapRef.current = () => {};
+      }
+      if (scrollRequestTimeoutRef.current) {
+        clearTimeout(scrollRequestTimeoutRef.current);
+        scrollRequestTimeoutRef.current = null;
+        logDeletedThreadEvent('Cleanup: cleared pending scroll request');
+      }
+      if (contentSizeDebounceRef.current) {
+        clearTimeout(contentSizeDebounceRef.current);
+        contentSizeDebounceRef.current = null;
+        logDeletedThreadEvent('Cleanup: cleared content size debounce');
+      }
+    };
+  }, [ensureInitialSnap, logDeletedThreadEvent]);
 
   const markInitialDataReady = useCallback(() => {
     if (initialDataReadyRef.current) return;
 
     initialDataReadyRef.current = true;
+    logDeletedThreadEvent('Initial data ready');
 
     if (layoutReadyRef.current) {
       ensureInitialSnap();
     } else {
       pendingInitialSnapRef.current = true;
     }
-  }, [ensureInitialSnap]);
+  }, [ensureInitialSnap, logDeletedThreadEvent]);
 
   // Phase 2: Load older messages for upward pagination
   const loadOlderMessages = useCallback(async () => {
@@ -256,6 +302,10 @@ export default function ChatScreen() {
     setShouldRenderImages(false);
     contentHeightRef.current = 0;
     layoutHeightRef.current = 0;
+    pendingScrollReasonRef.current = null;
+    cancelPendingScrollRequest();
+    contentSizeDebounceRef.current && clearTimeout(contentSizeDebounceRef.current);
+    contentSizeDebounceRef.current = null;
 
     const loadConversationData = async () => {
       try {
@@ -298,25 +348,13 @@ export default function ChatScreen() {
         // For deleted messages, we need to ensure proper scroll calculation
         if (cachedMsgs.length !== visibleMessages.length) {
           console.log(`📱 Deleted messages detected: ${cachedMsgs.length - visibleMessages.length} messages filtered out`);
+          isDeletedThreadRef.current = true;
+        } else {
+          isDeletedThreadRef.current = false;
         }
-        // Auto-scroll to bottom for recent messages with platform-specific handling
-        setTimeout(() => {
-          if (Platform.OS === 'android') {
-            // Android: Use animated scroll with slight delay to ensure proper positioning
-            flatListRef.current?.scrollToEnd({ animated: true });
-            // Double-check positioning after animation
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 300);
-          } else {
-            // iOS: Use immediate scroll with double-check for deleted messages
-            flatListRef.current?.scrollToEnd({ animated: false });
-            // Ensure we're truly at the bottom, especially with deleted messages
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 50);
-          }
-        }, Platform.OS === 'android' ? 150 : 100);
+        hasSnappedToBottomRef.current = false;
+        logDeletedThreadEvent('Cache warm (initial) scheduling scroll');
+        requestScrollToBottom('cache-warm');
       }
       markInitialDataReady();
     }).catch(error => {
@@ -418,13 +456,7 @@ export default function ChatScreen() {
       
       // Only scroll to bottom when NEW messages arrive (not on status updates)
       if (hasScrolledToEnd.current && isNewMessage) {
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-          // Double-check positioning, especially important for deleted messages
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }, 200);
-        }, 100);
+        requestScrollToBottom('new-message');
       }
       
       // Mark messages as delivered
@@ -446,7 +478,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user]);
+  }, [conversationId, user, cancelPendingScrollRequest, logDeletedThreadEvent, requestScrollToBottom]);
   
   // Separate effect for updating header when presence/add mode changes
   // This prevents re-subscribing to messages on every presence update
@@ -554,22 +586,40 @@ export default function ChatScreen() {
             ) : HeaderContent;
           },
           headerRight: () => (
-            <TouchableOpacity 
-              onPress={buttonAction} 
-              style={{ 
-                marginRight: 4,
-                width: 32,
-                height: 32,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons 
-                name={isAddMode ? (hasPendingChanges ? "checkmark" : "close") : "person-add-outline"} 
-                size={24} 
-                color="#007AFF" 
-              />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {/* Summarize Button */}
+              {!isAddMode && (
+                <TouchableOpacity
+                  onPress={() => setSummaryModalVisible(true)}
+                  style={{
+                    marginRight: 4,
+                    width: 32,
+                    height: 32,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="sparkles-outline" size={22} color="#007AFF" />
+                </TouchableOpacity>
+              )}
+              {/* Add/Confirm/Cancel Button */}
+              <TouchableOpacity
+                onPress={buttonAction}
+                style={{
+                  marginRight: 4,
+                  width: 32,
+                  height: 32,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons
+                  name={isAddMode ? (hasPendingChanges ? "checkmark" : "close") : "person-add-outline"}
+                  size={24}
+                  color="#007AFF"
+                />
+              </TouchableOpacity>
+            </View>
           ),
         });
       } catch (error) {
@@ -677,9 +727,28 @@ export default function ChatScreen() {
         }
       });
       
-      if (__DEV__) console.log('✅ Flushed cache, cleared active conversation and unread count');
+      if (__DEV__) {
+        console.log('✅ Flushed cache, cleared active conversation and unread count');
+      }
     };
   }, [conversationId, user]);
+
+  // Subscribe to proactive AI suggestions
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const unsubscribe = aiService
+      .getProactiveSuggestions(conversationId)
+      .onSnapshot((snapshot) => {
+        const suggestions = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as ProactiveSuggestion[];
+        setProactiveSuggestions(suggestions);
+      });
+
+    return () => unsubscribe();
+  }, [conversationId]);
 
   // Search for users when in add mode
   useEffect(() => {
@@ -743,7 +812,7 @@ export default function ChatScreen() {
     // 2. Show optimistically in UI
     setMessages(prev => [...prev, tempMessage]);
     setInputText('');
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    requestScrollToBottom('send-message');
 
     // 3. Cache immediately
     await cacheMessage(tempMessage);
@@ -825,6 +894,14 @@ export default function ChatScreen() {
     .failOffsetY(Platform.OS === 'ios' ? [-15, 15] : [-10, 10]) // More lenient vertical tolerance on iOS
     .minDistance(Platform.OS === 'ios' ? 3 : 5) // Lower minimum distance on iOS
     .simultaneousWithExternalGesture(Platform.OS === 'ios' ? [] : []) // Allow simultaneous gestures on iOS
+    .onBegin(() => {
+      'worklet';
+      runOnJS(() => {
+        isGestureActiveRef.current = true;
+        logDeletedThreadEvent('Gesture begin - locking scroll');
+        cancelPendingScrollRequest();
+      });
+    })
     .onUpdate((event) => {
       'worklet';
       // Only allow left swipe (negative translation)
@@ -843,19 +920,24 @@ export default function ChatScreen() {
       
       // Check both translation and velocity for more responsive gesture recognition
       if (event.translationX < threshold || event.velocityX < velocityThreshold) {
-        // Reveal all timestamps with iOS-optimized spring animation
-        blueBubblesTranslateX.value = withSpring(-100, {
-          damping: Platform.OS === 'ios' ? 15 : 20,
-          stiffness: Platform.OS === 'ios' ? 150 : 200,
-        });
+        // Reveal all timestamps with simple animation
+        blueBubblesTranslateX.value = withTiming(-100, { duration: 200 });
       } else {
-        // Hide timestamps with iOS-optimized spring animation
-        blueBubblesTranslateX.value = withSpring(0, {
-          damping: Platform.OS === 'ios' ? 15 : 20,
-          stiffness: Platform.OS === 'ios' ? 150 : 200,
-        });
+        // Hide timestamps with simple animation
+        blueBubblesTranslateX.value = withTiming(0, { duration: 200 });
       }
-    }), [blueBubblesTranslateX]);
+    })
+    .onFinalize(() => {
+      'worklet';
+      runOnJS(() => {
+        isGestureActiveRef.current = false;
+        logDeletedThreadEvent('Gesture finalize - releasing scroll lock');
+        if (pendingScrollReasonRef.current) {
+          logDeletedThreadEvent(`Gesture finalize triggering pending scroll (${pendingScrollReasonRef.current})`);
+          requestScrollToBottom('post-gesture');
+        }
+      });
+    }), [blueBubblesTranslateX, logDeletedThreadEvent, requestScrollToBottom, cancelPendingScrollRequest]);
 
   // Animated style for all blue bubbles
   const blueBubblesAnimatedStyle = useAnimatedStyle(() => ({
@@ -915,7 +997,7 @@ export default function ChatScreen() {
       // Optimistically show in UI and cache
       setMessages(prev => [...prev, tempMessage]);
       await cacheMessage(tempMessage);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      requestScrollToBottom('send-image');
 
       if (isOnline) {
         try {
@@ -957,6 +1039,41 @@ export default function ChatScreen() {
       Alert.alert('Error', 'Failed to send image. Please try again.');
     } finally {
       setIsUploadingImage(false);
+    }
+  };
+
+  // AI Feature Handlers
+  const handleViewAllActionItems = () => {
+    router.push({
+      pathname: '/ava/action-items',
+      params: { conversationId }
+    });
+  };
+
+  const handleAcceptSuggestion = async (suggestionId: string, action?: string) => {
+    setLoadingSuggestion(suggestionId);
+    try {
+      await aiService.acceptSuggestion(suggestionId);
+      // Optionally handle specific actions
+      if (action) {
+        console.log('Executing action:', action);
+      }
+    } catch (error) {
+      console.error('Error accepting suggestion:', error);
+      Alert.alert('Error', 'Failed to accept suggestion');
+    } finally {
+      setLoadingSuggestion(null);
+    }
+  };
+
+  const handleDismissSuggestion = async (suggestionId: string) => {
+    setLoadingSuggestion(suggestionId);
+    try {
+      await aiService.dismissSuggestion(suggestionId);
+    } catch (error) {
+      console.error('Error dismissing suggestion:', error);
+    } finally {
+      setLoadingSuggestion(null);
     }
   };
 
@@ -1129,22 +1246,30 @@ export default function ChatScreen() {
   const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
     const previousHeight = contentHeightRef.current;
     contentHeightRef.current = contentHeight;
-    
-    // If content height decreased (deleted messages), ensure we stay at bottom
-    if (previousHeight > 0 && contentHeight < previousHeight && hasSnappedToBottomRef.current) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }, 50);
+
+    if (contentSizeDebounceRef.current) {
+      clearTimeout(contentSizeDebounceRef.current);
     }
-    
-    if (!hasSnappedToBottomRef.current) {
-      ensureInitialSnap();
-    }
-    if (lockScrollToBottom.current) {
-      // Force stay at bottom during initial image loading
-      flatListRef.current?.scrollToEnd({ animated: false });
-    }
-  }, [ensureInitialSnap]);
+
+    contentSizeDebounceRef.current = setTimeout(() => {
+      contentSizeDebounceRef.current = null;
+
+      // If content height decreased (deleted messages), ensure we stay at bottom
+      if (previousHeight > 0 && contentHeight < previousHeight && hasSnappedToBottomRef.current) {
+        logDeletedThreadEvent('Content shrink detected - scheduling bottom lock');
+        requestScrollToBottom('content-shrink');
+        return;
+      }
+
+      if (!hasSnappedToBottomRef.current) {
+        logDeletedThreadEvent('Content size change before snap - ensuring snap');
+        requestScrollToBottom('content-size');
+      } else if (lockScrollToBottom.current) {
+        logDeletedThreadEvent('Content size change while locked - maintaining bottom');
+        requestScrollToBottom('lock-maintain');
+      }
+    }, 16);
+  }, [logDeletedThreadEvent, requestScrollToBottom]);
 
   // Release lock if user manually scrolls up
   const handleScroll = useCallback((event: any) => {
@@ -1529,7 +1654,25 @@ export default function ChatScreen() {
             <View style={styles.messageContainer}>
               {/* Sender name - only for group chats and first message in group */}
               {isGroupChat && isFirstInGroup && senderInfo && (
-                <Text style={styles.senderName}>{senderInfo.displayName}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.senderName}>{senderInfo.displayName}</Text>
+                  {message.priority && message.priority !== 'normal' && (
+                    <PriorityBadge 
+                      priority={message.priority} 
+                      confidence={message.priorityConfidence}
+                    />
+                  )}
+                </View>
+              )}
+              
+              {/* Priority badge for direct messages (non-group) */}
+              {!isGroupChat && message.priority && message.priority !== 'normal' && (
+                <View style={{ marginBottom: 4 }}>
+                  <PriorityBadge 
+                    priority={message.priority} 
+                    confidence={message.priorityConfidence}
+                  />
+                </View>
               )}
               
               {isImageMessage ? (
@@ -1707,6 +1850,23 @@ export default function ChatScreen() {
         </View>
       )}
 
+      {/* Proactive AI Suggestions */}
+      {proactiveSuggestions.map((suggestion) => (
+        <ProactiveSuggestionCard
+          key={suggestion.id}
+          suggestion={suggestion}
+          onAccept={handleAcceptSuggestion}
+          onDismiss={handleDismissSuggestion}
+          loading={loadingSuggestion === suggestion.id}
+        />
+      ))}
+
+      {/* Action Items Banner */}
+      <ActionItemsBanner
+        conversationId={conversationId}
+        onViewAll={handleViewAllActionItems}
+      />
+
       <View style={styles.messagesWrapper}>
         <GestureDetector 
           gesture={containerPanGesture}
@@ -1782,7 +1942,7 @@ export default function ChatScreen() {
             requestAnimationFrame(() => {
               flatListRef.current?.scrollToOffset({
                 offset: fallbackOffset,
-                animated: true,
+                animated: false,
               });
             });
           }}
@@ -1850,11 +2010,11 @@ export default function ChatScreen() {
             try {
               flatListRef.current?.scrollToIndex({ 
                 index: firstQueuedIndex, 
-                animated: true,
+                animated: false,
                 viewPosition: 0.5 // Center the message
               });
             } catch {
-              flatListRef.current?.scrollToEnd({ animated: true });
+              requestScrollToBottom('queue-banner-fallback');
             }
           }
         }}
@@ -1899,6 +2059,13 @@ export default function ChatScreen() {
           onClose={() => setViewerImageUrl(null)}
         />
       )}
+
+      {/* Thread Summary Modal */}
+      <ThreadSummaryModal
+        visible={summaryModalVisible}
+        conversationId={conversationId}
+        onClose={() => setSummaryModalVisible(false)}
+      />
 
       {/* Message Action Sheet */}
       <MessageActionSheet

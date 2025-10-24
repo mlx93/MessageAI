@@ -34,6 +34,11 @@ export interface Message {
   readBy: string[]; // Array of user IDs who have read this message
   deliveredTo: string[]; // Array of user IDs who have received this message
   deletedBy?: string[]; // Array of user IDs who soft-deleted this message
+  // AI-enhanced fields
+  priority?: 'urgent' | 'important' | 'normal';
+  priorityConfidence?: number;
+  priorityReason?: string;
+  embedded?: boolean; // Whether message has been embedded for RAG
 }
 
 export interface Conversation {

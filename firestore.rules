@@ -72,30 +72,22 @@ service cloud.firestore {
     
     // AI-generated action items
     match /action_items/{itemId} {
-      allow read: if isAuthenticated() && 
-        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
-      allow update: if isAuthenticated() && 
-        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow create, delete: if false; // Only Cloud Functions can create/delete
     }
     
     // AI-generated decisions
     match /decisions/{decisionId} {
-      allow read: if isAuthenticated() && 
-        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
-      allow update: if isAuthenticated() && 
-        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow create, delete: if false; // Only Cloud Functions can create/delete
     }
     
     // AI proactive suggestions
     match /proactive_suggestions/{suggestionId} {
-      allow read: if isAuthenticated() && 
-        (request.auth.uid == resource.data.userId || 
-         request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants);
-      allow update: if isAuthenticated() && 
-        (request.auth.uid == resource.data.userId || 
-         request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants);
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow create, delete: if false; // Only Cloud Functions can create/delete
     }
     

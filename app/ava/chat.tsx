@@ -29,6 +29,10 @@ interface ConversationOption {
   id: string;
   title: string;
   lastMessage?: string;
+  isGroup?: boolean;
+  participantDetails?: any;
+  participants?: string[];
+  updatedAt?: any;
 }
 
 export default function ChatWithAvaScreen() {
@@ -39,7 +43,7 @@ export default function ChatWithAvaScreen() {
     {
       id: '1',
       role: 'assistant',
-      content: "Hi! I'm Ava, your AI assistant. I can help you:\n\n• Summarize conversations\n• Find action items\n• Search your messages\n• Track decisions\n\nWhat can I help you with?",
+      content: "Hi! I'm Ava, your AI assistant. I can help you:\n\n• Summarize conversations (by name or person)\n• Find information about people in your chats\n• Search your messages\n• Track action items and decisions\n\nI can recognize first names, last names, and full names from your conversation history!\n\nWhat can I help you with?",
       timestamp: Date.now(),
     },
   ]);
@@ -61,8 +65,12 @@ export default function ChatWithAvaScreen() {
   const loadConversations = async () => {
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) return;
+      if (!userId) {
+        console.log('Ava: No user ID available');
+        return;
+      }
 
+      console.log('Ava: Loading conversations for user:', userId);
       const db = getFirestore();
       const conversationsQuery = query(
         collection(db, 'conversations'),
@@ -72,18 +80,62 @@ export default function ChatWithAvaScreen() {
       );
 
       const snapshot = await getDocs(conversationsQuery);
-      const convos: ConversationOption[] = snapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.isGroup ? data.name : data.displayName || 'Unknown',
-          lastMessage: data.lastMessage?.text,
-        };
-      });
+      console.log('Ava: Found conversations:', snapshot.docs.length);
+      
+      const convos: ConversationOption[] = snapshot.docs
+        .map((doc) => {
+          const data = doc.data();
+          let title = 'Unknown';
+          
+          if (data.isGroup) {
+            title = data.name || 'Group Chat';
+          } else {
+            // For direct conversations, find the other participant's name
+            if (data.participantDetails) {
+              const otherUserId = data.participants.find((id: string) => id !== userId);
+              if (otherUserId && data.participantDetails[otherUserId]) {
+                title = data.participantDetails[otherUserId].displayName || 'Unknown';
+              }
+            }
+          }
+          
+          return {
+            id: doc.id,
+            title,
+            lastMessage: data.lastMessage?.text,
+            isGroup: data.isGroup,
+            participantDetails: data.participantDetails,
+            participants: data.participants,
+            updatedAt: data.updatedAt,
+          };
+        })
+        // Filter to only show active conversations with actual messages (same as Messages page)
+        .filter(conversation => {
+          const hasMessageText = conversation.lastMessage && 
+                                conversation.lastMessage.trim() !== '' && 
+                                conversation.lastMessage !== 'Photo' &&
+                                conversation.lastMessage !== '📷 Image' &&
+                                conversation.lastMessage !== 'Start a conversation';
+          return hasMessageText;
+        })
+        // Remove duplicates by title (keep the most recent one)
+        .reduce((acc, current) => {
+          const existing = acc.find(conv => conv.title === current.title);
+          if (!existing || current.updatedAt > existing.updatedAt) {
+            if (existing) {
+              const index = acc.indexOf(existing);
+              acc[index] = current;
+            } else {
+              acc.push(current);
+            }
+          }
+          return acc;
+        }, [] as ConversationOption[]);
 
+      console.log('Ava: Processed conversations:', convos.map(c => ({ title: c.title, id: c.id })));
       setConversations(convos);
     } catch (error) {
-      console.error('Error loading conversations:', error);
+      console.error('Ava: Error loading conversations:', error);
     }
   };
 
@@ -133,6 +185,85 @@ export default function ChatWithAvaScreen() {
     }
   };
 
+  // Enhanced name recognition utilities
+  const extractNamesFromQuery = (query: string): { firstName?: string; lastName?: string; fullName?: string } => {
+    const words = query.split(' ').filter(word => word.length > 1);
+    const names: { firstName?: string; lastName?: string; fullName?: string } = {};
+    
+    // Look for common name patterns
+    const namePatterns = [
+      /(?:with|to|from)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)/, // "with John Smith"
+      /(?:with|to|from)\s+([A-Z][a-z]+)/, // "with John"
+      /([A-Z][a-z]+)\s+([A-Z][a-z]+)/, // "John Smith"
+      /([A-Z][a-z]+)/, // "John"
+    ];
+    
+    for (const pattern of namePatterns) {
+      const match = query.match(pattern);
+      if (match) {
+        if (match[2]) {
+          names.firstName = match[1];
+          names.lastName = match[2];
+          names.fullName = `${match[1]} ${match[2]}`;
+        } else {
+          names.firstName = match[1];
+        }
+        break;
+      }
+    }
+    
+    return names;
+  };
+
+  const findConversationByName = (nameQuery: string): ConversationOption | null => {
+    const extractedNames = extractNamesFromQuery(nameQuery);
+    const searchTerms = [
+      extractedNames.fullName,
+      extractedNames.firstName,
+      extractedNames.lastName,
+      ...nameQuery.split(' ').filter(word => word.length > 2)
+    ].filter(Boolean);
+    
+    console.log('Ava: Searching for conversations with names:', searchTerms);
+    console.log('Ava: Available conversations:', conversations.map(c => c.title));
+    
+    // First, try to find exact matches
+    for (const term of searchTerms) {
+      const exactMatch = conversations.find(conv => 
+        conv.title.toLowerCase() === term.toLowerCase()
+      );
+      if (exactMatch) {
+        console.log('Ava: Found exact match:', exactMatch.title);
+        return exactMatch;
+      }
+    }
+    
+    // Then try partial matches (name contains the search term)
+    for (const term of searchTerms) {
+      const partialMatch = conversations.find(conv => 
+        conv.title.toLowerCase().includes(term.toLowerCase())
+      );
+      if (partialMatch) {
+        console.log('Ava: Found partial match:', partialMatch.title);
+        return partialMatch;
+      }
+    }
+    
+    // Finally, try word-based matching (any word in the name matches)
+    for (const term of searchTerms) {
+      const wordMatch = conversations.find(conv => {
+        const convWords = conv.title.toLowerCase().split(' ');
+        return convWords.some(word => word.includes(term.toLowerCase()));
+      });
+      if (wordMatch) {
+        console.log('Ava: Found word match:', wordMatch.title);
+        return wordMatch;
+      }
+    }
+    
+    return null;
+  };
+
   const getAvaResponse = async (query: string): Promise<string> => {
     const lowerQuery = query.toLowerCase();
     const userId = auth.currentUser?.uid;
@@ -143,17 +274,25 @@ export default function ChatWithAvaScreen() {
 
     // Summarize conversation
     if (lowerQuery.includes('summarize')) {
-      // Check if user specified a conversation
-      const convoMatch = conversations.find((c) =>
-        lowerQuery.includes(c.title.toLowerCase())
-      );
+      // Use enhanced name recognition to find conversations
+      const convoMatch = findConversationByName(query);
 
       if (convoMatch) {
         try {
-          const result = await aiService.summarizeThread(convoMatch.id, 50);
-          return `📝 **Summary of ${convoMatch.title}:**\n\n${result.summary}\n\n**Key Topics:** ${result.keyTopics?.join(', ') || 'None'}\n**Participants:** ${result.participants?.join(', ') || 'Unknown'}`;
+          console.log('Ava: Summarizing conversation:', convoMatch.title, 'ID:', convoMatch.id);
+          const result = await aiService.summarizeThread(convoMatch.id);
+          console.log('Ava: Summarization result:', result);
+          const startDate = new Date(result.dateRange.start).toLocaleDateString();
+          const endDate = new Date(result.dateRange.end).toLocaleDateString();
+          return `📝 **Summary of ${convoMatch.title}:**\n\n${result.summary}\n\n**Message Count:** ${result.messageCount}\n**Date Range:** ${startDate} - ${endDate}`;
         } catch (error: any) {
-          return `Sorry, I couldn't summarize that conversation: ${error.message}`;
+          console.error('Ava: Summarization error details:', {
+            error: error,
+            message: error.message,
+            code: error.code,
+            details: error.details
+          });
+          return `Sorry, I couldn't summarize that conversation. Error: ${error.message || error.code || 'Unknown error'}`;
         }
       } else if (conversations.length > 0) {
         // Show list of conversations to choose from
@@ -161,9 +300,9 @@ export default function ChatWithAvaScreen() {
           .slice(0, 5)
           .map((c, i) => `${i + 1}. ${c.title}`)
           .join('\n');
-        return `Which conversation would you like me to summarize?\n\n${convoList}\n\nJust tell me the name of the conversation!`;
+        return `I couldn't find a conversation with that name. Here are your active conversations:\n\n${convoList}\n\nTry saying the exact name from the list above, or just say "summarize" to see all options!`;
       } else {
-        return "You don't have any conversations yet.";
+        return "You don't have any active conversations yet. Start chatting with someone first!";
       }
     }
 
@@ -196,6 +335,48 @@ export default function ChatWithAvaScreen() {
       }
     }
 
+    // Name-based queries (new feature)
+    else if (lowerQuery.includes('who is') || lowerQuery.includes('tell me about')) {
+      const extractedNames = extractNamesFromQuery(query);
+      const nameToSearch = extractedNames.fullName || extractedNames.firstName;
+      
+      if (!nameToSearch) {
+        return "I need a name to search for. Try 'Who is John?' or 'Tell me about Sarah'";
+      }
+
+      try {
+        // Search for messages mentioning this person
+        const results = await aiService.smartSearch(nameToSearch, userId, 10);
+        if (results.length === 0) {
+          return `I couldn't find any messages mentioning ${nameToSearch}. They might not be in your conversation history.`;
+        }
+
+        // Group results by conversation
+        const byConversation = results.reduce((acc, result) => {
+          if (!acc[result.conversationId]) {
+            acc[result.conversationId] = [];
+          }
+          acc[result.conversationId].push(result);
+          return acc;
+        }, {} as Record<string, typeof results>);
+
+        const conversationInfo = Object.entries(byConversation)
+          .map(([convoId, messages]) => {
+            const convo = conversations.find(c => c.id === convoId);
+            const convoName = convo ? convo.title : 'Unknown conversation';
+            const messageCount = messages.length;
+            const latestMessage = messages[0]; // Results are sorted by relevance
+            
+            return `**${convoName}** (${messageCount} mentions)**\n"${latestMessage.text}" - ${latestMessage.sender}`;
+          })
+          .join('\n\n');
+
+        return `👤 **Information about ${nameToSearch}:**\n\n${conversationInfo}`;
+      } catch (error: any) {
+        return `Sorry, I couldn't find information about ${nameToSearch}: ${error.message}`;
+      }
+    }
+
     // Action items
     else if (
       lowerQuery.includes('action') ||
@@ -212,7 +393,7 @@ export default function ChatWithAvaScreen() {
 
     // Help
     else if (lowerQuery.includes('help')) {
-      return "I can help you with:\n\n1. 📝 **Summarize conversations** - Say 'summarize [conversation name]'\n2. ✅ **View action items** - Go to Action Items tab\n3. 🔍 **Search messages** - Say 'search for [topic]'\n4. 📌 **Track decisions** - Go to Decisions tab\n5. 🔴 **Priority messages** - I detect them automatically!\n\nWhat would you like to do?";
+      return "I can help you with:\n\n1. 📝 **Summarize conversations** - Say 'summarize [conversation name]' or 'summarize my conversation with Jodie'\n2. 👤 **Find information about people** - Say 'Who is John?' or 'Tell me about Sarah'\n3. 🔍 **Search messages** - Say 'search for [topic]'\n4. ✅ **View action items** - Go to Action Items tab\n5. 📌 **Track decisions** - Go to Decisions tab\n6. 🔴 **Priority messages** - I detect them automatically!\n\nI can recognize first names, last names, and full names from your conversation history!";
     }
 
     // Default response
