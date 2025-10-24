@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe, limit, startAfter, DocumentSnapshot } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe, limit, startAfter, DocumentSnapshot, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { Message } from '../types';
 
@@ -115,9 +115,8 @@ export const loadOlderMessages = async (
     limit(messageLimit)
   );
   
-  // For now, we'll use the basic query and filter client-side
-  // In a production app, you'd use startAfter with the last document
-  const snapshot = await onSnapshot(q, () => {});
+  // Use getDocs for one-time query instead of onSnapshot
+  const snapshot = await getDocs(q);
   
   const messages = snapshot.docs
     .filter(doc => {
@@ -189,6 +188,7 @@ export const markMessageAsDelivered = async (
 /**
  * Soft-delete a message for a specific user
  * Message remains visible to other users
+ * Triggers conversation lastMessage recalculation
  */
 export const deleteMessage = async (
   conversationId: string,
@@ -199,6 +199,10 @@ export const deleteMessage = async (
   await updateDoc(messageRef, {
     deletedBy: arrayUnion(userId)
   });
+  
+  // Import and trigger conversation recalculation
+  const { updateConversationAfterMessageDeletion } = await import('./conversationService');
+  await updateConversationAfterMessageDeletion(conversationId, userId);
 };
 
 /**

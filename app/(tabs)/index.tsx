@@ -64,7 +64,7 @@ export default function ConversationsScreen() {
     try {
       setError(null);
       const unsubscribe = getUserConversations(user.uid, (convos) => {
-        // Filter out conversations that have no actual messages
+        // Filter out conversations that have no actual messages or are hidden
         const conversationsWithMessages = convos.filter(conversation => {
           // Only show conversations that have actual message content
           const hasMessageText = conversation.lastMessage?.text && 
@@ -74,6 +74,7 @@ export default function ConversationsScreen() {
                                 conversation.lastMessage.text !== 'Start a conversation';
           
           // Must have actual message text to appear in the list
+          // This will automatically hide conversations where all messages were deleted by the user
           return hasMessageText;
         });
         

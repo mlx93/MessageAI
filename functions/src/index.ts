@@ -5,7 +5,10 @@
  * with smart delivery logic, phone auth OTP, and more
  */
 
-import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
@@ -768,6 +771,113 @@ export const onMessageCreate = onDocumentCreated(
         `Failed to increment unread counts for ${conversationId}:`,
         error
       );
+    }
+  }
+);
+
+/**
+ * Handle message deletion and recalculate conversation lastMessage
+ * Triggered when a message's deletedBy array is updated
+ */
+export const onMessageDelete = onDocumentUpdated(
+  "conversations/{conversationId}/messages/{messageId}",
+  async (event) => {
+    try {
+      const {conversationId, messageId} = event.params;
+      const beforeData = event.data?.before?.data();
+      const afterData = event.data?.after?.data();
+
+      if (!beforeData || !afterData) {
+        console.log("No message data in onMessageDelete trigger");
+        return;
+      }
+
+      // Check if deletedBy array was updated (message was deleted)
+      const beforeDeletedBy = beforeData.deletedBy || [];
+      const afterDeletedBy = afterData.deletedBy || [];
+
+      if (beforeDeletedBy.length === afterDeletedBy.length) {
+        console.log("No deletion change detected");
+        return;
+      }
+
+      console.log(
+        `Message ${messageId} deleted in conversation ${conversationId}`
+      );
+
+      // Get conversation document
+      const convRef = admin.firestore().doc(`conversations/${conversationId}`);
+      const convSnap = await convRef.get();
+
+      if (!convSnap.exists) {
+        console.error(`Conversation ${conversationId} not found`);
+        return;
+      }
+
+      const conversation = convSnap.data();
+      if (!conversation) {
+        console.error(`Conversation ${conversationId} has no data`);
+        return;
+      }
+
+      // For each user who deleted the message, recalculate their lastMessage
+      const newDeletions = afterDeletedBy.filter((userId: string) =>
+        !beforeDeletedBy.includes(userId)
+      );
+
+      for (const userId of newDeletions) {
+        console.log(
+          `Recalculating lastMessage for user ${userId} ` +
+          `in conversation ${conversationId}`
+        );
+
+        // Query recent messages to find most recent non-deleted message
+        const messagesQuery = admin
+          .firestore()
+          .collection(`conversations/${conversationId}/messages`)
+          .orderBy("timestamp", "desc")
+          .limit(50);
+
+        const messagesSnapshot = await messagesQuery.get();
+
+        let newLastMessage = null;
+
+        // Find the most recent message that is NOT deleted by this user
+        for (const messageDoc of messagesSnapshot.docs) {
+          const messageData = messageDoc.data();
+          const messageDeletedBy = messageData.deletedBy || [];
+
+          if (!messageDeletedBy.includes(userId)) {
+            newLastMessage = {
+              text: messageData.text || "📷 Image",
+              senderId: messageData.senderId,
+              timestamp: messageData.timestamp,
+            };
+            break;
+          }
+        }
+
+        if (newLastMessage) {
+          // Update conversation with the new last message
+          await convRef.update({
+            lastMessage: newLastMessage,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(
+            `✅ Updated lastMessage for ${conversationId} ` +
+            `after deletion by ${userId}: ${newLastMessage.text}`
+          );
+        } else {
+          // No visible messages - conversation will be hidden
+          console.log(
+            `📭 No visible messages for ${conversationId} ` +
+            `- conversation will be hidden for user ${userId}`
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error in onMessageDelete:", error);
     }
   }
 );

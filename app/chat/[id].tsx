@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo, useLayoutEffect } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, AppState } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Keyboard, Platform, FlatList, Alert, ActivityIndicator, AppState } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { subscribeToMessages, subscribeToMessagesPaginated, loadOlderMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
+import { subscribeToMessages, subscribeToMessagesPaginated, loadOlderMessages as loadOlderMessagesRemote, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
 import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
 import { cacheMessage, cacheMessageBatched, getCachedMessages, getCachedMessagesPaginated, getCachedMessagesBefore, flushCacheBuffer } from '../../services/sqliteService';
 import { preloadService } from '../../services/preloadService';
@@ -48,6 +48,11 @@ interface SearchResult {
   initials: string;
 }
 
+interface SenderInfo {
+  displayName: string;
+  initials: string;
+}
+
 // No separate SwipeableMessage component - container-level swipe instead
 
 export default function ChatScreen() {
@@ -74,6 +79,7 @@ export default function ChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
+  const [pendingSend, setPendingSend] = useState(false);
   // TEMPORARILY DISABLED: AI-related state while indexes build
   // const [summaryModalVisible, setSummaryModalVisible] = useState(false);
   // const [proactiveSuggestions, setProactiveSuggestions] = useState<ProactiveSuggestion[]>([]);
@@ -99,6 +105,8 @@ export default function ChatScreen() {
   const scrollRequestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentSizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDeletedThreadRef = useRef(false);
+  const scrollOffsetRef = useRef(0);
+  const pendingPrependAdjustmentRef = useRef<{ prevContentHeight: number; prevScrollOffset: number } | null>(null);
 
   const logDeletedThreadEvent = useCallback((message: string) => {
     if (__DEV__ && isDeletedThreadRef.current) {
@@ -131,7 +139,15 @@ export default function ChatScreen() {
       return;
     }
 
-    const targetOffset = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
+    // Add extra padding to ensure last message is fully visible
+    // Animated scrolls sometimes fall short, so we add 50px buffer
+    const buffer = 50;
+    const rawOffset = contentHeightRef.current - layoutHeightRef.current + buffer;
+    
+    // Clamp to valid range: never negative, never beyond content
+    // Max scroll is content height minus layout height (can't scroll past end)
+    const maxScroll = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
+    const targetOffset = Math.min(Math.max(rawOffset, 0), maxScroll);
 
     const performSnap = () => {
       if (!flatListRef.current) return;
@@ -142,8 +158,10 @@ export default function ChatScreen() {
       }
 
       try {
-        logDeletedThreadEvent(`Performing snap via reason ${pendingScrollReasonRef.current ?? 'direct'} (targetOffset=${targetOffset})`);
-        flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
+        logDeletedThreadEvent(`Performing snap via reason ${pendingScrollReasonRef.current ?? 'direct'} (targetOffset=${targetOffset}, maxScroll=${maxScroll})`);
+        // Use smooth animation for initial load to prevent jarring jump
+        const isInitialLoad = pendingScrollReasonRef.current === 'cache-warm';
+        flatListRef.current.scrollToOffset({ offset: targetOffset, animated: isInitialLoad });
 
         hasSnappedToBottomRef.current = true;
         hasScrolledToEnd.current = true;
@@ -212,7 +230,13 @@ export default function ChatScreen() {
     lastLoadTime.current = now;
 
     setIsLoadingOlderMessages(true);
-    
+    pendingPrependAdjustmentRef.current = {
+      prevContentHeight: contentHeightRef.current,
+      prevScrollOffset: scrollOffsetRef.current,
+    };
+
+    let loadedCount = 0;
+
     try {
       // Get the oldest message timestamp
       const oldestMessage = messages[0];
@@ -226,6 +250,7 @@ export default function ChatScreen() {
       const cachedOlderMessages = await getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
       
       if (cachedOlderMessages && cachedOlderMessages.length > 0) {
+        loadedCount = cachedOlderMessages.length;
         setMessages(prevMessages => {
           const newMessages = [...cachedOlderMessages, ...prevMessages];
           return manageMessageMemory(newMessages);
@@ -237,9 +262,10 @@ export default function ChatScreen() {
         }
       } else {
         // Fallback to Firestore - only log once per session
-        const firestoreOlderMessages = await loadOlderMessages(conversationId, beforeTimestamp, 30);
+        const firestoreOlderMessages = await loadOlderMessagesRemote(conversationId, beforeTimestamp, 30);
         
         if (firestoreOlderMessages && firestoreOlderMessages.length > 0) {
+          loadedCount = firestoreOlderMessages.length;
           setMessages(prevMessages => {
             const newMessages = [...firestoreOlderMessages, ...prevMessages];
             return manageMessageMemory(newMessages);
@@ -256,8 +282,22 @@ export default function ChatScreen() {
       }
     } catch (error) {
       console.error('Failed to load older messages:', error);
+      pendingPrependAdjustmentRef.current = null;
     } finally {
       setIsLoadingOlderMessages(false);
+
+      const adjustment = pendingPrependAdjustmentRef.current;
+      if (adjustment && loadedCount > 0) {
+        const heightDelta = contentHeightRef.current - adjustment.prevContentHeight;
+        if (heightDelta > 0) {
+          const targetOffset = Math.max(adjustment.prevScrollOffset + heightDelta, 0);
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToOffset({ offset: targetOffset, animated: false });
+          });
+        }
+      }
+
+      pendingPrependAdjustmentRef.current = null;
     }
   }, [isLoadingOlderMessages, hasMoreOlderMessages, messages, conversationId]);
 
@@ -288,6 +328,7 @@ export default function ChatScreen() {
   const { typingText, typingUsers } = useTypingStatus(conversationId, user?.uid || '');
 
   const [participantDetailsMap, setParticipantDetailsMap] = useState<Record<string, any>>({});
+  const [participantDetailsVersion, setParticipantDetailsVersion] = useState(0);
   const [isGroupChat, setIsGroupChat] = useState(false);
 
   // Load conversation details and participants
@@ -319,6 +360,7 @@ export default function ChatScreen() {
           
           // Store participant details for all participants (including sender info)
           setParticipantDetailsMap(conversation.participantDetails);
+          setParticipantDetailsVersion(prev => prev + 1);
           
           // Store current participants
           const participants: Participant[] = conversation.participants
@@ -333,23 +375,35 @@ export default function ChatScreen() {
         console.error('Failed to load conversation:', error);
       }
     };
-    loadConversationData();
-
-    // Phase 1: Cache Warming & Initial Load
-    // Load recent 30 messages from cache for instant display
-    getCachedMessagesPaginated(conversationId, 30).then(cachedMsgs => {
-      if (cachedMsgs.length > 0) {
+    
+    // Load conversation data and cached messages in parallel for speed
+    // but only render messages after conversation data is loaded (prevents avatar race condition)
+    let cachedMessagesData: any[] = [];
+    
+    const conversationDataPromise = loadConversationData();
+    const cachedMessagesPromise = getCachedMessagesPaginated(conversationId, 30).then(cachedMsgs => {
+      cachedMessagesData = cachedMsgs;
+      return cachedMsgs;
+    }).catch(error => {
+      console.error('Failed to load cached messages:', error);
+      return [];
+    });
+    
+    // Wait for conversation data, then immediately render cached messages
+    conversationDataPromise.then(() => {
+      // Now that isGroupChat and participantDetailsMap are set, render messages
+      if (cachedMessagesData.length > 0) {
         // Filter out deleted messages to prevent layout shifts
-        const visibleMessages = cachedMsgs.filter(m => 
+        const visibleMessages = cachedMessagesData.filter(m => 
           !m.deletedBy || !m.deletedBy.includes(user!.uid)
         );
         
-        console.log(`📱 Cache warming: Loaded ${visibleMessages.length} recent messages instantly (filtered from ${cachedMsgs.length})`);
+        console.log(`📱 Cache warming: Loaded ${visibleMessages.length} recent messages instantly (filtered from ${cachedMessagesData.length})`);
         setMessages(visibleMessages);
         
         // For deleted messages, we need to ensure proper scroll calculation
-        if (cachedMsgs.length !== visibleMessages.length) {
-          console.log(`📱 Deleted messages detected: ${cachedMsgs.length - visibleMessages.length} messages filtered out`);
+        if (cachedMessagesData.length !== visibleMessages.length) {
+          console.log(`📱 Deleted messages detected: ${cachedMessagesData.length - visibleMessages.length} messages filtered out`);
           isDeletedThreadRef.current = true;
         } else {
           isDeletedThreadRef.current = false;
@@ -358,9 +412,6 @@ export default function ChatScreen() {
         logDeletedThreadEvent('Cache warm (initial) scheduling scroll');
         requestScrollToBottom('cache-warm');
       }
-      markInitialDataReady();
-    }).catch(error => {
-      console.error('Failed to load cached messages:', error);
       markInitialDataReady();
     });
 
@@ -419,9 +470,13 @@ export default function ChatScreen() {
         // Quick check: if lengths differ, definitely update
         if (prevMessages.length !== visibleMessages.length) {
           // Cache only NEW messages (not already in state)
-          const newMsgIds = new Set(prevMessages.map(m => m.id));
+          // Check both id and localId for proper deduplication
+          const existingIds = new Set([
+            ...prevMessages.map(m => m.id),
+            ...prevMessages.map(m => m.localId).filter(Boolean)
+          ]);
           visibleMessages
-            .filter(m => !newMsgIds.has(m.id))
+            .filter(m => !existingIds.has(m.id) && !existingIds.has(m.localId))
             .forEach(m => cacheMessageBatched(m));
           
           return manageMessageMemory(visibleMessages);
@@ -430,7 +485,13 @@ export default function ChatScreen() {
         // Check if any message actually changed (status, readBy, deliveredTo)
         let hasChanges = false;
         const updatedMessages = visibleMessages.map(newMsg => {
-          const oldMsg = prevMessages.find(m => m.id === newMsg.id);
+          // Find existing message by id or localId
+          const oldMsg = prevMessages.find(m => 
+            m.id === newMsg.id || 
+            (m.localId && m.localId === newMsg.localId) ||
+            (m.localId && m.localId === newMsg.id)
+          );
+          
           if (!oldMsg) {
             hasChanges = true;
             cacheMessageBatched(newMsg); // Cache new message
@@ -796,14 +857,23 @@ export default function ChatScreen() {
     return () => clearTimeout(searchTimeout);
   }, [addSearchText, currentParticipants, user, isAddMode]);
 
+  const trackKeyboardDismissal = useCallback(() => {
+    if (Platform.OS === 'android') {
+      Keyboard.dismiss();
+    }
+  }, []);
+
   const handleSend = useCallback(async () => {
-    if (!inputText.trim() || !user) return;
+    const trimmedInput = inputText.trim();
+    if (!trimmedInput || !user || pendingSend) return;
+
+    setPendingSend(true);
 
     const localId = uuidv4();
     const tempMessage: Message = {
       id: localId,
       conversationId,
-      text: inputText.trim(),
+      text: trimmedInput,
       senderId: user.uid,
       timestamp: new Date(),
       status: 'sending',
@@ -813,7 +883,8 @@ export default function ChatScreen() {
       deliveredTo: []
     };
 
-    // 1. QUEUE FIRST (pessimistic - guarantees persistence)
+    try {
+      // 1. QUEUE FIRST (pessimistic - guarantees persistence)
       await queueMessage({
         conversationId,
         text: tempMessage.text,
@@ -821,58 +892,68 @@ export default function ChatScreen() {
         localId,
         type: 'text'
       });
-    console.log('📦 Message queued first for persistence');
+      console.log('📦 Message queued first for persistence');
 
-    // 2. Show optimistically in UI
-    setMessages(prev => [...prev, tempMessage]);
-    setInputText('');
-    requestScrollToBottom('send-message');
+      // 2. Show optimistically in UI
+      setMessages(prev => [...prev, tempMessage]);
+      setInputText('');
+      trackKeyboardDismissal();
+      requestScrollToBottom('send-message');
 
-    // 3. Cache immediately
-    await cacheMessage(tempMessage);
+      // 3. Cache immediately
+      await cacheMessage(tempMessage);
 
-    // 4. Try to send (only if online)
-    if (isOnline) {
-      try {
-        // Use timeout version (10 second limit)
-        await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId, undefined, 10000);
-        updateConversationLastMessageBatched(conversationId, tempMessage.text, user.uid, localId);
-        
-        // 5. SUCCESS: Remove from queue
-        await removeFromQueue(localId);
-        console.log(`✅ Message sent and removed from queue: ${localId}`);
-        
-        // Update UI to show "sent" status
-        setMessages(prev => prev.map(m => 
-          m.localId === localId ? { ...m, status: 'sent' } : m
-        ));
-        
-      } catch (error: any) {
-        console.log(`⚠️ Send failed, message stays in queue: ${localId}`);
-        // Message stays in queue for automatic retry on reconnect
-        
-        // Update UI to show "queued" status
+      // 4. Try to send (only if online)
+      if (isOnline) {
+        try {
+          // Use timeout version (10 second limit)
+          await sendMessageWithTimeout(conversationId, tempMessage.text, user.uid, localId, undefined, 10000);
+          updateConversationLastMessageBatched(conversationId, tempMessage.text, user.uid, localId);
+          
+          // 5. SUCCESS: Remove from queue
+          await removeFromQueue(localId);
+          console.log(`✅ Message sent and removed from queue: ${localId}`);
+          
+          // Update UI to show "sent" status
+          setMessages(prev => prev.map(m => 
+            m.localId === localId ? { ...m, status: 'sent' } : m
+          ));
+          
+        } catch (error: any) {
+          console.log(`⚠️ Send failed, message stays in queue: ${localId}`);
+          // Message stays in queue for automatic retry on reconnect
+          
+          // Update UI to show "queued" status
+          setMessages(prev => prev.map(m => 
+            m.localId === localId ? { ...m, status: 'queued' } : m
+          ));
+          
+          // Show user feedback for timeout
+          if (error.message && error.message.includes('timeout')) {
+            Alert.alert(
+              'Slow Connection',
+              'Message will send when connection improves',
+              [{ text: 'OK' }]
+            );
+          }
+        }
+      } else {
+        // Offline - message already queued, just update status
+        console.log('📤 Offline: Message queued for later sending');
         setMessages(prev => prev.map(m => 
           m.localId === localId ? { ...m, status: 'queued' } : m
         ));
-        
-        // Show user feedback for timeout
-        if (error.message && error.message.includes('timeout')) {
-          Alert.alert(
-            'Slow Connection',
-            'Message will send when connection improves',
-            [{ text: 'OK' }]
-          );
-        }
       }
-    } else {
-      // Offline - message already queued, just update status
-      console.log('📤 Offline: Message queued for later sending');
-      setMessages(prev => prev.map(m => 
-        m.localId === localId ? { ...m, status: 'queued' } : m
-      ));
+    } catch (error) {
+      console.error('Failed to queue message:', error);
+      // remove optimistic message
+      setMessages(prev => prev.filter(m => m.localId !== localId));
+      await removeFromQueue(localId).catch(() => {});
+      Alert.alert('Send Failed', 'Message could not be queued. Please try again.');
+    } finally {
+      setPendingSend(false);
     }
-  }, [inputText, conversationId, user, isOnline]);
+  }, [inputText, conversationId, user, isOnline, pendingSend, trackKeyboardDismissal]);
 
   // Format read receipt like iMessage - shows when message was READ, not sent (memoized)
   const formatReadReceipt = useCallback((message: Message): string | null => {
@@ -902,12 +983,12 @@ export default function ChatScreen() {
     }
   }, [user]);
 
-  // Container-level pan gesture for all blue bubbles (memoized to prevent recreation)
-  const containerPanGesture = useMemo(() => Gesture.Pan()
+  // Container-level pan gesture for all blue bubbles (not memoized to avoid worklet issues)
+  const containerPanGesture = Gesture.Pan()
     .activeOffsetX(Platform.OS === 'ios' ? [-5, 5] : [-10, 10]) // More sensitive on iOS
     .failOffsetY(Platform.OS === 'ios' ? [-15, 15] : [-10, 10]) // More lenient vertical tolerance on iOS
     .minDistance(Platform.OS === 'ios' ? 3 : 5) // Lower minimum distance on iOS
-    .simultaneousWithExternalGesture(Platform.OS === 'ios' ? [] : []) // Allow simultaneous gestures on iOS
+    // .simultaneousWithExternalGesture([]) // Allow simultaneous gestures
     .onBegin(() => {
       'worklet';
       runOnJS(() => {
@@ -951,7 +1032,7 @@ export default function ChatScreen() {
           requestScrollToBottom('post-gesture');
         }
       });
-    }), [logDeletedThreadEvent, requestScrollToBottom, cancelPendingScrollRequest]);
+    });
 
   // Animated style for all blue bubbles
   const blueBubblesAnimatedStyle = useAnimatedStyle(() => ({
@@ -959,13 +1040,13 @@ export default function ChatScreen() {
   }));
 
   // Get sender info for group chats (memoized)
-  const getSenderInfo = useCallback((senderId: string) => {
+  const getSenderInfo = useCallback((senderId: string): SenderInfo | null => {
     const details = participantDetailsMap[senderId];
     if (!details) return null;
-    
+
     const displayName = details.displayName || 'Unknown';
     const initials = details.initials || displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
-    
+
     return { displayName, initials };
   }, [participantDetailsMap]);
 
@@ -1260,6 +1341,19 @@ export default function ChatScreen() {
   const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
     const previousHeight = contentHeightRef.current;
     contentHeightRef.current = contentHeight;
+
+    const pendingAdjustment = pendingPrependAdjustmentRef.current;
+    if (pendingAdjustment) {
+      const heightDelta = contentHeight - pendingAdjustment.prevContentHeight;
+      if (heightDelta !== 0) {
+        const targetOffset = Math.max(pendingAdjustment.prevScrollOffset + heightDelta, 0);
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset: targetOffset, animated: false });
+        });
+      }
+      pendingPrependAdjustmentRef.current = null;
+      return;
+    }
 
     if (contentSizeDebounceRef.current) {
       clearTimeout(contentSizeDebounceRef.current);
@@ -1885,8 +1979,6 @@ export default function ChatScreen() {
       <View style={styles.messagesWrapper}>
         <GestureDetector 
           gesture={containerPanGesture}
-          shouldCancelWhenOutside={false}
-          enableTrackpadTwoFingerGesture={Platform.OS === 'ios'}
         >
           <FlatList
             ref={flatListRef}
@@ -1911,9 +2003,11 @@ export default function ChatScreen() {
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 10
             }}
-          onScroll={({ nativeEvent }) => {
+            extraData={participantDetailsVersion}
+            onScroll={({ nativeEvent }) => {
             // Phase 2: Detect when user scrolls near top to load older messages
             const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
+            scrollOffsetRef.current = contentOffset.y;
             const isNearTop = contentOffset.y < 50; // 50px from top (less aggressive)
             
             if (isNearTop && hasMoreOlderMessages && !isLoadingOlderMessages) {
@@ -2296,19 +2390,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   messageBubble: {
-    maxWidth: '80%',
+    maxWidth: '75%',  // Reduced from 80% for tighter layout
     padding: 12,
     borderRadius: 16,
     marginBottom: 2,
   },
   imageMessageContainer: {
-    maxWidth: '80%',
+    maxWidth: '75%',  // Reduced from 80% for consistency
     marginBottom: 2,
   },
   ownImageContainer: {
     alignSelf: 'flex-end',
     marginLeft: 'auto', // Push to far right
-    marginRight: 8, // Small margin so images don't touch screen edge
+    marginRight: 2, // Minimal margin - very close to edge
   },
   otherImageContainer: {
     alignSelf: 'flex-start',
@@ -2317,7 +2411,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
     marginLeft: 'auto', // Push to far right
-    marginRight: 8, // Small margin so bubbles don't touch screen edge
+    marginRight: 2, // Minimal margin - very close to edge
   },
   otherMessage: {
     backgroundColor: '#E8E8E8',

@@ -22,8 +22,7 @@ export const checkProactiveTriggers = onDocumentCreated(
     try {
       // Get recent messages in conversation
       const snapshot = await db
-        .collection("messages")
-        .where("conversationId", "==", message.conversationId)
+        .collection(`conversations/${message.conversationId}/messages`)
         .orderBy("timestamp", "desc")
         .limit(10)
         .get();

@@ -111,20 +111,29 @@ Return format: Just the IDs, one per line \
       const db = admin.firestore();
       const messages = await Promise.all(
         rankedIds.map(async (id) => {
-          const doc = await db.collection("messages").doc(id).get();
+          // Messages are in conversations/{convId}/messages/{msgId}
+          // We can get conversationId from the metadata
+          const match = searchResults.matches.find((m) => m.id === id);
+          if (!match || !match.metadata) return null;
+
+          const conversationId = match.metadata.conversationId as string;
+          const doc = await db
+            .collection(`conversations/${conversationId}/messages`)
+            .doc(id)
+            .get();
+
           if (!doc.exists) return null;
 
           const data = doc.data();
           if (!data) return null;
 
-          const match = searchResults.matches.find((m) => m.id === id);
           return {
             messageId: id,
             score: match?.score || 0,
             text: data.text as string,
             sender: data.sender as string,
             timestamp: data.timestamp as number,
-            conversationId: data.conversationId as string,
+            conversationId: conversationId,
           } as SearchResult;
         })
       );

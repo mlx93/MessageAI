@@ -24,11 +24,13 @@ export default function SmartSearchScreen() {
   const handleSearch = async () => {
     if (!query.trim()) return;
 
+    const searchQuery = query.trim();
+    setQuery(''); // Clear immediately after capturing query
     setLoading(true);
     setSearched(true);
 
     try {
-      const response = await aiService.smartSearch(query);
+      const response = await aiService.smartSearch(searchQuery);
       setResults(response.results);
     } catch (error) {
       console.error('Search error:', error);

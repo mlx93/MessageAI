@@ -10,11 +10,13 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Clipboard,
 } from 'react-native';
 import {router, useLocalSearchParams} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import aiService from '../../services/aiService';
+import avaChatHistory from '../../services/avaChatHistory';
 import {auth} from '../../services/firebase';
 import {getFirestore, collection, query, where, orderBy, limit, getDocs} from 'firebase/firestore';
 
@@ -38,6 +40,7 @@ interface ConversationOption {
 export default function ChatWithAvaScreen() {
   const params = useLocalSearchParams();
   const initialQuery = params.initialQuery as string;
+  const sessionId = params.sessionId as string;
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -50,17 +53,34 @@ export default function ChatWithAvaScreen() {
   const [inputText, setInputText] = useState(initialQuery || '');
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationOption[]>([]);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string>(sessionId || avaChatHistory.generateSessionId());
   const scrollViewRef = React.useRef<ScrollView>(null);
 
   useEffect(() => {
     loadConversations();
+    loadChatSession();
   }, []);
 
   useEffect(() => {
-    if (initialQuery) {
+    // Only send initial query after conversations are loaded
+    if (initialQuery && conversationsLoaded) {
       handleSend();
     }
-  }, []);
+  }, [conversationsLoaded]);
+
+  const loadChatSession = async () => {
+    if (sessionId) {
+      try {
+        const sessionMessages = await avaChatHistory.getChatMessages(sessionId);
+        if (sessionMessages.length > 0) {
+          setMessages(sessionMessages);
+        }
+      } catch (error) {
+        console.error('Ava: Error loading chat session:', error);
+      }
+    }
+  };
 
   const loadConversations = async () => {
     try {
@@ -90,12 +110,13 @@ export default function ChatWithAvaScreen() {
           if (data.isGroup) {
             title = data.name || 'Group Chat';
           } else {
-            // For direct conversations, find the other participant's name
+            // For direct conversations, show all participant names
             if (data.participantDetails) {
-              const otherUserId = data.participants.find((id: string) => id !== userId);
-              if (otherUserId && data.participantDetails[otherUserId]) {
-                title = data.participantDetails[otherUserId].displayName || 'Unknown';
-              }
+              const participantNames = Object.entries(data.participantDetails)
+                .map(([, details]: [string, any]) => details.displayName)
+                .filter(Boolean)
+                .join(', ');
+              title = participantNames || 'Unknown';
             }
           }
           
@@ -134,8 +155,10 @@ export default function ChatWithAvaScreen() {
 
       console.log('Ava: Processed conversations:', convos.map(c => ({ title: c.title, id: c.id })));
       setConversations(convos);
+      setConversationsLoaded(true); // Signal that conversations are ready
     } catch (error) {
       console.error('Ava: Error loading conversations:', error);
+      setConversationsLoaded(true); // Set to true even on error so UI doesn't hang
     }
   };
 
@@ -143,13 +166,14 @@ export default function ChatWithAvaScreen() {
     if (!inputText.trim() || loading) return;
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: avaChatHistory.generateMessageId(),
       role: 'user',
       content: inputText.trim(),
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     const query = inputText.trim();
     setInputText('');
     setLoading(true);
@@ -162,26 +186,67 @@ export default function ChatWithAvaScreen() {
     try {
       const response = await getAvaResponse(query);
       const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
+        id: avaChatHistory.generateMessageId(),
         role: 'assistant',
         content: response,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, aiResponse]);
+      
+      const finalMessages = [...newMessages, aiResponse];
+      setMessages(finalMessages);
+      
+      // Save session and messages
+      await saveChatSession(finalMessages, query);
     } catch (error: any) {
       console.error('Error getting Ava response:', error);
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: avaChatHistory.generateMessageId(),
         role: 'assistant',
         content: `Sorry, I encountered an error: ${error.message || 'Unknown error'}. Please try again.`,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      
+      const finalMessages = [...newMessages, errorMessage];
+      setMessages(finalMessages);
+      
+      // Save session and messages even for errors
+      await saveChatSession(finalMessages, query);
     } finally {
       setLoading(false);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({animated: true});
       }, 100);
+    }
+  };
+
+  const saveChatSession = async (messages: Message[], userQuery: string) => {
+    try {
+      // Generate a title from the first user message
+      const title = userQuery.length > 50 ? userQuery.substring(0, 50) + '...' : userQuery;
+      const lastMessage = messages[messages.length - 1]?.content || '';
+      
+      // Save session
+      await avaChatHistory.saveChatSession(
+        currentSessionId,
+        title,
+        lastMessage,
+        messages.length
+      );
+      
+      // Save messages
+      await avaChatHistory.saveChatMessages(currentSessionId, messages);
+    } catch (error) {
+      console.error('Ava: Error saving chat session:', error);
+    }
+  };
+
+  const handleCopyMessage = async (content: string) => {
+    try {
+      await Clipboard.setString(content);
+      // You could add a toast notification here if you have a toast library
+      console.log('Message copied to clipboard');
+    } catch (error) {
+      console.error('Error copying message:', error);
     }
   };
 
@@ -227,6 +292,51 @@ export default function ChatWithAvaScreen() {
     console.log('Ava: Searching for conversations with names:', searchTerms);
     console.log('Ava: Available conversations:', conversations.map(c => c.title));
     
+    // Get current user ID for exact matching
+    const userId = auth.currentUser?.uid;
+    
+    // Try to find conversations where all search terms match participants
+    const matchedConversations = conversations.filter(conv => {
+      const titleLower = conv.title.toLowerCase();
+      // Check if all search terms are in the title
+      return searchTerms.every(term => 
+        titleLower.includes(term.toLowerCase())
+      );
+    });
+    
+    if (matchedConversations.length > 0) {
+      // If we have multiple matches, prioritize by exact participant count
+      // Count how many unique names were mentioned in the query
+      const uniqueQueryNames = new Set(searchTerms.map(t => t.toLowerCase()));
+      
+      // Sort by: exact participant count match, then fewest total participants
+      const sortedMatches = matchedConversations.sort((a, b) => {
+        const aParticipantCount = a.participants?.length || 0;
+        const bParticipantCount = b.participants?.length || 0;
+        
+        // Calculate how many names in title match query terms
+        const aNameCount = a.title.split(',').length;
+        const bNameCount = b.title.split(',').length;
+        
+        // Prioritize conversations where participant count matches query + current user
+        const expectedCount = uniqueQueryNames.size + 1; // +1 for current user
+        const aIsExact = aParticipantCount === expectedCount;
+        const bIsExact = bParticipantCount === expectedCount;
+        
+        if (aIsExact && !bIsExact) return -1;
+        if (!aIsExact && bIsExact) return 1;
+        
+        // If both are exact or both aren't, prefer fewer participants
+        return aParticipantCount - bParticipantCount;
+      });
+      
+      const bestMatch = sortedMatches[0];
+      console.log('Ava: Found best match:', bestMatch.title, 
+        'with', bestMatch.participants?.length, 'participants');
+      return bestMatch;
+    }
+    
+    // Fall back to partial matching (original logic)
     // First, try to find exact matches
     for (const term of searchTerms) {
       const exactMatch = conversations.find(conv => 
@@ -284,7 +394,7 @@ export default function ChatWithAvaScreen() {
           console.log('Ava: Summarization result:', result);
           const startDate = new Date(result.dateRange.start).toLocaleDateString();
           const endDate = new Date(result.dateRange.end).toLocaleDateString();
-          return `📝 **Summary of ${convoMatch.title}:**\n\n${result.summary}\n\n**Message Count:** ${result.messageCount}\n**Date Range:** ${startDate} - ${endDate}`;
+          return `📝 Summary of ${convoMatch.title}:\n\n${result.summary}\n\n**Message Count:** ${result.messageCount}\n**Date Range:** ${startDate} - ${endDate}`;
         } catch (error: any) {
           console.error('Ava: Summarization error details:', {
             error: error,
@@ -317,11 +427,12 @@ export default function ChatWithAvaScreen() {
       }
 
       try {
-        const results = await aiService.smartSearch(searchTerm, userId, 5);
-        if (results.length === 0) {
+        const response = await aiService.smartSearch(searchTerm);
+        if (!response || response.results.length === 0) {
           return `I couldn't find any messages matching "${searchTerm}". Try different keywords!`;
         }
 
+        const results = response.results.slice(0, 5); // Limit to 5 results
         const resultText = results
           .map(
             (r, i) =>
@@ -346,11 +457,13 @@ export default function ChatWithAvaScreen() {
 
       try {
         // Search for messages mentioning this person
-        const results = await aiService.smartSearch(nameToSearch, userId, 10);
-        if (results.length === 0) {
+        const response = await aiService.smartSearch(nameToSearch);
+        if (!response || response.results.length === 0) {
           return `I couldn't find any messages mentioning ${nameToSearch}. They might not be in your conversation history.`;
         }
 
+        const results = response.results.slice(0, 10); // Limit to 10 results
+        
         // Group results by conversation
         const byConversation = results.reduce((acc, result) => {
           if (!acc[result.conversationId]) {
@@ -433,14 +546,16 @@ export default function ChatWithAvaScreen() {
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={false}>
           {messages.map((message) => (
-            <View
+            <TouchableOpacity
               key={message.id}
               style={[
                 styles.messageBubble,
                 message.role === 'user'
                   ? styles.userBubble
                   : styles.assistantBubble,
-              ]}>
+              ]}
+              onLongPress={() => handleCopyMessage(message.content)}
+              activeOpacity={0.7}>
               {message.role === 'assistant' && (
                 <View style={styles.avatarContainer}>
                   <Text style={styles.avatarText}>✨</Text>
@@ -460,8 +575,15 @@ export default function ChatWithAvaScreen() {
                   ]}>
                   {message.content}
                 </Text>
+                <View style={styles.messageActions}>
+                  <TouchableOpacity
+                    style={styles.copyButton}
+                    onPress={() => handleCopyMessage(message.content)}>
+                    <Ionicons name="copy-outline" size={16} color="#999" />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
 
           {loading && (
@@ -622,19 +744,22 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: 8,
     backgroundColor: '#F8F9FA',
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 8,
+    minHeight: 48,
   },
   input: {
     flex: 1,
     fontSize: 16,
     color: '#000',
     maxHeight: 100,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
+    minHeight: 40,
   },
   sendButton: {
     width: 36,
@@ -645,6 +770,17 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  messageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    opacity: 0.7,
+  },
+  copyButton: {
+    padding: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
 });
 

@@ -40,41 +40,75 @@ export const summarizeThread = onCall({
   }
 
   try {
-    // If no date range provided, default to last 7 days
+    // If no date range provided, default to last 90 days
+    // to capture more history
     const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(
+      now.getTime() - 90 * 24 * 60 * 60 * 1000
+    );
 
     const effectiveDateRange = dateRange || {
-      start: sevenDaysAgo.toISOString(),
+      start: ninetyDaysAgo.toISOString(),
       end: now.toISOString(),
     };
 
-    // Create cache key based on conversation + date range
-    const cacheKey = `summary_${conversationId}_${
-      effectiveDateRange.start
-    }_${effectiveDateRange.end}`;
+    // If no date range provided, use a stable cache key
+    // Otherwise cache changes every second as "now" changes
+    const cacheKey = dateRange ?
+      `summary_${conversationId}_${dateRange.start}_${dateRange.end}` :
+      `summary_${conversationId}_all_time`;
 
     const summary = await cacheSummary(cacheKey, async () => {
       const db = admin.firestore();
 
-      // Query messages by date range
-      let query = db.collection("messages")
-        .where("conversationId", "==", conversationId)
+      // Query messages from conversations/{convId}/messages/{msgId}
+      // Messages are in subcollections, not a root collection
+      let query = db
+        .collection(`conversations/${conversationId}/messages`)
         .orderBy("timestamp", "asc");
 
-      // Always apply date range (either provided or last 7 days)
-      query = query.where("timestamp", ">=",
-        new Date(effectiveDateRange.start).getTime());
-      query = query.where("timestamp", "<=",
-        new Date(effectiveDateRange.end).getTime());
+      // Always apply date range (either provided or last 90 days)
+      // Convert to Firestore Timestamp for proper comparison
+      const startTimestamp = admin.firestore.Timestamp
+        .fromDate(new Date(effectiveDateRange.start));
+      const endTimestamp = admin.firestore.Timestamp
+        .fromDate(new Date(effectiveDateRange.end));
+
+      query = query.where("timestamp", ">=", startTimestamp);
+      query = query.where("timestamp", "<=", endTimestamp);
 
       const snapshot = await query.limit(500).get();
       const messages = snapshot.docs.map((doc) => doc.data())
         .reverse(); // Reverse to get chronological order
 
       if (messages.length === 0) {
-        return {summary: "No messages in this date range."};
+        return {
+          summary: "No messages in this date range.",
+          messageCount: 0,
+          dateRange: {
+            start: effectiveDateRange.start,
+            end: effectiveDateRange.end,
+          },
+          generatedAt: Date.now(),
+        };
       }
+
+      // Get conversation to look up participant names
+      const conversationDoc = await db
+        .doc(`conversations/${conversationId}`)
+        .get();
+      const conversationData = conversationDoc.data();
+      const participantDetails = conversationData?.participantDetails || {};
+
+      // Map messages with actual names
+      const messagesWithNames = messages.map((m) => {
+        const senderName = participantDetails[m.senderId]?.displayName ||
+          "Unknown";
+        return {
+          sender: senderName,
+          text: m.text,
+        };
+      });
 
       // Choose model based on message count
       const model = messages.length < 50 ? "gpt-4o-mini" : "gpt-4o";
@@ -95,10 +129,11 @@ Decisions Made:
 Still Open:
 • [List unresolved questions or pending items]
 
-Messages:
-${messages.map((m) => `${m.sender}: ${m.text}`).join("\n\n")}
+Messages to analyze:
+${messagesWithNames.map((m) => `${m.sender}: ${m.text}`).join("\n")}
 
-Keep it concise but capture all important points.`,
+Keep it concise and do NOT include the individual messages in your response.
+Only provide the summary structure above.`,
       });
 
       return {

@@ -53,18 +53,20 @@ export const extractActions = onCall({
   try {
     const db = admin.firestore();
 
-    // Query messages by date range
-    let query = db.collection("messages")
-      .where("conversationId", "==", conversationId)
+    // Query messages from conversation subcollection
+    let query = db
+      .collection(`conversations/${conversationId}/messages`)
       .orderBy("timestamp", "desc");
 
     if (dateRange?.start) {
-      query = query.where("timestamp", ">=",
-        new Date(dateRange.start).getTime());
+      const startTimestamp = admin.firestore.Timestamp
+        .fromDate(new Date(dateRange.start));
+      query = query.where("timestamp", ">=", startTimestamp);
     }
     if (dateRange?.end) {
-      query = query.where("timestamp", "<=",
-        new Date(dateRange.end).getTime());
+      const endTimestamp = admin.firestore.Timestamp
+        .fromDate(new Date(dateRange.end));
+      query = query.where("timestamp", "<=", endTimestamp);
     }
 
     const snapshot = await query.limit(200).get();

@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion, serverTimestamp, increment } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, orderBy, onSnapshot, Timestamp, Unsubscribe, arrayUnion, serverTimestamp, increment, limit } from 'firebase/firestore';
 import { db } from './firebase';
 import { Conversation, User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -586,6 +586,91 @@ export const updateUserProfile = async (
       photoURL,
       initials,
     });
+  }
+};
+
+/**
+ * Recalculate the last message for a conversation based on non-deleted messages for a specific user
+ * This is used when messages are deleted to ensure the conversation preview shows the most recent visible message
+ * 
+ * @param conversationId - The conversation ID
+ * @param userId - The user ID to check deleted messages against
+ * @returns The most recent non-deleted message or null if no visible messages exist
+ */
+export const recalculateLastMessage = async (
+  conversationId: string,
+  userId: string
+): Promise<{ text: string; senderId: string; timestamp: Date } | null> => {
+  try {
+    // Query recent messages (last 50 to avoid performance issues)
+    const messagesQuery = query(
+      collection(db, `conversations/${conversationId}/messages`),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+    
+    const messagesSnapshot = await getDocs(messagesQuery);
+    
+    // Find the most recent message that is NOT deleted by this user
+    for (const messageDoc of messagesSnapshot.docs) {
+      const messageData = messageDoc.data();
+      const deletedBy = messageData.deletedBy || [];
+      
+      // If this message is not deleted by the user, it's our new last message
+      if (!deletedBy.includes(userId)) {
+        return {
+          text: messageData.text || '📷 Image',
+          senderId: messageData.senderId,
+          timestamp: messageData.timestamp?.toDate() || new Date()
+        };
+      }
+    }
+    
+    // No visible messages found
+    return null;
+  } catch (error) {
+    console.error('Failed to recalculate last message:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update conversation's last message based on recalculation
+ * This is called after message deletion to ensure the conversation preview is accurate
+ * 
+ * @param conversationId - The conversation ID
+ * @param userId - The user ID who deleted the message
+ */
+export const updateConversationAfterMessageDeletion = async (
+  conversationId: string,
+  userId: string
+): Promise<void> => {
+  try {
+    const convRef = doc(db, 'conversations', conversationId);
+    
+    // Recalculate the last visible message for this user
+    const lastMessage = await recalculateLastMessage(conversationId, userId);
+    
+    if (lastMessage) {
+      // Update with the most recent non-deleted message
+      await updateDoc(convRef, {
+        lastMessage: {
+          text: lastMessage.text,
+          senderId: lastMessage.senderId,
+          timestamp: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      });
+      
+      console.log(`✅ Updated lastMessage for ${conversationId} after deletion: ${lastMessage.text}`);
+    } else {
+      // No visible messages - this will cause the conversation to be hidden
+      // We don't update lastMessage here, letting the conversation filter handle it
+      console.log(`📭 No visible messages for ${conversationId} - conversation will be hidden for user ${userId}`);
+    }
+  } catch (error) {
+    console.error('Failed to update conversation after message deletion:', error);
+    throw error;
   }
 };
 

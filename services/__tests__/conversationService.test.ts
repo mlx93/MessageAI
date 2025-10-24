@@ -4,8 +4,8 @@
  * Tests for conversation update guard logic and determinism
  */
 
-import { updateConversationLastMessage } from '../conversationService';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updateConversationLastMessage, recalculateLastMessage } from '../conversationService';
+import { doc, getDoc, updateDoc, getDocs, query, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 
 // Mock Firebase
@@ -17,6 +17,11 @@ jest.mock('firebase/firestore', () => ({
   doc: jest.fn(),
   getDoc: jest.fn(),
   updateDoc: jest.fn(),
+  getDocs: jest.fn(),
+  query: jest.fn(),
+  collection: jest.fn(),
+  limit: jest.fn(),
+  orderBy: jest.fn(),
   serverTimestamp: jest.fn(() => 'TIMESTAMP'),
 }));
 
@@ -167,6 +172,84 @@ describe('Conversation Service - Guard Logic', () => {
 
       // Verify: stale update rejected
       expect(mockUpdateDoc).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recalculateLastMessage', () => {
+    it('should find the most recent non-deleted message', async () => {
+      // Mock getDocs to return messages with different deletion states
+      const mockGetDocs = getDocs as jest.MockedFunction<typeof getDocs>;
+      const mockQuery = query as jest.MockedFunction<typeof query>;
+      const mockCollection = collection as jest.MockedFunction<typeof collection>;
+      
+      // Mock query and collection
+      mockQuery.mockReturnValue({} as any);
+      mockCollection.mockReturnValue({} as any);
+      
+      // Mock getDocs to return messages where some are deleted by user1
+      mockGetDocs.mockResolvedValue({
+        docs: [
+          {
+            data: () => ({
+              text: 'Message 3',
+              senderId: 'user2',
+              timestamp: { toDate: () => new Date('2023-01-03') },
+              deletedBy: ['user1'] // Deleted by user1
+            })
+          },
+          {
+            data: () => ({
+              text: 'Message 2',
+              senderId: 'user1',
+              timestamp: { toDate: () => new Date('2023-01-02') },
+              deletedBy: [] // Not deleted
+            })
+          },
+          {
+            data: () => ({
+              text: 'Message 1',
+              senderId: 'user2',
+              timestamp: { toDate: () => new Date('2023-01-01') },
+              deletedBy: ['user1'] // Deleted by user1
+            })
+          }
+        ]
+      } as any);
+
+      const result = await recalculateLastMessage('conv1', 'user1');
+      
+      expect(result).toEqual({
+        text: 'Message 2',
+        senderId: 'user1',
+        timestamp: new Date('2023-01-02')
+      });
+    });
+
+    it('should return null when all messages are deleted', async () => {
+      const mockGetDocs = getDocs as jest.MockedFunction<typeof getDocs>;
+      const mockQuery = query as jest.MockedFunction<typeof query>;
+      const mockCollection = collection as jest.MockedFunction<typeof collection>;
+      
+      mockQuery.mockReturnValue({} as any);
+      mockCollection.mockReturnValue({} as any);
+      
+      // All messages deleted by user1
+      mockGetDocs.mockResolvedValue({
+        docs: [
+          {
+            data: () => ({
+              text: 'Message 1',
+              senderId: 'user2',
+              timestamp: { toDate: () => new Date('2023-01-01') },
+              deletedBy: ['user1']
+            })
+          }
+        ]
+      } as any);
+
+      const result = await recalculateLastMessage('conv1', 'user1');
+      
+      expect(result).toBeNull();
     });
   });
 });

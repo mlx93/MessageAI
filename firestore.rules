@@ -103,6 +103,20 @@ service cloud.firestore {
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
       allow write: if false; // Only Cloud Functions can write top-level messages
     }
+    
+    // Ava chat sessions
+    match /avaChatSessions/{sessionId} {
+      allow read: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
+      allow write: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+    }
+    
+    // Ava chat messages
+    match /avaChatMessages/{messageId} {
+      allow read: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
+      allow write: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+    }
   }
 }
 

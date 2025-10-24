@@ -389,8 +389,7 @@ export const detectContextGaps = onDocumentCreated({
     // Get recent messages to analyze context
     const db = admin.firestore();
     const messagesSnapshot = await db
-      .collection("messages")
-      .where("conversationId", "==", event.params.conversationId)
+      .collection(`conversations/${event.params.conversationId}/messages`)
       .orderBy("timestamp", "desc")
       .limit(20)
       .get();
