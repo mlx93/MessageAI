@@ -50,6 +50,10 @@ export {
   proactiveAgent,
 } from "./ai/proactiveAgent";
 
+export {
+  checkProactiveTriggers,
+} from "./ai/proactiveTriggers";
+
 /**
  * Generate 6-digit OTP code
  * @return {string} 6-digit OTP code

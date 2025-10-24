@@ -92,7 +92,12 @@ export default function ActionItemsScreen() {
           <View style={[styles.tag, styles.deadlineTag]}>
             <Ionicons name="calendar-outline" size={12} color="#FF3B30" />
             <Text style={[styles.tagText, styles.deadlineText]}>
-              {formatDistanceToNow(new Date(item.deadline), {addSuffix: true})}
+              {formatDistanceToNow(
+                item.deadline instanceof Date
+                  ? item.deadline
+                  : new Date(item.deadline),
+                {addSuffix: true}
+              )}
             </Text>
           </View>
         )}

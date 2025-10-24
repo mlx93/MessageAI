@@ -9,7 +9,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 
 // Suppress console warnings for Android Expo Go limitations
 const originalWarn = console.warn;
@@ -141,6 +141,12 @@ export const setActiveConversation = async (
 ): Promise<void> => {
   if (!userId) {
     console.warn('Cannot set active conversation: userId is undefined');
+    return;
+  }
+  
+  // Check if user is still authenticated before making Firestore calls
+  if (!auth.currentUser) {
+    console.warn('Cannot set active conversation: user is not authenticated');
     return;
   }
   

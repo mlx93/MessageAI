@@ -69,6 +69,48 @@ service cloud.firestore {
       allow read: if true; // Anyone with verificationId can read (needed for OTP auto-fetch)
       allow write: if false; // Only Cloud Functions can write
     }
+    
+    // AI-generated action items
+    match /action_items/{itemId} {
+      allow read: if isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow update: if isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow create, delete: if false; // Only Cloud Functions can create/delete
+    }
+    
+    // AI-generated decisions
+    match /decisions/{decisionId} {
+      allow read: if isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow update: if isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow create, delete: if false; // Only Cloud Functions can create/delete
+    }
+    
+    // AI proactive suggestions
+    match /proactive_suggestions/{suggestionId} {
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants);
+      allow update: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants);
+      allow create, delete: if false; // Only Cloud Functions can create/delete
+    }
+    
+    // AI cache (for caching AI responses)
+    match /ai_cache/{cacheId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+    
+    // Messages collection (top-level for AI features to access)
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(resource.data.conversationId)).data.participants;
+      allow write: if false; // Only Cloud Functions can write top-level messages
+    }
   }
 }
 

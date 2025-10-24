@@ -135,20 +135,46 @@ export const signIn = async (email: string, password: string): Promise<FirebaseU
 /**
  * Sign out current user
  * Sets user's online status to false before signing out
+ * Cleans up all active listeners to prevent permission errors
  */
 export const signOut = async (): Promise<void> => {
   if (auth.currentUser) {
-    await setDoc(
-      doc(db, 'users', auth.currentUser.uid),
-      {
-        online: false,
-        lastSeen: new Date(),
-      },
-      { merge: true }
-    );
+    try {
+      // Set user offline status before signing out
+      await setDoc(
+        doc(db, 'users', auth.currentUser.uid),
+        {
+          online: false,
+          lastSeen: new Date(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      // If this fails, continue with signout - don't block the user
+      console.warn('Failed to update offline status during signout:', error);
+    }
   }
   
+  // Sign out from Firebase Auth
   await firebaseSignOut(auth);
+  
+  // Clear any cached data that might cause permission issues
+  try {
+    // Clear any active conversation references
+    if (auth.currentUser) {
+      await setDoc(
+        doc(db, 'activeConversations', auth.currentUser.uid),
+        {
+          conversationId: null,
+          lastActive: new Date(),
+        },
+        { merge: true }
+      );
+    }
+  } catch (error) {
+    // This might fail due to permissions, which is expected after signout
+    console.warn('Failed to clear active conversation during signout:', error);
+  }
 };
 
 /**

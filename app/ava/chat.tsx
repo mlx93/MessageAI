@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,26 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {router, useLocalSearchParams} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import aiService from '../../services/aiService';
+import {auth} from '../../services/firebase';
+import {getFirestore, collection, query, where, orderBy, limit, getDocs} from 'firebase/firestore';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+}
+
+interface ConversationOption {
+  id: string;
+  title: string;
+  lastMessage?: string;
 }
 
 export default function ChatWithAvaScreen() {
@@ -35,7 +45,47 @@ export default function ChatWithAvaScreen() {
   ]);
   const [inputText, setInputText] = useState(initialQuery || '');
   const [loading, setLoading] = useState(false);
+  const [conversations, setConversations] = useState<ConversationOption[]>([]);
   const scrollViewRef = React.useRef<ScrollView>(null);
+
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  useEffect(() => {
+    if (initialQuery) {
+      handleSend();
+    }
+  }, []);
+
+  const loadConversations = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const db = getFirestore();
+      const conversationsQuery = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', userId),
+        orderBy('updatedAt', 'desc'),
+        limit(20)
+      );
+
+      const snapshot = await getDocs(conversationsQuery);
+      const convos: ConversationOption[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.isGroup ? data.name : data.displayName || 'Unknown',
+          lastMessage: data.lastMessage?.text,
+        };
+      });
+
+      setConversations(convos);
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+    }
+  };
 
   const handleSend = async () => {
     if (!inputText.trim() || loading) return;
@@ -48,6 +98,7 @@ export default function ChatWithAvaScreen() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const query = inputText.trim();
     setInputText('');
     setLoading(true);
 
@@ -56,48 +107,117 @@ export default function ChatWithAvaScreen() {
       scrollViewRef.current?.scrollToEnd({animated: true});
     }, 100);
 
-    // Simulate AI response (in real app, call the AI service)
-    setTimeout(() => {
+    try {
+      const response = await getAvaResponse(query);
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: getAvaResponse(userMessage.content),
+        content: response,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, aiResponse]);
+    } catch (error: any) {
+      console.error('Error getting Ava response:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${error.message || 'Unknown error'}. Please try again.`,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setLoading(false);
-
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({animated: true});
       }, 100);
-    }, 1500);
+    }
   };
 
-  const getAvaResponse = (query: string): string => {
+  const getAvaResponse = async (query: string): Promise<string> => {
     const lowerQuery = query.toLowerCase();
+    const userId = auth.currentUser?.uid;
 
-    if (lowerQuery.includes('summarize') || lowerQuery.includes('summary')) {
-      return "I can help summarize your conversations! Just go to any conversation and tap the 'Summarize' button in the header, or tell me which conversation you'd like summarized.";
-    } else if (
+    if (!userId) {
+      return "Please log in to use AI features.";
+    }
+
+    // Summarize conversation
+    if (lowerQuery.includes('summarize')) {
+      // Check if user specified a conversation
+      const convoMatch = conversations.find((c) =>
+        lowerQuery.includes(c.title.toLowerCase())
+      );
+
+      if (convoMatch) {
+        try {
+          const result = await aiService.summarizeThread(convoMatch.id, 50);
+          return `📝 **Summary of ${convoMatch.title}:**\n\n${result.summary}\n\n**Key Topics:** ${result.keyTopics?.join(', ') || 'None'}\n**Participants:** ${result.participants?.join(', ') || 'Unknown'}`;
+        } catch (error: any) {
+          return `Sorry, I couldn't summarize that conversation: ${error.message}`;
+        }
+      } else if (conversations.length > 0) {
+        // Show list of conversations to choose from
+        const convoList = conversations
+          .slice(0, 5)
+          .map((c, i) => `${i + 1}. ${c.title}`)
+          .join('\n');
+        return `Which conversation would you like me to summarize?\n\n${convoList}\n\nJust tell me the name of the conversation!`;
+      } else {
+        return "You don't have any conversations yet.";
+      }
+    }
+
+    // Search messages
+    else if (lowerQuery.includes('search') || lowerQuery.includes('find')) {
+      const searchTerm = query
+        .replace(/search|find|for|me/gi, '')
+        .trim();
+
+      if (searchTerm.length < 3) {
+        return "What would you like me to search for? Please provide more details.";
+      }
+
+      try {
+        const results = await aiService.smartSearch(searchTerm, userId, 5);
+        if (results.length === 0) {
+          return `I couldn't find any messages matching "${searchTerm}". Try different keywords!`;
+        }
+
+        const resultText = results
+          .map(
+            (r, i) =>
+              `${i + 1}. "${r.text}" (from ${r.sender}, score: ${(r.score * 100).toFixed(0)}%)`
+          )
+          .join('\n\n');
+
+        return `🔍 **Search Results for "${searchTerm}":**\n\n${resultText}`;
+      } catch (error: any) {
+        return `Sorry, search failed: ${error.message}`;
+      }
+    }
+
+    // Action items
+    else if (
       lowerQuery.includes('action') ||
       lowerQuery.includes('task') ||
       lowerQuery.includes('todo')
     ) {
-      return "You can view all your action items in the Action Items tab. I automatically detect tasks from your conversations and track them for you!";
-    } else if (
-      lowerQuery.includes('search') ||
-      lowerQuery.includes('find')
-    ) {
-      return "I can search across all your conversations! Just tap on 'Smart Search' to find messages using natural language. Try searching for topics, decisions, or specific discussions.";
-    } else if (
-      lowerQuery.includes('decision') ||
-      lowerQuery.includes('decide')
-    ) {
-      return "Check out the Decisions tab to see all the decisions your team has made. I automatically extract and track important decisions from your conversations.";
-    } else if (lowerQuery.includes('help')) {
-      return "I can help you with:\n\n1. 📝 Summarizing conversations\n2. ✅ Tracking action items\n3. 🔍 Searching messages\n4. 📌 Finding decisions\n5. 🔴 Detecting priority messages\n\nWhat would you like to do?";
-    } else {
-      return "That's a great question! I'm still learning to understand complex queries. For now, I can help you with:\n\n• Conversation summaries\n• Action items\n• Smart search\n• Decision tracking\n\nTry one of these features, or ask me 'help' to see what I can do!";
+      return "You can view all your action items in the Action Items tab. I automatically detect tasks from your conversations and track them for you!\n\nJust tap the 'Action Items' button on the Ava screen.";
+    }
+
+    // Decisions
+    else if (lowerQuery.includes('decision') || lowerQuery.includes('decide')) {
+      return "Check out the Decisions tab to see all the decisions your team has made. I automatically extract and track important decisions from your conversations.\n\nJust tap the 'Decisions' button on the Ava screen.";
+    }
+
+    // Help
+    else if (lowerQuery.includes('help')) {
+      return "I can help you with:\n\n1. 📝 **Summarize conversations** - Say 'summarize [conversation name]'\n2. ✅ **View action items** - Go to Action Items tab\n3. 🔍 **Search messages** - Say 'search for [topic]'\n4. 📌 **Track decisions** - Go to Decisions tab\n5. 🔴 **Priority messages** - I detect them automatically!\n\nWhat would you like to do?";
+    }
+
+    // Default response
+    else {
+      return "I'm not sure how to help with that. Try asking me to:\n\n• 'Summarize [conversation name]'\n• 'Search for [topic]'\n• View action items or decisions\n\nOr just ask 'help' to see what I can do!";
     }
   };
 

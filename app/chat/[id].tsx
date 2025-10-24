@@ -100,8 +100,23 @@ export default function ChatScreen() {
         const targetOffset = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
 
         try {
-          flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
-          flatListRef.current.scrollToEnd({ animated: false });
+          // Use platform-specific scrolling for smoother transitions
+          if (Platform.OS === 'android') {
+            // Android: Use animated scroll to prevent layout jumps
+            flatListRef.current.scrollToEnd({ animated: true });
+            // Double-check positioning after animation completes
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }, 300);
+          } else {
+            // iOS: Use non-animated scroll for instant positioning
+            flatListRef.current.scrollToOffset({ offset: targetOffset, animated: false });
+            flatListRef.current.scrollToEnd({ animated: false });
+            // Double-check for deleted messages
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }, 50);
+          }
           hasSnappedToBottomRef.current = true;
           hasScrolledToEnd.current = true;
 
@@ -272,12 +287,36 @@ export default function ChatScreen() {
     // Load recent 30 messages from cache for instant display
     getCachedMessagesPaginated(conversationId, 30).then(cachedMsgs => {
       if (cachedMsgs.length > 0) {
-        console.log(`📱 Cache warming: Loaded ${cachedMsgs.length} recent messages instantly`);
-        setMessages(cachedMsgs);
-        // Auto-scroll to bottom for recent messages
+        // Filter out deleted messages to prevent layout shifts
+        const visibleMessages = cachedMsgs.filter(m => 
+          !m.deletedBy || !m.deletedBy.includes(user!.uid)
+        );
+        
+        console.log(`📱 Cache warming: Loaded ${visibleMessages.length} recent messages instantly (filtered from ${cachedMsgs.length})`);
+        setMessages(visibleMessages);
+        
+        // For deleted messages, we need to ensure proper scroll calculation
+        if (cachedMsgs.length !== visibleMessages.length) {
+          console.log(`📱 Deleted messages detected: ${cachedMsgs.length - visibleMessages.length} messages filtered out`);
+        }
+        // Auto-scroll to bottom for recent messages with platform-specific handling
         setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }, 100);
+          if (Platform.OS === 'android') {
+            // Android: Use animated scroll with slight delay to ensure proper positioning
+            flatListRef.current?.scrollToEnd({ animated: true });
+            // Double-check positioning after animation
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }, 300);
+          } else {
+            // iOS: Use immediate scroll with double-check for deleted messages
+            flatListRef.current?.scrollToEnd({ animated: false });
+            // Ensure we're truly at the bottom, especially with deleted messages
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }, 50);
+          }
+        }, Platform.OS === 'android' ? 150 : 100);
       }
       markInitialDataReady();
     }).catch(error => {
@@ -331,8 +370,12 @@ export default function ChatScreen() {
       prevMessageCount.current = visibleMessages.length;
       
       // Smart update: Only update state if messages actually changed
+      // This prevents flicker when real-time updates come in
       // This prevents re-renders on every read receipt/delivery status update
-      setMessages(prevMessages => {
+      
+      // Add a small delay to prevent flicker during transitions
+      setTimeout(() => {
+        setMessages(prevMessages => {
         // Quick check: if lengths differ, definitely update
         if (prevMessages.length !== visibleMessages.length) {
           // Cache only NEW messages (not already in state)
@@ -369,12 +412,19 @@ export default function ChatScreen() {
         
         // Only update if something changed
         return hasChanges ? manageMessageMemory(updatedMessages) : prevMessages;
-      });
+        });
+      }, 50); // Small delay to prevent flicker
       markInitialDataReady();
       
       // Only scroll to bottom when NEW messages arrive (not on status updates)
       if (hasScrolledToEnd.current && isNewMessage) {
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+          // Double-check positioning, especially important for deleted messages
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          }, 200);
+        }, 100);
       }
       
       // Mark messages as delivered
@@ -611,14 +661,20 @@ export default function ChatScreen() {
       // Clear Firestore active conversation
       setTimeout(() => {
         setFirestoreActiveConversation(user.uid, null).catch(error => {
-          console.error('Failed to clear Firestore active conversation:', error);
+          // Ignore permission errors during cleanup (user might be signed out)
+          if (error?.code !== 'permission-denied') {
+            console.error('Failed to clear Firestore active conversation:', error);
+          }
         });
       }, 100);
       setLocalActiveConversation(null);
       
       // Reset unread count again on exit to ensure it's cleared before Messages page shows
       resetUnreadCount(conversationId, user.uid).catch(error => {
-        console.error('Failed to reset unread count on exit:', error);
+        // Ignore permission errors during cleanup (user might be signed out)
+        if (error?.code !== 'permission-denied') {
+          console.error('Failed to reset unread count on exit:', error);
+        }
       });
       
       if (__DEV__) console.log('✅ Flushed cache, cleared active conversation and unread count');
@@ -765,23 +821,39 @@ export default function ChatScreen() {
 
   // Container-level pan gesture for all blue bubbles (memoized to prevent recreation)
   const containerPanGesture = useMemo(() => Gesture.Pan()
-    .activeOffsetX([-10, 10]) // Require 10px horizontal movement to activate
-    .failOffsetY([-10, 10]) // Fail if vertical movement exceeds 10px (allow scrolling)
+    .activeOffsetX(Platform.OS === 'ios' ? [-5, 5] : [-10, 10]) // More sensitive on iOS
+    .failOffsetY(Platform.OS === 'ios' ? [-15, 15] : [-10, 10]) // More lenient vertical tolerance on iOS
+    .minDistance(Platform.OS === 'ios' ? 3 : 5) // Lower minimum distance on iOS
+    .simultaneousWithExternalGesture(Platform.OS === 'ios' ? [] : []) // Allow simultaneous gestures on iOS
     .onUpdate((event) => {
       'worklet';
       // Only allow left swipe (negative translation)
       if (event.translationX < 0) {
-        blueBubblesTranslateX.value = event.translationX;
+        // More responsive translation on iOS
+        const translation = Platform.OS === 'ios' 
+          ? Math.max(event.translationX, -120) // Limit max translation on iOS
+          : event.translationX;
+        blueBubblesTranslateX.value = translation;
       }
     })
     .onEnd((event) => {
       'worklet';
-      if (event.translationX < -60) {
-        // Reveal all timestamps
-        blueBubblesTranslateX.value = withSpring(-100);
+      const threshold = Platform.OS === 'ios' ? -40 : -60; // Lower threshold on iOS
+      const velocityThreshold = Platform.OS === 'ios' ? -500 : -800; // Lower velocity threshold on iOS
+      
+      // Check both translation and velocity for more responsive gesture recognition
+      if (event.translationX < threshold || event.velocityX < velocityThreshold) {
+        // Reveal all timestamps with iOS-optimized spring animation
+        blueBubblesTranslateX.value = withSpring(-100, {
+          damping: Platform.OS === 'ios' ? 15 : 20,
+          stiffness: Platform.OS === 'ios' ? 150 : 200,
+        });
       } else {
-        // Hide timestamps
-        blueBubblesTranslateX.value = withSpring(0);
+        // Hide timestamps with iOS-optimized spring animation
+        blueBubblesTranslateX.value = withSpring(0, {
+          damping: Platform.OS === 'ios' ? 15 : 20,
+          stiffness: Platform.OS === 'ios' ? 150 : 200,
+        });
       }
     }), [blueBubblesTranslateX]);
 
@@ -1055,7 +1127,16 @@ export default function ChatScreen() {
 
   // Handle content size change - keep at bottom if locked (during initial image loading)
   const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
+    const previousHeight = contentHeightRef.current;
     contentHeightRef.current = contentHeight;
+    
+    // If content height decreased (deleted messages), ensure we stay at bottom
+    if (previousHeight > 0 && contentHeight < previousHeight && hasSnappedToBottomRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 50);
+    }
+    
     if (!hasSnappedToBottomRef.current) {
       ensureInitialSnap();
     }
@@ -1321,8 +1402,7 @@ export default function ChatScreen() {
       >
         {isOwnMessage ? (
           // Blue bubbles: All move together with container gesture
-          <GestureDetector gesture={containerPanGesture}>
-            <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
+          <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
               <View style={styles.messageContainer}>
                 {isImageMessage ? (
                   <View style={[styles.imageMessageContainer, styles.ownImageContainer]}>
@@ -1432,7 +1512,6 @@ export default function ChatScreen() {
                 <Text style={styles.timestampRevealText}>{formattedTime}</Text>
               </View>
             </Animated.View>
-          </GestureDetector>
         ) : (
           // Grey bubbles: Fixed, no swipe
           <View style={styles.otherMessageWrapper}>
@@ -1629,29 +1708,34 @@ export default function ChatScreen() {
       )}
 
       <View style={styles.messagesWrapper}>
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessageItem}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
-          showsVerticalScrollIndicator={true}
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          windowSize={10}
-          initialNumToRender={15}
-          getItemLayout={(data, index) => ({
-            length: 80, // Estimated message height
-            offset: 80 * index,
-            index,
-          })}
-          onLayout={handleFlatListLayout}
-          onContentSizeChange={handleContentSizeChange}
-          maintainVisibleContentPosition={{
-            minIndexForVisible: 0,
-            autoscrollToTopThreshold: 10
-          }}
+        <GestureDetector 
+          gesture={containerPanGesture}
+          shouldCancelWhenOutside={false}
+          enableTrackpadTwoFingerGesture={Platform.OS === 'ios'}
+        >
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessageItem}
+            style={styles.messagesContainer}
+            contentContainerStyle={styles.messagesContent}
+            showsVerticalScrollIndicator={true}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            initialNumToRender={15}
+            getItemLayout={(data, index) => ({
+              length: 80, // Estimated message height
+              offset: 80 * index,
+              index,
+            })}
+            onLayout={handleFlatListLayout}
+            onContentSizeChange={handleContentSizeChange}
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 0,
+              autoscrollToTopThreshold: 10
+            }}
           onScroll={({ nativeEvent }) => {
             // Phase 2: Detect when user scrolls near top to load older messages
             const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
@@ -1753,6 +1837,7 @@ export default function ChatScreen() {
             </>
           )}
         />
+        </GestureDetector>
       </View>
 
       {/* Queue Visibility Banner - shows pending/failed messages */}

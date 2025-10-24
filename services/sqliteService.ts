@@ -202,7 +202,9 @@ export const getCachedMessagesPaginated = (
       // Reverse to get chronological order (oldest first)
       resolve(messages.reverse());
     } catch (error) {
-      reject(error);
+      console.warn('getCachedMessagesPaginated failed:', error);
+      // Return empty array instead of rejecting to prevent crashes
+      resolve([]);
     }
   });
 };
@@ -240,7 +242,9 @@ export const getCachedMessagesBefore = (
       // Reverse to get chronological order (oldest first)
       resolve(messages.reverse());
     } catch (error) {
-      reject(error);
+      console.warn('getCachedMessagesBefore failed:', error);
+      // Return empty array instead of rejecting to prevent crashes
+      resolve([]);
     }
   });
 };

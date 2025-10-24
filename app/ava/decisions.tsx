@@ -39,7 +39,10 @@ export default function DecisionsScreen() {
         <View style={styles.headerContent}>
           <Text style={styles.decisionText}>{item.decision}</Text>
           <Text style={styles.dateText}>
-            {format(item.madeAt, 'MMM d, yyyy')}
+            {format(
+              item.madeAt instanceof Date ? item.madeAt : new Date(item.madeAt),
+              'MMM d, yyyy'
+            )}
           </Text>
         </View>
       </View>

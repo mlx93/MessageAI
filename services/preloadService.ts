@@ -124,21 +124,31 @@ export class PreloadService {
         
         // For newer messages, we'd typically wait for real-time updates
         // But we can preload any cached messages that might be newer
-        const cachedNewer = await getCachedMessagesPaginated(conversationId, 10);
-        const newerThanCurrent = cachedNewer && cachedNewer.length > 0 
-          ? cachedNewer.filter(msg => msg.timestamp > afterTimestamp)
-          : [];
-        
-        if (newerThanCurrent.length > 0) {
-          result.newerMessages = newerThanCurrent;
-          result.cacheHit = true;
-          console.log(`🎯 Preload: Cache hit for newer messages (${newerThanCurrent.length})`);
+        try {
+          const cachedNewer = await getCachedMessagesPaginated(conversationId, 10);
+          const newerThanCurrent = cachedNewer && Array.isArray(cachedNewer) && cachedNewer.length > 0 
+            ? cachedNewer.filter(msg => msg && msg.timestamp && msg.timestamp > afterTimestamp)
+            : [];
+          
+          if (newerThanCurrent.length > 0) {
+            result.newerMessages = newerThanCurrent;
+            result.cacheHit = true;
+            console.log(`🎯 Preload: Cache hit for newer messages (${newerThanCurrent.length})`);
+          }
+        } catch (error) {
+          console.warn('Failed to preload newer messages:', error);
         }
         }
       }
       
     } catch (error) {
       console.warn('Preload failed:', error);
+      // Return empty result to prevent further errors
+      return {
+        olderMessages: [],
+        newerMessages: [],
+        cacheHit: false
+      };
     }
     
     return result;
