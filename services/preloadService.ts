@@ -49,6 +49,36 @@ export class PreloadService {
   private async _performPreload(config: PreloadConfig): Promise<PreloadResult> {
     const { conversationId, currentMessages, scrollPosition, totalHeight } = config;
     
+    // Validate input data
+    if (!currentMessages || !Array.isArray(currentMessages) || currentMessages.length === 0) {
+      console.warn('Preload skipped: Invalid or empty messages array');
+      return {
+        olderMessages: [],
+        newerMessages: [],
+        cacheHit: false
+      };
+    }
+    
+    // Filter out any corrupted or deleted messages
+    const validMessages = currentMessages.filter(msg => 
+      msg && 
+      msg.id && 
+      msg.timestamp && 
+      msg.senderId &&
+      !msg.deletedBy && // Skip messages deleted by current user
+      // Skip deleted images
+      !(msg.type === 'image' && (!msg.mediaURL || msg.mediaURL === 'deleted' || msg.mediaURL === ''))
+    );
+    
+    if (validMessages.length === 0) {
+      console.warn('Preload skipped: No valid messages after filtering');
+      return {
+        olderMessages: [],
+        newerMessages: [],
+        cacheHit: false
+      };
+    }
+    
     // Calculate scroll percentage
     const scrollPercentage = totalHeight > 0 ? scrollPosition / totalHeight : 0;
     
@@ -64,8 +94,8 @@ export class PreloadService {
     
     try {
       // Preload older messages if user is scrolling up
-      if (shouldPreloadOlder && currentMessages && currentMessages.length > 0) {
-        const oldestMessage = currentMessages[0];
+      if (shouldPreloadOlder && validMessages.length > 0) {
+        const oldestMessage = validMessages[0];
         if (oldestMessage && oldestMessage.timestamp) {
           const beforeTimestamp = oldestMessage.timestamp;
           
@@ -87,8 +117,8 @@ export class PreloadService {
       }
       
       // Preload newer messages if user is scrolling down
-      if (shouldPreloadNewer && currentMessages && currentMessages.length > 0) {
-        const newestMessage = currentMessages[currentMessages.length - 1];
+      if (shouldPreloadNewer && validMessages.length > 0) {
+        const newestMessage = validMessages[validMessages.length - 1];
         if (newestMessage && newestMessage.timestamp) {
           const afterTimestamp = newestMessage.timestamp;
         

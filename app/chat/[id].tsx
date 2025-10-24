@@ -1665,15 +1665,28 @@ export default function ChatScreen() {
             const scrollPercentage = contentSize.height > 0 ? contentOffset.y / contentSize.height : 0;
             
             // Preload when user is in the middle of scrolling (anticipatory)
-            if (scrollPercentage > 0.2 && scrollPercentage < 0.8) {
-              preloadService.preloadMessages({
-                conversationId,
-                currentMessages: messages,
-                scrollPosition: contentOffset.y,
-                totalHeight: contentSize.height
-              }).catch(error => {
-                console.warn('Preload failed:', error);
-              });
+            if (scrollPercentage > 0.2 && scrollPercentage < 0.8 && messages && messages.length > 0) {
+              // Filter out any corrupted or deleted messages before preloading
+              const validMessages = messages.filter(msg => 
+                msg && 
+                msg.id && 
+                msg.timestamp && 
+                msg.senderId &&
+                !msg.deletedBy && // Skip messages deleted by current user
+                // Skip deleted images
+                !(msg.type === 'image' && (!msg.mediaURL || msg.mediaURL === 'deleted' || msg.mediaURL === ''))
+              );
+              
+              if (validMessages.length > 0) {
+                preloadService.preloadMessages({
+                  conversationId,
+                  currentMessages: validMessages,
+                  scrollPosition: contentOffset.y,
+                  totalHeight: contentSize.height
+                }).catch(error => {
+                  console.warn('Preload failed:', error);
+                });
+              }
             }
             
             // Call existing scroll handler
