@@ -1,5 +1,19 @@
 # MessageAI: Technical Specification for AI Coding Assistants
 
+**⚠️ NOTE: This document was created for the ORIGINAL hybrid Firebase + AWS Lambda architecture.**
+
+**The project structure, Lambda directories, and deployment scripts in this document reference AWS Lambda, which is NO LONGER USED. The Firebase-only implementation uses similar patterns but all within Firebase Cloud Functions.**
+
+**✅ For current implementation guidance, see `CURSOR_MESSAGEAI_IMPLEMENTATION_PLAN.md`**
+
+**However, the following sections are still valid:**
+- Data Models & TypeScript Interfaces
+- Database Schemas
+- API Contracts (adjust Lambda → Firebase Functions)
+- Configuration Files (exclude Lambda-specific ones)
+
+---
+
 **Purpose:** This document provides complete technical specifications, schemas, interfaces, and code templates needed to build MessageAI's AI features. Designed for AI coding assistants (Cursor, GitHub Copilot, etc.) to have all necessary context.
 
 ---

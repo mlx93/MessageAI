@@ -1,8 +1,10 @@
 # MessageAI: System Architecture Documentation
 
-**Version:** 1.0  
-**Last Updated:** October 23, 2025  
+**Version:** 2.0 - Firebase-Only Architecture  
+**Last Updated:** October 24, 2025  
 **Purpose:** Complete architectural overview of MessageAI's AI features
+
+**🔥 ARCHITECTURAL DECISION:** This project uses **Firebase-only architecture** (no AWS Lambda). All AI processing happens within Firebase Cloud Functions with increased memory/timeout limits.
 
 ---
 
@@ -10,10 +12,10 @@
 
 1. [High-Level Architecture](#high-level-architecture)
 2. [Technology Stack](#technology-stack)
-3. [Component Interactions](#component-interactions)
-4. [Data Flow Diagrams](#data-flow-diagrams)
-5. [Feature-Specific Flows](#feature-specific-flows)
-6. [Infrastructure Layer](#infrastructure-layer)
+3. [Why Firebase-Only (Not Hybrid)](#why-firebase-only-not-hybrid)
+4. [AI SDK vs LangChain Decision](#ai-sdk-vs-langchain-decision)
+5. [Component Interactions](#component-interactions)
+6. [Data Flow Diagrams](#data-flow-diagrams)
 7. [Security Architecture](#security-architecture)
 8. [Scaling Strategy](#scaling-strategy)
 
@@ -47,77 +49,43 @@
                               │ HTTPS / WebSocket
                               ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│                       BACKEND LAYER                                 │
+│                    FIREBASE BACKEND (All-in-One)                    │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐ │
-│  │                  Firebase Backend                             │ │
-│  │              (Existing Infrastructure)                        │ │
+│  │                  Firebase Services                            │ │
+│  │              (Existing + New AI Functions)                    │ │
 │  │                                                              │ │
+│  │  Core Services:                                              │ │
 │  │  • Firestore Database (messages, users, conversations)      │ │
 │  │  • Firebase Authentication                                   │ │
 │  │  • Firebase Storage (media files)                           │ │
 │  │  • Real-time Database (presence, typing)                    │ │
-│  │  • Cloud Functions (CRUD operations, triggers)              │ │
+│  │  • Cloud Functions (CRUD + AI operations)                   │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 │                              │                                      │
-│                              │ HTTP                                 │
-│                              ↓                                      │
 │  ┌──────────────────────────────────────────────────────────────┐ │
-│  │           Firebase Cloud Functions (NEW)                      │ │
+│  │           Firebase Cloud Functions - AI Features              │ │
+│  │              (2GB RAM, 540s timeout)                          │ │
 │  │                                                              │ │
-│  │  AI Feature Endpoints:                                       │ │
-│  │  • smartSearch()         → Routes to Lambda                 │ │
-│  │  • summarizeThread()     → Routes to Lambda                 │ │
-│  │  • extractActions()      → Routes to Lambda                 │ │
-│  │  • extractDecisions()    → Routes to Lambda                 │ │
+│  │  Callable Functions:                                         │ │
+│  │  • smartSearch()         → RAG search with Pinecone         │ │
+│  │  • summarizeThread()     → GPT-4o summarization             │ │
+│  │  • extractActions()      → Action item detection            │ │
+│  │  • extractDecisions()    → Decision tracking                │ │
+│  │  • proactiveAgent()      → Multi-step agent                 │ │
+│  │                                                              │ │
+│  │  Scheduled Functions:                                        │ │
+│  │  • batchEmbedMessages()  → Every 30 seconds                 │ │
 │  │                                                              │ │
 │  │  Triggers:                                                   │ │
-│  │  • onMessageCreated()    → Embed message                    │ │
-│  │  • detectPriority()      → Classify message                 │ │
+│  │  • detectPriority()      → On message create                │ │
 │  │  • checkProactiveTriggers() → Monitor conversations         │ │
 │  │                                                              │ │
 │  │  Utilities:                                                  │ │
 │  │  • Rate limiting                                            │ │
 │  │  • Authentication checks                                    │ │
 │  │  • Usage tracking                                           │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              │ HTTP
-                              ↓
-┌─────────────────────────────────────────────────────────────────────┐
-│                         AI LAYER                                    │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │              AWS Lambda Functions (NEW)                       │ │
-│  │            (AI-Heavy Processing)                             │ │
-│  │                                                              │ │
-│  │  ┌────────────────┐  ┌────────────────┐  ┌───────────────┐ │ │
-│  │  │ embed-message  │  │ smart-search   │  │ summarize-    │ │ │
-│  │  │                │  │                │  │ thread        │ │ │
-│  │  │ • Generate     │  │ • Query embed  │  │               │ │ │
-│  │  │   embeddings   │  │ • Vector search│  │ • GPT-4o-mini │ │ │
-│  │  │ • Store in     │  │ • Rerank       │  │ • Cache       │ │ │
-│  │  │   Pinecone     │  │ • Return top 5 │  │               │ │ │
-│  │  └────────────────┘  └────────────────┘  └───────────────┘ │ │
-│  │                                                              │ │
-│  │  ┌────────────────┐  ┌────────────────┐  ┌───────────────┐ │ │
-│  │  │ extract-       │  │ detect-        │  │ extract-      │ │ │
-│  │  │ actions        │  │ priority       │  │ decisions     │ │ │
-│  │  │                │  │                │  │               │ │ │
-│  │  │ • GPT-4o       │  │ • GPT-4o-mini  │  │ • GPT-4o      │ │ │
-│  │  │ • Structured   │  │ • Real-time    │  │ • Structured  │ │ │
-│  │  │   output       │  │   classify     │  │   output      │ │ │
-│  │  └────────────────┘  └────────────────┘  └───────────────┘ │ │
-│  │                                                              │ │
-│  │  ┌────────────────────────────────────────────────────────┐ │ │
-│  │  │          proactive-agent (Multi-step Agent)            │ │ │
-│  │  │                                                        │ │ │
-│  │  │  • AI SDK Agent Framework                             │ │ │
-│  │  │  • GPT-4o with tool calling                           │ │ │
-│  │  │  • Calendar integration                               │ │ │
-│  │  │  • Suggestion generation                              │ │ │
-│  │  └────────────────────────────────────────────────────────┘ │ │
+│  │  • Caching (Firestore)                                      │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
                               │
@@ -142,7 +110,7 @@
 │                              │  │                              │
 │  ┌────────────────────────┐ │  │  ┌────────────────────────┐ │
 │  │  Google Calendar API   │ │  │  │  Firestore Cache       │ │
-│  │  (or Microsoft Graph)  │ │  │  │                        │ │
+│  │  (Optional)            │ │  │  │                        │ │
 │  │                        │ │  │  │  Collections:          │ │
 │  │  • Get availability    │ │  │  │  • cache/              │ │
 │  │  • Create events       │ │  │  │  • rate_limits/        │ │
@@ -168,15 +136,14 @@
 │  ├─ State: React Hooks + Context                           │
 │  └─ Firebase SDK: @react-native-firebase/*                 │
 │                                                             │
-│  BACKEND (Existing)                                        │
+│  BACKEND (Firebase-Only)                                   │
 │  ├─ Database: Firestore                                    │
 │  ├─ Auth: Firebase Authentication                          │
 │  ├─ Storage: Firebase Storage                              │
 │  ├─ Real-time: Firebase Realtime Database                  │
 │  └─ Functions: Firebase Cloud Functions (Node.js 20)       │
 │                                                             │
-│  AI LAYER (NEW)                                            │
-│  ├─ Compute: AWS Lambda (Node.js 20)                       │
+│  AI LAYER (Within Firebase Functions)                      │
 │  ├─ Agent Framework: AI SDK by Vercel                      │
 │  ├─ LLM: OpenAI GPT-4o & GPT-4o-mini                      │
 │  ├─ Embeddings: OpenAI text-embedding-3-large             │
@@ -186,25 +153,92 @@
 │  EXTERNAL APIS                                             │
 │  ├─ OpenAI API                                             │
 │  ├─ Pinecone API                                           │
-│  └─ Google Calendar / Microsoft Graph                      │
+│  └─ Google Calendar (optional)                             │
 │                                                             │
 │  INFRASTRUCTURE                                            │
 │  ├─ Hosting: Firebase Hosting                             │
 │  ├─ CDN: Firebase CDN                                      │
-│  ├─ Secrets: AWS Secrets Manager                          │
-│  ├─ Monitoring: CloudWatch + Firebase Console             │
+│  ├─ Secrets: Firebase Secret Manager (built-in)           │
+│  ├─ Monitoring: Firebase Console + Cloud Logging          │
 │  └─ CI/CD: GitHub Actions                                 │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Why AI SDK (Not LangChain)?
+---
 
-See detailed comparison in next section →
+## Why Firebase-Only (Not Hybrid)?
+
+### Decision Rationale
+
+**✅ We chose Firebase-only architecture over Firebase + AWS Lambda hybrid**
+
+### Why This Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Firebase Functions Capabilities                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Memory Options:                                           │
+│  • 128MB (default)                                         │
+│  • 256MB, 512MB, 1GB, 2GB, 4GB, 8GB, 16GB                │
+│  ✅ We use: 2GB (plenty for AI workloads)                 │
+│                                                             │
+│  Timeout Options:                                          │
+│  • 60s (default)                                           │
+│  • Up to 540s (9 minutes) for 2nd gen functions           │
+│  ✅ We use: 540s for complex AI operations                │
+│                                                             │
+│  Runtime:                                                  │
+│  • Node.js 20                                             │
+│  • Full npm ecosystem (AI SDK, OpenAI, Pinecone)          │
+│  ✅ Everything we need is available                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Benefits vs. Hybrid Approach
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│           Firebase-Only vs. Firebase + Lambda               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  CRITERIA               Firebase-Only    Hybrid (Firebase+Lambda)
+│  ───────────────────────────────────────────────────────────  │
+│  Deployment             ✅ Single         ❌ Two pipelines   │
+│  Setup Complexity       ✅ Simple         ❌ Complex         │
+│  Infrastructure         ✅ One platform   ❌ Two platforms   │
+│  Cost (10 users)        ✅ $30-50/month   ~$50-80/month     │
+│  Maintenance            ✅ One system     ❌ Two systems     │
+│  Debugging              ✅ One console    ❌ Two consoles    │
+│  Secrets Management     ✅ Firebase only  ❌ Two systems     │
+│  Monitoring             ✅ Firebase only  ❌ CloudWatch+FB   │
+│  Cold Start Time        ✅ ~1.5s          ~2-3s (Lambda)    │
+│  Latency                ✅ Same region    Depends on setup  │
+│  Learning Curve         ✅ Easier         ❌ Steeper         │
+│                                                             │
+│  Winner: Firebase-Only for our scale (10 users)            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### When Would We Need Lambda?
+
+```
+Only if we needed:
+- 100K+ users (serious scale)
+- Custom ML model inference (not using OpenAI)
+- Extremely long-running jobs (>9 minutes)
+- AWS-specific services (SageMaker, Bedrock)
+
+For 10 users + 100-300 messages/day → Firebase is perfect
+```
 
 ---
 
-## LangChain vs AI SDK: Decision Analysis
+## AI SDK vs LangChain Decision
 
 ### Executive Summary
 
@@ -286,353 +320,246 @@ console.log(result.text)
 
 ---
 
-#### LangChain (NOT using)
-
-```typescript
-import { ChatOpenAI } from 'langchain/chat_models/openai'
-import { AgentExecutor } from 'langchain/agents'
-import { DynamicTool } from 'langchain/tools'
-import { initializeAgentExecutorWithOptions } from 'langchain/agents'
-
-// Define tools
-const tools = [
-  new DynamicTool({
-    name: 'search_conversations',
-    description: 'Search message history',
-    func: async (query: string) => {
-      return await ragSearch(query)
-    }
-  })
-]
-
-// Initialize model
-const model = new ChatOpenAI({
-  modelName: 'gpt-4o',
-  temperature: 0,
-})
-
-// Create agent
-const executor = await initializeAgentExecutorWithOptions(
-  tools,
-  model,
-  {
-    agentType: 'openai-functions',
-    verbose: true,
-  }
-)
-
-// Run
-const result = await executor.call({
-  input: 'Find meetings about database'
-})
-
-console.log(result.output)
-```
-
-**Cons:**
-- ❌ More verbose, more boilerplate
-- ❌ Complex initialization
-- ❌ Requires polyfills for React Native
-- ❌ Larger bundle size
-- ❌ More abstraction layers
-
----
-
-### Feature Requirements Analysis
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Do We Need LangChain's Advanced Features?                 │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ❌ Document Loaders (100+ types)                          │
-│     We only have message text - don't need PDF, CSV, etc   │
-│                                                             │
-│  ❌ Vector Store Integrations (20+ options)                │
-│     We're committed to Pinecone - don't need abstraction    │
-│                                                             │
-│  ❌ Memory Systems (conversation, entity, knowledge graph)  │
-│     Firestore handles our state - don't need LangChain's   │
-│                                                             │
-│  ❌ Chains (Sequential, MapReduce, etc.)                   │
-│     Our workflows are simple - AI SDK maxSteps is enough    │
-│                                                             │
-│  ✅ Tool Calling                                           │
-│     AI SDK provides this with cleaner API                   │
-│                                                             │
-│  ✅ Streaming                                              │
-│     AI SDK has better streaming than LangChain              │
-│                                                             │
-│  ❌ Agents (ReAct, Plan-and-Execute, etc.)                 │
-│     We need simple multi-step reasoning - AI SDK works      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-VERDICT: LangChain is overkill. 90% of features unused.
-```
-
----
-
-### Performance Comparison
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              Performance Benchmarks                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  METRIC                    │  AI SDK    │  LangChain       │
-│  ──────────────────────────────────────────────────────────  │
-│  Cold Start (Lambda)       │  1.5s      │  3.5s ⚠️         │
-│  Memory Usage              │  150MB     │  400MB ⚠️        │
-│  Time to First Token       │  ~800ms    │  ~1200ms         │
-│  Simple Tool Call          │  2.1s      │  2.8s            │
-│  Multi-step Agent (3 steps)│  8.5s      │  12s ⚠️          │
-│  Bundle Size (Lambda)      │  15MB      │  45MB ⚠️         │
-│                                                             │
-│  Winner: AI SDK is 2-3x faster on cold starts              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-### React Native Compatibility
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│         React Native Compatibility                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  AI SDK:                                                    │
-│  ✅ Zero configuration                                      │
-│  ✅ No polyfills needed                                     │
-│  ✅ Works with Expo                                         │
-│  ✅ Native streaming support                                │
-│  ✅ Small bundle impact                                     │
-│                                                             │
-│  LangChain:                                                 │
-│  ⚠️  Requires React Native polyfills:                       │
-│     - crypto                                                │
-│     - stream                                                │
-│     - buffer                                                │
-│     - process                                               │
-│  ⚠️  Larger bundle size                                     │
-│  ⚠️  More configuration needed                              │
-│  ⚠️  Potential runtime issues                               │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-VERDICT: AI SDK is designed for edge/mobile. LangChain is not.
-```
-
----
-
-### What About LangGraph?
-
-**LangGraph = LangChain's agent framework for complex workflows**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              Do We Need LangGraph?                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  LangGraph is for:                                         │
-│  • Complex multi-agent systems (multiple AI agents)        │
-│  • State machines with branching logic                     │
-│  • Long-running workflows (minutes to hours)               │
-│  • Human-in-the-loop at multiple steps                     │
-│  • Graph-based agent orchestration                         │
-│                                                             │
-│  Our needs:                                                │
-│  • Simple linear workflows (3-5 steps max)                 │
-│  • Single agent per operation                              │
-│  • Fast execution (<15 seconds)                            │
-│  • Human-in-loop only at end (accept/reject suggestion)    │
-│                                                             │
-│  ❌ We DON'T need LangGraph's complexity                   │
-│  ✅ AI SDK's maxSteps parameter is sufficient              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-VERDICT: LangGraph is overkill. Our agent logic is simple.
-```
-
-### Example: Proactive Agent with AI SDK
-
-```typescript
-// Our proactive agent - simple and clean
-const result = await generateText({
-  model: openai('gpt-4o'),
-  tools: {
-    checkCalendars: tool({ /* ... */ }),
-    suggestTimes: tool({ /* ... */ }),
-    sendSuggestion: tool({ /* ... */ })
-  },
-  maxSteps: 5, // AI can use up to 5 tool calls
-  system: 'You are a proactive meeting scheduler...',
-  prompt: 'Users are trying to schedule a meeting...'
-})
-
-// AI SDK automatically:
-// 1. Analyzes conversation
-// 2. Calls checkCalendars tool
-// 3. Processes results
-// 4. Calls suggestTimes tool  
-// 5. Calls sendSuggestion tool
-// 6. Returns final result
-
-// All in ~10-15 seconds, simple code
-```
-
-### Same with LangGraph (What it would look like)
-
-```typescript
-// Would require ~200 lines of code to define:
-// - StateGraph with nodes
-// - Edges between nodes
-// - Conditional routing
-// - State management
-// - Error handling per node
-// - Much more complexity for same result
-
-// Not worth it for our use case
-```
-
----
-
-### Cost Comparison
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Cost Analysis                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  AI SDK:                                                    │
-│  • Free, open source                                       │
-│  • Maintained by Vercel                                    │
-│  • No vendor lock-in                                       │
-│                                                             │
-│  LangChain:                                                │
-│  • Free, open source                                       │
-│  • Maintained by LangChain team                            │
-│  • Optional paid: LangSmith (monitoring)                    │
-│                                                             │
-│  Lambda Cost Impact:                                       │
-│  • AI SDK: $30-50/month for 1K users                       │
-│  • LangChain: $50-80/month for 1K users (higher memory)    │
-│                                                             │
-│  Winner: AI SDK saves ~$20-30/month on compute             │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Final Recommendation
-
-**✅ USE: AI SDK by Vercel**
-
-**Reasons:**
-1. **Performance**: 2-3x faster cold starts
-2. **Size**: 10x smaller bundle
-3. **React Native**: Zero config, just works
-4. **Streaming**: Built-in, excellent UX
-5. **TypeScript**: Best-in-class types
-6. **Simplicity**: Less code, clearer logic
-7. **Mobile-first**: Designed for edge/mobile
-
-**❌ DON'T USE: LangChain / LangGraph**
-
-**Reasons:**
-1. **Overkill**: 90% of features unused
-2. **Heavy**: Large bundle, slow cold starts
-3. **Complex**: Steep learning curve
-4. **React Native**: Requires polyfills
-5. **Not needed**: Our agent needs are simple
-
----
-
-### When Would We Use LangChain?
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│         Scenarios Where LangChain Makes Sense               │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. Multi-Agent Systems                                     │
-│     If we needed multiple AI agents coordinating           │
-│     Example: Separate agents for search, analysis, writing  │
-│                                                             │
-│  2. Complex Document Processing                             │
-│     If we processed PDFs, Word docs, spreadsheets           │
-│     Example: Extract data from 100+ document types          │
-│                                                             │
-│  3. Advanced RAG Pipelines                                  │
-│     If we needed parent-document retrieval, HyDE, etc       │
-│     Our RAG is simple: embed → search → rerank              │
-│                                                             │
-│  4. Long-Running Workflows                                  │
-│     If agents ran for minutes/hours with human checkpoints  │
-│     Our agents run <15 seconds                              │
-│                                                             │
-│  5. Server-Side Only                                        │
-│     If we didn't need mobile/edge deployment                │
-│     We need React Native support                            │
-│                                                             │
-│  VERDICT: None of these apply to MessageAI                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Migration Path (If Needed)
-
-**If we ever need LangChain features:**
-
-```typescript
-// Our code is abstracted enough to swap frameworks
-
-// Current (AI SDK)
-const result = await generateText({
-  model: openai('gpt-4o'),
-  tools: myTools,
-  prompt: query
-})
-
-// Future (LangChain) - would require:
-// 1. Replace generateText with LangChain agent
-// 2. Convert tools to LangChain format
-// 3. Update Lambda dependencies
-// 4. Test thoroughly
-
-// Estimated migration time: 1-2 weeks
-// Risk: Low (functionality stays the same)
-```
-
-**But we probably won't need it.**
-
----
-
 ## Component Interactions
 
-### Request Flow: Smart Search
+### Request Flow: Smart Search (Firebase-Only)
 
-[Previous smart search flow diagram - keeping as is]
+```
+1. User taps "Search" in React Native app
+        ↓
+2. App calls Firebase Function: smartSearch(query)
+        ↓
+3. Firebase Function authenticates user
+        ↓
+4. Firebase Function checks cache in Firestore
+        ↓
+5. Cache miss → Function generates query embedding (OpenAI API)
+        ↓
+6. Function queries Pinecone vector DB (top 20 results)
+        ↓
+7. Function applies metadata filters (userId, date range)
+        ↓
+8. Function reranks with GPT-4o via AI SDK (top 5)
+        ↓
+9. Function fetches surrounding context from Firestore
+        ↓
+10. Function caches results in Firestore (10 min TTL)
+        ↓
+11. Function returns results to app
+        ↓
+12. App displays results with "Jump to message" links
+
+Total time: <3 seconds for most queries
+```
 
 ---
 
 ## Data Flow Diagrams
 
-### Message Lifecycle with AI Features
+### Message Lifecycle with AI Features (Firebase-Only)
 
-[Previous message lifecycle diagram - keeping as is]
+```
+User sends message
+      ↓
+Firestore: /messages/{messageId} (stored)
+      ↓
+Firebase Trigger: onMessageCreated
+      ↓
+┌─────────┴──────────┐
+│                    │
+↓                    ↓
+Priority Detection   Mark for embedding
+(real-time)          (added to queue)
+      ↓                    ↓
+Update message       Wait for batch job
+priority field       (30 sec max)
+      ↓                    ↓
+Push notification    Scheduled Function:
+(if urgent)          batchEmbedMessages()
+                           ↓
+                     Generate embeddings
+                     (OpenAI API)
+                           ↓
+                     Store in Pinecone
+                     with metadata
+                           ↓
+                     Mark message as
+                     embedded=true
+                           ↓
+                     Message now searchable
+```
+
+### AI Feature Request Flow
+
+```
+App → Firebase Callable Function → AI SDK Agent
+                    ↓
+             ┌──────┴──────────┐
+             ↓                 ↓
+        OpenAI API        Pinecone
+        (LLM/Embed)      (Search)
+             ↓                 ↓
+             └──────┬──────────┘
+                    ↓
+              Firestore
+              (Cache/Store)
+                    ↓
+    Firebase Function → App
+```
 
 ---
 
-## Infrastructure Layer
+## Security Architecture
 
-[Previous infrastructure sections - keeping as is]
+### API Key Management (Firebase-Only)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                Secret Management Strategy                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Firebase Secret Manager (Built-in):                       │
+│                                                             │
+│  1. Store secrets via Firebase CLI:                        │
+│     firebase functions:secrets:set OPENAI_API_KEY          │
+│     firebase functions:secrets:set PINECONE_API_KEY        │
+│                                                             │
+│  2. Access in Cloud Functions:                             │
+│     import { defineSecret } from 'firebase-functions/params'│
+│                                                             │
+│     const openaiKey = defineSecret('OPENAI_API_KEY')       │
+│                                                             │
+│     export const myFunction = onCall({                     │
+│       secrets: [openaiKey],                                │
+│     }, async (request) => {                                │
+│       const key = openaiKey.value()                        │
+│     })                                                     │
+│                                                             │
+│  3. Automatic rotation support                             │
+│  4. Encrypted at rest                                      │
+│  5. Only accessible to authorized functions                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Rate Limiting
+
+```typescript
+// Firebase Firestore-based rate limiting
+const checkRateLimit = async (userId: string) => {
+  const today = new Date().toISOString().split('T')[0]
+  const counterRef = db.collection('rate_limits').doc(`${userId}_${today}`)
+  
+  const counter = await db.runTransaction(async (transaction) => {
+    const doc = await transaction.get(counterRef)
+    const count = doc.exists ? doc.data().count : 0
+    
+    if (count >= 100) {
+      throw new Error('Daily AI request limit reached')
+    }
+    
+    transaction.set(counterRef, { 
+      count: count + 1,
+      expiresAt: Date.now() + (24 * 60 * 60 * 1000)
+    })
+    
+    return count + 1
+  })
+  
+  return counter
+}
+```
+
+---
+
+## Scaling Strategy
+
+### Current Scale (10 users, 100-300 messages/day)
+
+```
+Firebase Functions Pricing (US):
+- Invocations: $0.40 per million
+- GB-seconds: $0.0000025 per GB-second
+- Outbound data: $0.12 per GB
+
+Estimated Monthly Costs:
+┌─────────────────────────────────────┐
+│ Component          Cost             │
+├─────────────────────────────────────┤
+│ Firebase Functions   $15-25         │
+│ OpenAI API          $15-30         │
+│ Pinecone (free tier) $0            │
+│ Firestore           $5-10          │
+│ Total               $35-65/month   │
+└─────────────────────────────────────┘
+
+This is CHEAPER than hybrid Firebase + Lambda!
+```
+
+### Scaling to 1000 Users
+
+```
+If you grow to 1000 users:
+- Still works great on Firebase-only
+- Estimated cost: $200-400/month
+- No architectural changes needed
+- Just increase concurrency limits
+```
+
+### When to Consider Alternatives
+
+```
+Only consider moving away from Firebase if:
+- 10K+ users (seriously consider dedicated infrastructure)
+- Need <100ms response times (edge deployment)
+- Require custom ML models (not using OpenAI)
+- Need AWS-specific services
+
+For MessageAI at current scale → Firebase-only is optimal
+```
+
+---
+
+## Deployment Architecture
+
+**Firebase (Single Platform):**
+- **Region:** us-central1
+- **Firestore:** Native mode
+- **Functions:** Node.js 20, 2GB memory, 540s timeout
+- **Storage:** Multi-region (automatic)
+
+**Pinecone:**
+- **Cloud:** AWS us-east-1 (low latency to Firebase)
+- **Environment:** Starter (free tier) → Standard at scale
+- **Index:** Single index `messageai-conversations`
+
+**Security:**
+- API keys stored in: Firebase Secret Manager
+- HTTPS only, no HTTP allowed
+- CORS configured for React Native origins
+- Rate limiting per user
+- Input sanitization and validation
+
+---
+
+## Summary
+
+### Firebase-Only Architecture Benefits
+
+✅ **Simplicity:** One platform, one deployment, one monitoring system  
+✅ **Cost-Effective:** $35-65/month for 10 users  
+✅ **Performance:** <3s for most AI operations  
+✅ **Scalability:** Can handle 1000+ users without changes  
+✅ **Maintainability:** Single codebase, single deployment pipeline  
+✅ **Developer Experience:** Firebase CLI, excellent tooling  
+
+### No AWS Lambda Needed Because:
+
+- Firebase Functions support 2GB RAM, 540s timeout
+- 10 users + 100-300 messages/day is tiny scale
+- All required npm packages work in Firebase (AI SDK, OpenAI, Pinecone)
+- Simpler infrastructure = faster development
+- Lower cost at current scale
 
 ---
 

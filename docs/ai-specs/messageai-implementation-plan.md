@@ -1,5 +1,13 @@
 # MessageAI: AI Features Implementation Plan
 
+**⚠️ DEPRECATED - This document describes the ORIGINAL hybrid Firebase + AWS Lambda architecture.**
+
+**✅ CURRENT PLAN: See `CURSOR_MESSAGEAI_IMPLEMENTATION_PLAN.md` for the simplified Firebase-only architecture.**
+
+This document is kept for reference purposes only.
+
+---
+
 **Version:** 1.0  
 **Created:** October 23, 2025  
 **Timeline:** 4 weeks to MVP  

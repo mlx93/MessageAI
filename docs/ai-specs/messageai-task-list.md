@@ -1,5 +1,13 @@
 # MessageAI: AI Features Implementation Task List
 
+**⚠️ DEPRECATED - This document describes the ORIGINAL hybrid Firebase + AWS Lambda architecture with AWS CLI, Terraform, and Lambda deployment.**
+
+**✅ CURRENT PLAN: See `CURSOR_MESSAGEAI_IMPLEMENTATION_PLAN.md` for the simplified Firebase-only architecture.**
+
+This document is kept for reference purposes only.
+
+---
+
 **Project:** MessageAI AI Features  
 **Timeline:** 4 weeks (20 working days)  
 **Last Updated:** October 23, 2025
