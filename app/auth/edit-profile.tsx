@@ -168,7 +168,7 @@ export default function EditProfileScreen() {
               onChangeText={setFirstName}
               autoCapitalize="words"
               editable={!loading}
-              autoFocus={true}
+              autoFocus={false}
             />
 
             <TextInput

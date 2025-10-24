@@ -48,6 +48,16 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="ava"
+        options={{
+          title: 'Ava',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="sparkles" size={size} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

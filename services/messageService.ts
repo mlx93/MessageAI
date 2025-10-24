@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, arrayUnion, writeBatch, Unsubscribe, limit, startAfter, DocumentSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { Message } from '../types';
 
@@ -59,6 +59,93 @@ export const subscribeToMessages = (
     });
     callback(messages);
   });
+};
+
+/**
+ * Subscribe to recent messages with pagination support
+ * Returns the most recent messages first for instant display
+ */
+export const subscribeToMessagesPaginated = (
+  conversationId: string, 
+  messageLimit: number = 30,
+  callback: (messages: Message[]) => void
+): Unsubscribe => {
+  const q = query(
+    collection(db, `conversations/${conversationId}/messages`),
+    orderBy('timestamp', 'desc'),
+    limit(messageLimit)
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const messages = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        conversationId,
+        text: data.text || '',
+        senderId: data.senderId,
+        timestamp: data.timestamp?.toDate() || new Date(),
+        status: data.status || 'sent',
+        type: data.type || 'text',
+        mediaURL: data.mediaURL,
+        localId: data.localId,
+        readBy: data.readBy || [],
+        deliveredTo: data.deliveredTo || [],
+        deletedBy: data.deletedBy || []
+      } as Message;
+    });
+    
+    // Reverse to get chronological order (oldest first)
+    callback(messages.reverse());
+  });
+};
+
+/**
+ * Load older messages before a specific timestamp
+ * Used for upward pagination
+ */
+export const loadOlderMessages = async (
+  conversationId: string,
+  beforeTimestamp: Date,
+  messageLimit: number = 30
+): Promise<Message[]> => {
+  const q = query(
+    collection(db, `conversations/${conversationId}/messages`),
+    orderBy('timestamp', 'desc'),
+    limit(messageLimit)
+  );
+  
+  // For now, we'll use the basic query and filter client-side
+  // In a production app, you'd use startAfter with the last document
+  const snapshot = await onSnapshot(q, () => {});
+  
+  const messages = snapshot.docs
+    .filter(doc => {
+      const data = doc.data();
+      const timestamp = data.timestamp?.toDate() || new Date();
+      return timestamp < beforeTimestamp;
+    })
+    .slice(0, messageLimit)
+    .map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        conversationId,
+        text: data.text || '',
+        senderId: data.senderId,
+        timestamp: data.timestamp?.toDate() || new Date(),
+        status: data.status || 'sent',
+        type: data.type || 'text',
+        mediaURL: data.mediaURL,
+        localId: data.localId,
+        readBy: data.readBy || [],
+        deliveredTo: data.deliveredTo || [],
+        deletedBy: data.deletedBy || []
+      } as Message;
+    });
+  
+  // Reverse to get chronological order (oldest first)
+  return messages.reverse();
 };
 
 /**

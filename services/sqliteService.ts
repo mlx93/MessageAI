@@ -171,6 +171,81 @@ export const getCachedMessages = (conversationId: string): Promise<Message[]> =>
 };
 
 /**
+ * Get cached messages with pagination support
+ * Returns the most recent messages first (for instant display)
+ */
+export const getCachedMessagesPaginated = (
+  conversationId: string, 
+  limit: number = 30
+): Promise<Message[]> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const result = db.getAllSync(
+        'SELECT * FROM messages WHERE conversationId = ? ORDER BY timestamp DESC LIMIT ?',
+        [conversationId, limit]
+      );
+      
+      const messages = result.map((row: any) => ({
+        id: row.id,
+        conversationId: row.conversationId,
+        text: row.text,
+        senderId: row.senderId,
+        timestamp: new Date(row.timestamp),
+        status: row.status,
+        type: row.type,
+        localId: row.localId,
+        mediaURL: row.mediaURL,
+        readBy: JSON.parse(row.readBy),
+        deliveredTo: JSON.parse(row.deliveredTo)
+      })) as Message[];
+      
+      // Reverse to get chronological order (oldest first)
+      resolve(messages.reverse());
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+/**
+ * Get older cached messages before a specific timestamp
+ * Used for upward pagination
+ */
+export const getCachedMessagesBefore = (
+  conversationId: string,
+  beforeTimestamp: Date,
+  limit: number = 30
+): Promise<Message[]> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const result = db.getAllSync(
+        'SELECT * FROM messages WHERE conversationId = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?',
+        [conversationId, beforeTimestamp.getTime(), limit]
+      );
+      
+      const messages = result.map((row: any) => ({
+        id: row.id,
+        conversationId: row.conversationId,
+        text: row.text,
+        senderId: row.senderId,
+        timestamp: new Date(row.timestamp),
+        status: row.status,
+        type: row.type,
+        localId: row.localId,
+        mediaURL: row.mediaURL,
+        readBy: JSON.parse(row.readBy),
+        deliveredTo: JSON.parse(row.deliveredTo)
+      })) as Message[];
+      
+      // Reverse to get chronological order (oldest first)
+      resolve(messages.reverse());
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+/**
  * Cache a conversation to SQLite
  */
 export const cacheConversation = (conversation: Conversation): Promise<void> => {

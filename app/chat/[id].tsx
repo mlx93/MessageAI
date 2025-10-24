@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
-import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, ScrollView, TextInput, TouchableOpacity, Pressable, Text, StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, Image, ActivityIndicator, AppState } from 'react-native';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, withTiming } from 'react-native-reanimated';
 import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
-import { subscribeToMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
+import { subscribeToMessages, subscribeToMessagesPaginated, loadOlderMessages, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
 import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
-import { cacheMessage, cacheMessageBatched, getCachedMessages, flushCacheBuffer } from '../../services/sqliteService';
+import { cacheMessage, cacheMessageBatched, getCachedMessages, getCachedMessagesPaginated, getCachedMessagesBefore, flushCacheBuffer } from '../../services/sqliteService';
+import { preloadService } from '../../services/preloadService';
+import { backgroundSyncService } from '../../services/backgroundSyncService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
 import { searchAllUsers, getUserContacts } from '../../services/contactService';
 import { subscribeToUserPresence } from '../../services/presenceService';
@@ -63,6 +65,11 @@ export default function ChatScreen() {
   const [isInputFocused, setIsInputFocused] = useState(false); // Track if input is focused
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
+  const lastLoadTime = useRef(0); // Throttle loading
+  const maxMessagesInMemory = useRef(200); // Phase 3: Memory management
+  const appStateSubscription = useRef<any>(null); // Phase 4: App state subscription
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
   const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
@@ -127,7 +134,83 @@ export default function ChatScreen() {
       pendingInitialSnapRef.current = true;
     }
   }, [ensureInitialSnap]);
-  
+
+  // Phase 2: Load older messages for upward pagination
+  const loadOlderMessages = useCallback(async () => {
+    if (isLoadingOlderMessages || !hasMoreOlderMessages || !messages || messages.length === 0) {
+      return;
+    }
+
+    // Throttle loading to prevent spam
+    const now = Date.now();
+    if (now - lastLoadTime.current < 2000) { // 2 second throttle
+      return;
+    }
+    lastLoadTime.current = now;
+
+    setIsLoadingOlderMessages(true);
+    
+    try {
+      // Get the oldest message timestamp
+      const oldestMessage = messages[0];
+      if (!oldestMessage || !oldestMessage.timestamp) {
+        console.warn('No oldest message or timestamp found');
+        return;
+      }
+      const beforeTimestamp = oldestMessage.timestamp;
+      
+      // Try cache first
+      const cachedOlderMessages = await getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
+      
+      if (cachedOlderMessages && cachedOlderMessages.length > 0) {
+        setMessages(prevMessages => {
+          const newMessages = [...cachedOlderMessages, ...prevMessages];
+          return manageMessageMemory(newMessages);
+        });
+        
+        // Check if we have more messages to load
+        if (cachedOlderMessages.length < 30) {
+          setHasMoreOlderMessages(false);
+        }
+      } else {
+        // Fallback to Firestore - only log once per session
+        const firestoreOlderMessages = await loadOlderMessages(conversationId, beforeTimestamp, 30);
+        
+        if (firestoreOlderMessages && firestoreOlderMessages.length > 0) {
+          setMessages(prevMessages => {
+            const newMessages = [...firestoreOlderMessages, ...prevMessages];
+            return manageMessageMemory(newMessages);
+          });
+          
+          // Cache the new messages
+          firestoreOlderMessages.forEach(msg => cacheMessage(msg));
+        }
+        
+        // Check if we have more messages to load
+        if (!firestoreOlderMessages || firestoreOlderMessages.length < 30) {
+          setHasMoreOlderMessages(false);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load older messages:', error);
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [isLoadingOlderMessages, hasMoreOlderMessages, messages, conversationId]);
+
+  // Phase 3: Memory management for large conversations
+  const manageMessageMemory = useCallback((newMessages: Message[]) => {
+    if (newMessages.length <= maxMessagesInMemory.current) {
+      return newMessages;
+    }
+
+    // Keep the most recent messages and trim older ones
+    const recentMessages = newMessages.slice(-maxMessagesInMemory.current);
+    console.log(`🧹 Memory management: Trimmed ${newMessages.length - recentMessages.length} old messages`);
+    
+    return recentMessages;
+  }, []);
+
   // Container-level swipe for all blue bubbles
   const blueBubblesTranslateX = useSharedValue(0);
   
@@ -185,17 +268,37 @@ export default function ChatScreen() {
     };
     loadConversationData();
 
-    // Load cached messages first (newest 50 for instant display)
-    getCachedMessages(conversationId).then(cachedMsgs => {
+    // Phase 1: Cache Warming & Initial Load
+    // Load recent 30 messages from cache for instant display
+    getCachedMessagesPaginated(conversationId, 30).then(cachedMsgs => {
       if (cachedMsgs.length > 0) {
-        // Load newest 50 messages first for instant display
-        const recentMessages = cachedMsgs.slice(-50);
-        setMessages(recentMessages);
+        console.log(`📱 Cache warming: Loaded ${cachedMsgs.length} recent messages instantly`);
+        setMessages(cachedMsgs);
+        // Auto-scroll to bottom for recent messages
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }, 100);
       }
       markInitialDataReady();
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
+      markInitialDataReady();
     });
+
+    // Phase 4: Smart preloading - warm up cache for this conversation
+    preloadService.warmupConversations([conversationId]).catch(error => {
+      console.warn('Cache warmup failed:', error);
+    });
+
+    // Phase 4: Start background sync for this conversation
+    backgroundSyncService.startSync(conversationId, 30000); // 30 second interval
+
+    // Phase 4: Monitor app state for background sync
+    const handleAppStateChange = (nextAppState: string) => {
+      backgroundSyncService.onAppStateChange(nextAppState);
+    };
+
+    appStateSubscription.current = AppState.addEventListener('change', handleAppStateChange);
 
     // Network status
     const unsubscribeNet = NetInfo.addEventListener((state) => {
@@ -216,8 +319,8 @@ export default function ChatScreen() {
       lastOnlineStatusRef.current = nextOnline;
     });
 
-    // Subscribe to real-time messages
-    const unsubscribeMessages = subscribeToMessages(conversationId, (msgs) => {
+    // Subscribe to real-time messages with pagination
+    const unsubscribeMessages = subscribeToMessagesPaginated(conversationId, 30, (msgs) => {
       // Filter out messages deleted by current user
       const visibleMessages = msgs.filter(m => 
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
@@ -238,7 +341,7 @@ export default function ChatScreen() {
             .filter(m => !newMsgIds.has(m.id))
             .forEach(m => cacheMessageBatched(m));
           
-          return visibleMessages;
+          return manageMessageMemory(visibleMessages);
         }
         
         // Check if any message actually changed (status, readBy, deliveredTo)
@@ -265,7 +368,7 @@ export default function ChatScreen() {
         });
         
         // Only update if something changed
-        return hasChanges ? updatedMessages : prevMessages;
+        return hasChanges ? manageMessageMemory(updatedMessages) : prevMessages;
       });
       markInitialDataReady();
       
@@ -304,14 +407,22 @@ export default function ChatScreen() {
       try {
         const { getConversation } = await import('../../services/conversationService');
         const conversation = await getConversation(conversationId);
-        if (!conversation) return;
+        if (!conversation) {
+          // Fallback header if conversation fails to load
+          navigation.setOptions({
+            title: 'Chat',
+            headerBackTitleVisible: false,
+            headerBackTitle: '',
+          });
+          return;
+        }
         
         // Set title based on mode
-        let title = '';
+        let title = 'Chat'; // Default fallback
         let subtitle = '';
         if (conversation.type === 'direct') {
           const otherUserId = conversation.participants.find(id => id !== user.uid);
-          title = conversation.participantDetails[otherUserId!]?.displayName || 'Chat';
+          title = conversation.participantDetails?.[otherUserId!]?.displayName || 'Chat';
           
           // Add presence status with staleness detection
           const secondsAgo = otherUserLastSeen 
@@ -338,7 +449,7 @@ export default function ChatScreen() {
         } else {
           const names = conversation.participants
             .filter(id => id !== user.uid)
-            .map(id => conversation.participantDetails[id]?.displayName.split(' ')[0])
+            .map(id => conversation.participantDetails?.[id]?.displayName?.split(' ')[0] || 'User')
             .slice(0, 3)
             .join(', ');
           title = names + (conversation.participants.length > 4 ? '...' : '');
@@ -413,6 +524,12 @@ export default function ChatScreen() {
         });
       } catch (error) {
         console.error('Failed to update header:', error);
+        // Fallback header on error
+        navigation.setOptions({
+          title: 'Chat',
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+        });
       }
     };
     
@@ -464,9 +581,12 @@ export default function ChatScreen() {
       });
 
       // Set this conversation as active in Firestore (for Cloud Functions)
-      setFirestoreActiveConversation(user.uid, conversationId).catch(error => {
-        console.error('Failed to set Firestore active conversation:', error);
-      });
+      // Add a small delay to ensure user authentication is fully established
+      setTimeout(() => {
+        setFirestoreActiveConversation(user.uid, conversationId).catch(error => {
+          console.error('Failed to set Firestore active conversation:', error);
+        });
+      }, 200);
 
       // Set this conversation as active locally (for in-app notifications)
       setLocalActiveConversation(conversationId);
@@ -481,11 +601,19 @@ export default function ChatScreen() {
       flushCacheBuffer().catch(error => {
         console.error('Failed to flush cache buffer:', error);
       });
+
+      // Phase 4: Stop background sync when leaving chat
+      backgroundSyncService.stopSync(conversationId);
+      
+      // Clean up app state subscription
+      appStateSubscription.current?.remove();
       
       // Clear Firestore active conversation
-      setFirestoreActiveConversation(user.uid, null).catch(error => {
-        console.error('Failed to clear Firestore active conversation:', error);
-      });
+      setTimeout(() => {
+        setFirestoreActiveConversation(user.uid, null).catch(error => {
+          console.error('Failed to clear Firestore active conversation:', error);
+        });
+      }, 100);
       setLocalActiveConversation(null);
       
       // Reset unread count again on exit to ensure it's cleared before Messages page shows
@@ -1397,7 +1525,7 @@ export default function ChatScreen() {
     <KeyboardAvoidingView 
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 120 : 20}
     >
       {/* Add Participant Mode */}
       {isAddMode && (
@@ -1510,12 +1638,47 @@ export default function ChatScreen() {
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={true}
           removeClippedSubviews={true}
-          maxToRenderPerBatch={20}
-          windowSize={21}
-          initialNumToRender={20}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          initialNumToRender={15}
+          getItemLayout={(data, index) => ({
+            length: 80, // Estimated message height
+            offset: 80 * index,
+            index,
+          })}
           onLayout={handleFlatListLayout}
           onContentSizeChange={handleContentSizeChange}
-          onScroll={handleScroll}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10
+          }}
+          onScroll={({ nativeEvent }) => {
+            // Phase 2: Detect when user scrolls near top to load older messages
+            const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
+            const isNearTop = contentOffset.y < 50; // 50px from top (less aggressive)
+            
+            if (isNearTop && hasMoreOlderMessages && !isLoadingOlderMessages) {
+              loadOlderMessages();
+            }
+            
+            // Phase 4: Smart preloading based on scroll behavior
+            const scrollPercentage = contentSize.height > 0 ? contentOffset.y / contentSize.height : 0;
+            
+            // Preload when user is in the middle of scrolling (anticipatory)
+            if (scrollPercentage > 0.2 && scrollPercentage < 0.8) {
+              preloadService.preloadMessages({
+                conversationId,
+                currentMessages: messages,
+                scrollPosition: contentOffset.y,
+                totalHeight: contentSize.height
+              }).catch(error => {
+                console.warn('Preload failed:', error);
+              });
+            }
+            
+            // Call existing scroll handler
+            handleScroll({ nativeEvent });
+          }}
           scrollEventThrottle={16}
           onScrollToIndexFailed={({ index, averageItemLength }) => {
             const fallbackOffset = Math.max(0, (averageItemLength || 80) * index);
@@ -1526,6 +1689,17 @@ export default function ChatScreen() {
               });
             });
           }}
+          ListHeaderComponent={() => (
+            <>
+              {/* Loading indicator for older messages */}
+              {isLoadingOlderMessages && (
+                <View style={styles.loadingOlderMessages}>
+                  <ActivityIndicator size="small" color="#007AFF" />
+                  <Text style={styles.loadingOlderMessagesText}>Loading older messages...</Text>
+                </View>
+              )}
+            </>
+          )}
           ListFooterComponent={() => (
             <>
               {/* Typing Indicator - styled like regular messages with avatar */}
@@ -1952,7 +2126,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    paddingBottom: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
     borderTopWidth: 0.5,
     borderTopColor: '#D1D1D6',
     backgroundColor: '#F8F8F8',
@@ -2034,5 +2208,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#007AFF',
     fontWeight: '600',
+  },
+  // Phase 2: Loading older messages styles
+  loadingOlderMessages: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  loadingOlderMessagesText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#666',
   },
 });

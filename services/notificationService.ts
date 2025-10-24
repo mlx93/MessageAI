@@ -145,14 +145,21 @@ export const setActiveConversation = async (
   }
   
   try {
-    await setDoc(doc(db, 'activeConversations', userId), {
+    // Use a timeout to prevent hanging on permission issues
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Timeout')), 3000);
+    });
+    
+    const setDocPromise = setDoc(doc(db, 'activeConversations', userId), {
       conversationId: conversationId || null,
       lastActive: serverTimestamp(),
     });
+    
+    await Promise.race([setDocPromise, timeoutPromise]);
   } catch (error: any) {
     // Silently fail for permission errors - not critical for app functionality
-    if (error?.code === 'permission-denied') {
-      console.warn('⚠️ Permission denied for activeConversations (non-critical)');
+    if (error?.code === 'permission-denied' || error?.message === 'Timeout') {
+      console.warn('⚠️ Permission denied or timeout for activeConversations (non-critical)');
     } else {
       console.error('Failed to set active conversation:', error);
     }
