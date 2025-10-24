@@ -4,7 +4,8 @@
 **State:** MVP complete, production‑ready; image/scroll stability finalized.
 
 ## Current focus
-- Stability polish complete: eliminated image flicker; reliable bottom scroll on iOS/Android; deferred image rendering with placeholders; split presence effects.
+- Stability polish complete: eliminated image flicker; reliable bottom scroll on iOS/Android with measured snap retries; deferred image rendering with placeholders; split presence effects.
+- Action sheet delete option now available for received messages (local soft delete).
 - Architecture solid: determinism + batching + offline queue proven; 95%+ confidence maintained.
 
 ## Next steps

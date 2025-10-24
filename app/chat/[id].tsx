@@ -101,13 +101,10 @@ export default function ChatScreen() {
           setTimeout(() => {
             setShouldRenderImages(true);
             lockScrollToBottom.current = true;
+            const lockDuration = Platform.OS === 'android' ? 200 : 200;
             setTimeout(() => {
               lockScrollToBottom.current = false;
-              requestAnimationFrame(() => {
-                if (!flatListRef.current) return;
-                flatListRef.current.scrollToEnd({ animated: false });
-              });
-            }, 2000);
+            }, lockDuration);
           }, 50);
         } catch (error) {
           console.warn('Initial snap failed, retrying...', error);
@@ -1642,7 +1639,6 @@ export default function ChatScreen() {
         onDelete={handleDeleteMessage}
         messageText={selectedMessage?.text || ''}
         isOwnMessage={selectedMessage?.senderId === user?.uid}
-        deleteLabel={selectedMessage?.senderId === user?.uid ? 'Delete' : 'Delete for me'}
       />
 
     </KeyboardAvoidingView>

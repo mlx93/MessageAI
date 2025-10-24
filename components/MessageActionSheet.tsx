@@ -10,7 +10,6 @@ interface MessageActionSheetProps {
   onDelete?: () => void;
   messageText: string;
   isOwnMessage: boolean;
-  deleteLabel?: string;
 }
 
 export default function MessageActionSheet({
@@ -20,7 +19,6 @@ export default function MessageActionSheet({
   onDelete,
   messageText,
   isOwnMessage,
-  deleteLabel = 'Delete',
 }: MessageActionSheetProps) {
   const handleCopy = () => {
     onCopy();
@@ -72,7 +70,7 @@ export default function MessageActionSheet({
               onPress={handleDelete}
               activeOpacity={0.7}
             >
-              <Text style={[styles.actionText, styles.deleteText]}>{deleteLabel}</Text>
+              <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
             </TouchableOpacity>
           )}
 

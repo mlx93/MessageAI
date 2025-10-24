@@ -2,7 +2,8 @@
 
 ## Status
 - Features: 10/10 MVP complete (+ image viewer, polish)
-- Stability: Image/scroll issues resolved; zero flicker; cross‑platform bottom scroll
+- Stability: Image/scroll issues resolved; zero flicker; cross-platform bottom scroll with measured snap retries
+- UX: Action sheet now supports deleting received messages locally (“Delete”) alongside copy/cancel
 - Reliability: Deterministic previews; batching active; offline queue solid
 - Notifications: iOS working; Android requires dev/prod build
 - Tests: 200+ tests; Firebase emulators configured; 95%+ confidence

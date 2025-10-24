@@ -35,7 +35,7 @@
 - Tabs for Messages and Contacts; separate `chat/[id].tsx` screen.
 
 ## Rendering stability (Chat)
-- Avoid image flicker: use plain `Image` (no reanimated entering), stable `renderItem` via `useCallback`, split presence effects to avoid re‑subscribe, memoize helpers, move grouping calc to parent, stable `onLayout`.
-- Cross‑platform bottom scroll: prefer `setTimeout` sequencing; lock scroll briefly while images load; render placeholders then enable images.
+- Avoid image flicker: use plain `Image` (no reanimated entering), stable `renderItem` via `useCallback`, split presence effects to avoid re-subscribe, memoize helpers, move grouping calc to parent, stable `onLayout`.
+- Cross-platform bottom scroll: measured content/layout heights + retrying snap ensures newest messages load instantly (even image-heavy/group threads), lock scroll briefly while images load, render placeholders then enable images.
 
 
