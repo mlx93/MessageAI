@@ -63,22 +63,91 @@ export default function ConversationsScreen() {
     
     try {
       setError(null);
-      const unsubscribe = getUserConversations(user.uid, (convos) => {
-        // Filter out conversations that have no actual messages or are hidden
-        const conversationsWithMessages = convos.filter(conversation => {
-          // Only show conversations that have actual message content
-          const hasMessageText = conversation.lastMessage?.text && 
-                                conversation.lastMessage.text.trim() !== '' && 
-                                conversation.lastMessage.text !== 'Photo' &&
-                                conversation.lastMessage.text !== '📷 Image' &&
-                                conversation.lastMessage.text !== 'Start a conversation';
-          
-          // Must have actual message text to appear in the list
-          // This will automatically hide conversations where all messages were deleted by the user
-          return hasMessageText;
-        });
+      const unsubscribe = getUserConversations(user.uid, async (convos) => {
+        // Filter out conversations where user has deleted ALL messages
+        const conversationsWithMessages = await Promise.all(
+          convos.map(async (conversation) => {
+            try {
+              // Check cache for any visible messages (scan last 10 to handle deleted messages)
+              const { getCachedMessagesPaginated } = await import('../../services/sqliteService');
+              const cachedMessages = await getCachedMessagesPaginated(conversation.id, 10);
+              
+              if (cachedMessages && cachedMessages.length > 0) {
+                // Cache has data - check for any non-deleted messages
+                const visibleMessages = cachedMessages.filter(msg => 
+                  !msg.deletedBy || !msg.deletedBy.includes(user.uid)
+                );
+                
+                if (visibleMessages.length > 0) {
+                  // User has visible messages in this conversation
+                  return conversation;
+                } else {
+                  // All cached messages are deleted by this user
+                  console.log(`🗑️ Hiding conversation ${conversation.id}: All messages deleted by user`);
+                  return null;
+                }
+              }
+              
+              // Cache is empty - need to check Firestore directly to distinguish between:
+              // 1. Cache not warmed up yet (show conversation)
+              // 2. All messages deleted (hide conversation)
+              console.log(`⚠️ Cache empty for ${conversation.id}, checking Firestore...`);
+              
+              const { collection, query, orderBy, limit, getDocs } = await import('firebase/firestore');
+              const { db } = await import('../../services/firebase');
+              
+              const messagesQuery = query(
+                collection(db, `conversations/${conversation.id}/messages`),
+                orderBy('timestamp', 'desc'),
+                limit(10)
+              );
+              
+              try {
+                const snapshot = await getDocs(messagesQuery);
+                
+                if (snapshot.empty) {
+                  // No messages in Firestore - hide conversation
+                  console.log(`🗑️ Hiding conversation ${conversation.id}: No messages in Firestore`);
+                  return null;
+                }
+                
+                // Check if any messages are visible to this user
+                const hasVisibleMessage = snapshot.docs.some(doc => {
+                  const data = doc.data();
+                  const deletedBy = data.deletedBy || [];
+                  return !deletedBy.includes(user.uid);
+                });
+                
+                if (hasVisibleMessage) {
+                  console.log(`✅ Showing conversation ${conversation.id}: Has visible messages in Firestore`);
+                  return conversation;
+                } else {
+                  console.log(`🗑️ Hiding conversation ${conversation.id}: All messages deleted in Firestore`);
+                  return null;
+                }
+              } catch (firestoreError) {
+                // Firestore query failed - fall back to lastMessage check
+                console.warn(`Firestore check failed for ${conversation.id}, using lastMessage fallback`);
+                const hasMessageText = conversation.lastMessage?.text && 
+                                      conversation.lastMessage.text.trim() !== '' && 
+                                      conversation.lastMessage.text !== 'Photo' &&
+                                      conversation.lastMessage.text !== '📷 Image' &&
+                                      conversation.lastMessage.text !== 'Start a conversation';
+                
+                return hasMessageText ? conversation : null;
+              }
+              
+            } catch (error) {
+              // Error occurred - fail open (show conversation to be safe)
+              console.error(`Filter error for conversation ${conversation.id}:`, error);
+              return conversation;
+            }
+          })
+        );
         
-        setConversations(conversationsWithMessages);
+        // Filter out nulls and set state
+        const filteredConversations = conversationsWithMessages.filter(Boolean) as typeof convos;
+        setConversations(filteredConversations);
         setLoading(false);
       });
       

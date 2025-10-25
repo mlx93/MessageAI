@@ -188,7 +188,7 @@ export const markMessageAsDelivered = async (
 /**
  * Soft-delete a message for a specific user
  * Message remains visible to other users
- * Triggers conversation lastMessage recalculation
+ * Triggers conversation lastMessage recalculation (non-blocking)
  */
 export const deleteMessage = async (
   conversationId: string,
@@ -200,9 +200,15 @@ export const deleteMessage = async (
     deletedBy: arrayUnion(userId)
   });
   
-  // Import and trigger conversation recalculation
+  // Import and trigger conversation recalculation in background (don't await)
   const { updateConversationAfterMessageDeletion } = await import('./conversationService');
-  await updateConversationAfterMessageDeletion(conversationId, userId);
+  updateConversationAfterMessageDeletion(conversationId, userId)
+    .catch(error => {
+      console.error('Failed to update conversation after deletion:', error);
+      // Don't throw - deletion already succeeded, this is just cleanup
+    });
+  
+  console.log('🔄 Updating conversation lastMessage in background');
 };
 
 /**
