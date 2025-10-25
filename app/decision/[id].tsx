@@ -190,13 +190,17 @@ export default function DecisionDetailScreen() {
             <Text style={styles.dateText}>
               {(() => {
                 try {
-                  let timestamp = decision.madeAt;
+                  let timestamp: any = decision.madeAt;
                   
                   // Convert to number if it's a Firestore Timestamp
                   if (timestamp && typeof timestamp === 'object' && 'toMillis' in timestamp) {
-                    timestamp = (timestamp as any).toMillis();
-                  } else if (timestamp && typeof timestamp === 'object' && timestamp instanceof Date) {
-                    timestamp = timestamp.getTime();
+                    timestamp = timestamp.toMillis();
+                  } else if (timestamp && typeof timestamp === 'object') {
+                    // Try to convert Date objects
+                    const dateObj = timestamp as Date;
+                    if (dateObj.getTime) {
+                      timestamp = dateObj.getTime();
+                    }
                   }
                   
                   if (typeof timestamp === 'number') {

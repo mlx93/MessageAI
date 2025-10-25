@@ -1356,9 +1356,30 @@ export default function ChatScreen() {
               await cacheMessageBatched(updatedMessage);
               
               console.log(`🗑️ Message deleted: ${selectedMessage.id}`);
-            } catch (error) {
+            } catch (error: any) {
+              // Check if message doesn't exist in Firestore (orphaned cache entry)
+              const isNotFound = error.code === 'not-found' || 
+                                 error.message?.includes('No document to update');
+              
+              if (isNotFound) {
+                // Message doesn't exist in Firestore - treat as successful local deletion
+                console.warn(`🗑️ Message ${selectedMessage.id} not found in Firestore, removed locally`);
+                
+                // Update SQLite cache to mark as deleted (prevents reappearance)
+                const updatedMessage = {
+                  ...selectedMessage,
+                  deletedBy: [...(selectedMessage.deletedBy || []), user.uid]
+                };
+                await cacheMessageBatched(updatedMessage);
+                
+                // Message already removed from UI optimistically - success!
+                return;
+              }
+              
+              // Other errors - show alert and rollback
               console.error('Failed to delete message:', error);
               Alert.alert('Error', 'Failed to delete message');
+              
               // Rollback: Re-add message to UI on error
               setMessages(prev => dedupeMessages([...prev, selectedMessage]).sort((a, b) => 
                 a.timestamp.getTime() - b.timestamp.getTime()

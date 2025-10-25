@@ -397,10 +397,24 @@ high-scoring results`
         .orderBy("timestamp", "asc")
         .get();
 
+      // Define message type for better type safety
+      interface MessageDoc {
+        id: string;
+        text?: string;
+        senderId?: string;
+        sender?: string;
+        senderName?: string;
+        deletedBy?: string[];
+        timestamp?: {
+          toMillis?: () => number;
+          _seconds?: number;
+        } | number;
+      }
+
       const allMessages = messagesSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
-      }));
+      })) as MessageDoc[];
 
       const convData = conversationMap.get(conversationId);
       const participantDetails = convData?.participantDetails || {};
@@ -423,51 +437,38 @@ high-scoring results`
         // Convert to SearchResult format
         for (const msg of surroundingMessages) {
           // Skip if already in results or deleted by user
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const deletedBy = (msg as any).deletedBy || [];
+          const deletedBy = msg.deletedBy || [];
           if (seenMessageIds.has(msg.id) || deletedBy.includes(userId)) {
             continue;
           }
 
           // Convert timestamp
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let timestamp = Date.now();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ((msg as any).timestamp) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            if (typeof (msg as any).timestamp === "object" &&
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                "toMillis" in (msg as any).timestamp) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              timestamp = (msg as any).timestamp.toMillis();
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (msg.timestamp) {
+            if (typeof msg.timestamp === "object" &&
+                "toMillis" in msg.timestamp &&
+                msg.timestamp.toMillis) {
+              timestamp = msg.timestamp.toMillis();
             } else if (
-              typeof (msg as any).timestamp === "object" &&
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              "_seconds" in (msg as any).timestamp
+              typeof msg.timestamp === "object" &&
+              "_seconds" in msg.timestamp &&
+              msg.timestamp._seconds
             ) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              timestamp = (msg as any).timestamp._seconds * 1000;
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } else if (typeof (msg as any).timestamp === "number") {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              timestamp = (msg as any).timestamp;
+              timestamp = msg.timestamp._seconds * 1000;
+            } else if (typeof msg.timestamp === "number") {
+              timestamp = msg.timestamp;
             }
           }
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const senderId = (msg as any).senderId || (msg as any).sender;
+          const senderId = msg.senderId || msg.sender || "";
           const senderName = participantDetails[senderId]?.displayName ||
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (msg as any).senderName ||
+            msg.senderName ||
             "Unknown";
 
           contextMessages.push({
             messageId: msg.id,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             score: 0, // Context messages don't have relevance scores
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            text: (msg as any).text as string,
+            text: msg.text || "",
             sender: senderName,
             timestamp,
             conversationId,

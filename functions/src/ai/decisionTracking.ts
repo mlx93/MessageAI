@@ -295,29 +295,40 @@ IMPORTANT:
     }
 
     // Filter out low-confidence decisions (below 0.5)
-    const highConfidenceDecisions = result.object.decisions.filter((item) => {
-      if (item.confidence < 0.5) {
-        console.log(`Filtering out low-confidence decision: "${item.decision}" (${item.confidence})`);
-        return false;
-      }
-      
-      // Additional validation: ensure decision has substance
-      if (!item.decision || item.decision.trim().length < 10) {
-        console.log("Filtering out decision with insufficient content");
-        return false;
-      }
-      
-      // Check for greeting patterns
-      const greetingPatterns = /^(hi|hello|hey|good morning|good afternoon|good evening|what's up|how are you|how's it going)/i;
-      if (greetingPatterns.test(item.decision.trim())) {
-        console.log(`Filtering out greeting: "${item.decision}"`);
-        return false;
-      }
-      
-      return true;
-    });
+    const highConfidenceDecisions =
+      result.object.decisions.filter((item) => {
+        if (item.confidence < 0.5) {
+          console.log(
+            "Filtering out low-confidence decision: " +
+            `"${item.decision}" (${item.confidence})`
+          );
+          return false;
+        }
 
-    console.log(`AI extracted ${result.object.decisions.length} decisions, ${highConfidenceDecisions.length} passed quality filters`);
+        // Additional validation: ensure decision has substance
+        if (!item.decision || item.decision.trim().length < 10) {
+          console.log("Filtering out decision with insufficient content");
+          return false;
+        }
+
+        // Check for greeting patterns
+        const greetingPatterns = new RegExp(
+          "^(hi|hello|hey|good morning|good afternoon|" +
+          "good evening|what's up|how are you|how's it going)",
+          "i"
+        );
+        if (greetingPatterns.test(item.decision.trim())) {
+          console.log(`Filtering out greeting: "${item.decision}"`);
+          return false;
+        }
+
+        return true;
+      });
+
+    console.log(
+      `AI extracted ${result.object.decisions.length} decisions, ` +
+      `${highConfidenceDecisions.length} passed quality filters`
+    );
 
     if (highConfidenceDecisions.length === 0) {
       return {
@@ -405,7 +416,7 @@ IMPORTANT:
               const ts = messagesWithNames[index].timestamp;
               // Check if timestamp is a Firestore Timestamp object
               if (ts && typeof ts === "object" && "toMillis" in ts) {
-                return (ts as any).toMillis();
+                return (ts as {toMillis: () => number}).toMillis();
               }
               // Check if timestamp is in seconds instead of milliseconds
               if (typeof ts === "number" && ts < 946684800000) {
