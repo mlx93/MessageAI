@@ -295,13 +295,13 @@ export default function ChatWithAvaScreen() {
     
     // Extract actual names from the query (not filler words)
     const actualNames = searchTerms.filter(term => 
-      !['summarize', 'conversation', 'with', 'and', 'my', 'the'].includes(term.toLowerCase())
+      term && !['summarize', 'conversation', 'with', 'and', 'my', 'the'].includes(term.toLowerCase())
     );
     
     // De-duplicate names (case-insensitive)
     const uniqueNames = Array.from(
-      new Set(actualNames.map(name => name.toLowerCase()))
-    );
+      new Set(actualNames.map(name => (name || '').toLowerCase()))
+    ).filter(Boolean);
     
     console.log('Ava: Actual names from query:', actualNames);
     console.log('Ava: Unique names:', uniqueNames);
@@ -311,7 +311,7 @@ export default function ChatWithAvaScreen() {
       const titleLower = conv.title.toLowerCase();
       // Check if all actual names are in the title
       return actualNames.every(name => 
-        titleLower.includes(name.toLowerCase())
+        titleLower.includes((name || '').toLowerCase())
       );
     });
     
@@ -358,6 +358,7 @@ export default function ChatWithAvaScreen() {
     // Fall back to partial matching (original logic)
     // First, try to find exact matches
     for (const term of searchTerms) {
+      if (!term) continue;
       const exactMatch = conversations.find(conv => 
         conv.title.toLowerCase() === term.toLowerCase()
       );
@@ -369,6 +370,7 @@ export default function ChatWithAvaScreen() {
     
     // Then try partial matches (name contains the search term)
     for (const term of searchTerms) {
+      if (!term) continue;
       const partialMatch = conversations.find(conv => 
         conv.title.toLowerCase().includes(term.toLowerCase())
       );
@@ -380,6 +382,7 @@ export default function ChatWithAvaScreen() {
     
     // Finally, try word-based matching (any word in the name matches)
     for (const term of searchTerms) {
+      if (!term) continue;
       const wordMatch = conversations.find(conv => {
         const convWords = conv.title.toLowerCase().split(' ');
         return convWords.some(word => word.includes(term.toLowerCase()));
@@ -402,6 +405,41 @@ export default function ChatWithAvaScreen() {
       return "Please log in to use AI features.";
     }
 
+    // Try intelligent routing with avaSearchChat first
+    try {
+      console.log('Ava: Trying intelligent routing with avaSearchChat');
+      const chatHistory = messages
+        .slice(-5) // Last 5 messages for context
+        .map(m => ({role: m.role, content: m.content}));
+      
+      const response = await aiService.avaSearchChat(query, chatHistory);
+      
+      if (response && response.answer) {
+        // Got an answer from search-based chat
+        console.log(`Ava: Got search-based answer (intent: ${response.intent})`);
+        
+        // Format answer with sources if available
+        if (response.sources && response.sources.length > 0) {
+          const sourcesText = response.sources
+            .slice(0, 3)
+            .map((s, i) => `\n${i + 1}. "${s.text}" - ${s.sender} in ${s.conversationName || 'Unknown'}`)
+            .join('');
+          
+          return `${response.answer}\n\n📚 **Sources:**${sourcesText}`;
+        }
+        
+        return response.answer;
+      }
+      
+      // If intent is not "search", fall through to existing logic
+      const intentType = response?.intent || 'unknown';
+      console.log(`Ava: Intent is "${intentType}", using existing logic`);
+    } catch (error) {
+      console.error('Ava: avaSearchChat error:', error);
+      // Fall through to existing logic on error
+    }
+
+    // Existing logic for summarize, action items, etc.
     // Summarize conversation
     if (lowerQuery.includes('summarize')) {
       // Use enhanced name recognition to find conversations
@@ -412,6 +450,9 @@ export default function ChatWithAvaScreen() {
           console.log('Ava: Summarizing conversation:', convoMatch.title, 'ID:', convoMatch.id);
           const result = await aiService.summarizeThread(convoMatch.id);
           console.log('Ava: Summarization result:', result);
+          if (!result) {
+            return `Sorry, I couldn't summarize that conversation. Please try again.`;
+          }
           return `📝 Summary of ${convoMatch.title}:\n\n${result.summary}\n\nMessage Count: ${result.messageCount}`;
         } catch (error: any) {
           console.error('Ava: Summarization error details:', {

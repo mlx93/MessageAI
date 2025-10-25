@@ -72,6 +72,10 @@ export {
   preloadCommonQueries,
 } from "./ai/cacheMaintenance";
 
+export {
+  avaSearchChat,
+} from "./ai/avaSearchChat";
+
 /**
  * Generate 6-digit OTP code
  * @return {string} 6-digit OTP code

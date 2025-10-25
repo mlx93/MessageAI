@@ -23,6 +23,7 @@ export interface SearchResult {
   conversationId: string;
   conversationName?: string;
   conversationType?: "direct" | "group";
+  isContext?: boolean;
 }
 
 export interface ActionItem {
@@ -156,6 +157,32 @@ class AIService {
       },
       'smartSearch',
       {showAlert: true, retries: 2}
+    );
+  }
+
+  /**
+   * Chat with Ava using semantic search to answer questions
+   */
+  async avaSearchChat(
+    userQuery: string,
+    conversationHistory?: Array<{role: 'user' | 'assistant'; content: string}>
+  ): Promise<{
+    answer: string;
+    intent: 'search' | 'summarize' | 'general';
+    sources?: SearchResult[];
+  } | null> {
+    return withAIErrorHandling(
+      async () => {
+        const chat = httpsCallable(this.functions, 'avaSearchChat');
+        const result = await chat({userQuery, conversationHistory});
+        return result.data as {
+          answer: string;
+          intent: 'search' | 'summarize' | 'general';
+          sources?: SearchResult[];
+        };
+      },
+      'avaSearchChat',
+      {showAlert: false, retries: 1}
     );
   }
 

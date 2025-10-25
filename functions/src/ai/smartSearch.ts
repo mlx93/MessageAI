@@ -25,6 +25,7 @@ interface SearchResult {
   conversationId: string;
   conversationName?: string;
   conversationType?: "direct" | "group";
+  isContext?: boolean; // Marks messages fetched for context
 }
 
 export const smartSearch = onCall({
@@ -98,16 +99,44 @@ matches from Pinecone`);
         return {results: [], searchTime: Date.now() - startTime};
       }
 
-      // Step 3: Filter by relevance threshold and sort by score
+      // Step 3: Apply smart relevance threshold filtering
       // (Removed GPT-4o reranking - Pinecone cosine similarity is optimal)
-      const RELEVANCE_THRESHOLD = 0.3; // 30% similarity minimum
-      const relevantMatches = searchResults.matches
-        .filter((m) => (m.score || 0) >= RELEVANCE_THRESHOLD)
-        .sort((a, b) => (b.score || 0) - (a.score || 0))
-        .slice(0, 20); // Return top 20 results (increased from 5)
+      const MIN_THRESHOLD = 0.3; // 30% similarity minimum
+      const HIGH_QUALITY_THRESHOLD = 0.4; // 40% for high-quality results
+      const MAX_RESULTS = 20; // Maximum total results
+      const MIN_RESULTS_DESIRED = 5; // Minimum results to show if possible
+      
+      // First, filter by minimum threshold and sort by score
+      const filteredMatches = searchResults.matches
+        .filter((m) => (m.score || 0) >= MIN_THRESHOLD)
+        .sort((a, b) => (b.score || 0) - (a.score || 0));
 
-      console.log(`[SmartSearch] ${relevantMatches.length} matches above \
-${RELEVANCE_THRESHOLD} threshold`);
+      console.log(`[SmartSearch] ${filteredMatches.length} matches above ${MIN_THRESHOLD} threshold`);
+
+      // Apply smart filtering logic
+      let relevantMatches = filteredMatches;
+      const highQualityCount = filteredMatches.filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD).length;
+      
+      if (highQualityCount >= MIN_RESULTS_DESIRED) {
+        // If we have 5+ high-quality results, show only those (up to MAX_RESULTS)
+        relevantMatches = filteredMatches
+          .filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD)
+          .slice(0, MAX_RESULTS);
+        console.log(`[SmartSearch] Showing ${relevantMatches.length} high-quality results (≥40%)`);
+      } else {
+        // Otherwise, show all 40%+ results plus enough 30-40% to reach 5 total
+        const highQualityMatches = filteredMatches.filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD);
+        const mediumQualityMatches = filteredMatches.filter((m) => {
+          const score = m.score || 0;
+          return score >= MIN_THRESHOLD && score < HIGH_QUALITY_THRESHOLD;
+        });
+        
+        const needed = Math.max(0, MIN_RESULTS_DESIRED - highQualityMatches.length);
+        const mediumToInclude = mediumQualityMatches.slice(0, Math.min(needed, 5)); // Max 5 medium-quality
+        
+        relevantMatches = [...highQualityMatches, ...mediumToInclude].slice(0, MAX_RESULTS);
+        console.log(`[SmartSearch] Showing ${highQualityMatches.length} high-quality + ${mediumToInclude.length} medium-quality results`);
+      }
 
       if (relevantMatches.length === 0) {
         return {results: [], searchTime: Date.now() - startTime};
@@ -235,13 +264,50 @@ unique conversations`);
       );
 
       const validMessages = messages.filter(Boolean) as SearchResult[];
+
+      // Step 6: Fetch surrounding context messages for high-scoring results
+      console.log("[SmartSearch] Fetching context messages for high-scoring results");
+      const contextMessages = await fetchContextMessages(
+        db,
+        validMessages,
+        conversationMap,
+        userId,
+        getConversationName
+      );
+
+      // Merge and deduplicate results
+      const allMessages = [...validMessages, ...contextMessages];
+      const uniqueMessages = Array.from(
+        new Map(allMessages.map((m) => [m.messageId, m])).values()
+      );
+
+      // Sort by conversation, then by timestamp within conversation
+      const sortedResults = uniqueMessages.sort((a, b) => {
+        if (a.conversationId !== b.conversationId) {
+          // Sort conversations by highest score within them
+          const aMaxScore = Math.max(
+            ...uniqueMessages
+              .filter((m) => m.conversationId === a.conversationId && !m.isContext)
+              .map((m) => m.score)
+          );
+          const bMaxScore = Math.max(
+            ...uniqueMessages
+              .filter((m) => m.conversationId === b.conversationId && !m.isContext)
+              .map((m) => m.score)
+          );
+          return bMaxScore - aMaxScore;
+        }
+        // Within same conversation, sort by timestamp
+        return a.timestamp - b.timestamp;
+      });
+
       const totalTime = Date.now() - startTime;
 
-      console.log(`[SmartSearch] Returning ${validMessages.length} results \
-in ${totalTime}ms`);
+      console.log(`[SmartSearch] Returning ${validMessages.length} results + \
+${contextMessages.length} context messages in ${totalTime}ms`);
 
       return {
-        results: validMessages,
+        results: sortedResults,
         searchTime: totalTime,
       };
     });
@@ -252,3 +318,132 @@ in ${totalTime}ms`);
     throw new HttpsError("internal", "Failed to perform search");
   }
 });
+
+/**
+ * Fetch surrounding context messages for high-scoring results
+ * For results with score > 40%, fetch 2-3 messages before and after
+ */
+async function fetchContextMessages(
+  db: admin.firestore.Firestore,
+  results: SearchResult[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conversationMap: Map<string, any>,
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getConversationName: (convData: any) => string
+): Promise<SearchResult[]> {
+  const CONTEXT_THRESHOLD = 0.4; // 40% - only fetch context for high-quality results
+  const CONTEXT_BEFORE = 2;
+  const CONTEXT_AFTER = 3;
+
+  const highScoringResults = results.filter((r) => r.score >= CONTEXT_THRESHOLD);
+
+  if (highScoringResults.length === 0) {
+    return [];
+  }
+
+  console.log(`[Context] Fetching context for ${highScoringResults.length} high-scoring results`);
+
+  // Group by conversation for batch fetching
+  const byConversation = new Map<string, SearchResult[]>();
+  highScoringResults.forEach((result) => {
+    const existing = byConversation.get(result.conversationId) || [];
+    existing.push(result);
+    byConversation.set(result.conversationId, existing);
+  });
+
+  const contextMessages: SearchResult[] = [];
+  const seenMessageIds = new Set(results.map((r) => r.messageId));
+
+  // Fetch context messages for each conversation
+  for (const [conversationId, convResults] of byConversation) {
+    try {
+      // Fetch all messages from this conversation, ordered by timestamp
+      const messagesSnapshot = await db
+        .collection(`conversations/${conversationId}/messages`)
+        .orderBy("timestamp", "asc")
+        .get();
+
+      const allMessages = messagesSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      const convData = conversationMap.get(conversationId);
+      const participantDetails = convData?.participantDetails || {};
+
+      // For each high-scoring result, find surrounding messages
+      for (const result of convResults) {
+        const resultIndex = allMessages.findIndex((m) => m.id === result.messageId);
+        if (resultIndex === -1) continue;
+
+        // Get surrounding messages
+        const startIndex = Math.max(0, resultIndex - CONTEXT_BEFORE);
+        const endIndex = Math.min(allMessages.length, resultIndex + CONTEXT_AFTER + 1);
+        const surroundingMessages = allMessages.slice(startIndex, endIndex);
+
+        // Convert to SearchResult format
+        for (const msg of surroundingMessages) {
+          // Skip if already in results or deleted by user
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const deletedBy = (msg as any).deletedBy || [];
+          if (seenMessageIds.has(msg.id) || deletedBy.includes(userId)) {
+            continue;
+          }
+
+          // Convert timestamp
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let timestamp = Date.now();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if ((msg as any).timestamp) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (typeof (msg as any).timestamp === "object" &&
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  "toMillis" in (msg as any).timestamp) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              timestamp = (msg as any).timestamp.toMillis();
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } else if (typeof (msg as any).timestamp === "object" &&
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                         "_seconds" in (msg as any).timestamp) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              timestamp = (msg as any).timestamp._seconds * 1000;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } else if (typeof (msg as any).timestamp === "number") {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              timestamp = (msg as any).timestamp;
+            }
+          }
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const senderId = (msg as any).senderId || (msg as any).sender;
+          const senderName = participantDetails[senderId]?.displayName ||
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                           (msg as any).senderName ||
+                           "Unknown";
+
+          contextMessages.push({
+            messageId: msg.id,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            score: 0, // Context messages don't have relevance scores
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            text: (msg as any).text as string,
+            sender: senderName,
+            timestamp,
+            conversationId,
+            conversationName: getConversationName(convData),
+            conversationType: convData?.isGroup ? "group" : "direct",
+            isContext: true, // Mark as context message
+          });
+
+          seenMessageIds.add(msg.id);
+        }
+      }
+    } catch (error) {
+      console.error(`[Context] Error fetching context for conversation ${conversationId}:`, error);
+    }
+  }
+
+  console.log(`[Context] Fetched ${contextMessages.length} context messages`);
+  return contextMessages;
+}

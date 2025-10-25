@@ -26,6 +26,7 @@ interface SearchResultItem {
   timestamp: number;
   score?: number;
   matchType: 'keyword' | 'semantic';
+  isContext?: boolean; // Marks context messages
 }
 
 export default function SmartSearchScreen() {
@@ -133,34 +134,19 @@ export default function SmartSearchScreen() {
   const performSemanticSearch = async (searchTerm: string): Promise<SearchResultItem[]> => {
     try {
       console.log('Starting semantic search for:', searchTerm);
+      const startTime = Date.now();
       const response = await aiService.smartSearch(searchTerm);
+      console.log(`Semantic search completed in ${Date.now() - startTime}ms`);
       console.log('Semantic search raw response:', response);
       
-      const userId = auth.currentUser?.uid;
-      if (!userId) return [];
+      if (!response) return [];
       
-      const results: SearchResultItem[] = [];
-      
-      for (const result of response.results) {
-        console.log('Semantic result:', {
-          messageId: result.messageId,
-          score: result.score,
-          text: result.text.substring(0, 50),
-          conversationName: result.conversationName,
-        });
-
-        // Use conversation name from backend if available, otherwise fetch
-        let conversationName = result.conversationName;
-        if (!conversationName) {
-          conversationName = await getConversationName(result.conversationId, userId);
-        }
-
-        results.push({
-          ...result,
-          conversationName,
-          matchType: 'semantic',
-        });
-      }
+      const results: SearchResultItem[] = response.results.map(result => ({
+        ...result,
+        // Backend already provides conversation names - use them directly
+        conversationName: result.conversationName || 'Unknown Conversation',
+        matchType: 'semantic' as const,
+      }));
       
       console.log('Total semantic results:', results.length);
       return results;
@@ -298,12 +284,17 @@ export default function SmartSearchScreen() {
                     </Text>
                   </View>
                   <View style={styles.badges}>
-                    {item.matchType === 'keyword' && (
+                    {item.isContext && (
+                      <View style={styles.contextBadge}>
+                        <Text style={styles.badgeText}>Context</Text>
+                      </View>
+                    )}
+                    {item.matchType === 'keyword' && !item.isContext && (
                       <View style={styles.keywordBadge}>
                         <Text style={styles.badgeText}>Exact</Text>
                       </View>
                     )}
-                    {item.score !== undefined && (
+                    {item.score !== undefined && item.score > 0 && (
                       <Text style={styles.resultScore}>
                         {Math.round(item.score * 100)}%
                       </Text>
@@ -468,6 +459,12 @@ const styles = StyleSheet.create({
   },
   keywordBadge: {
     backgroundColor: '#34C759',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  contextBadge: {
+    backgroundColor: '#FF9500',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
