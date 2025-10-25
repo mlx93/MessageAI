@@ -20,9 +20,10 @@ import admin from 'firebase-admin';
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from parent directory
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Configuration
 const BATCH_SIZE = 100; // Process 100 messages at a time
@@ -31,9 +32,32 @@ const OPENAI_EMBEDDING_MODEL = 'text-embedding-3-large';
 
 // Initialize Firebase Admin
 if (getApps().length === 0) {
-  initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || 'messageai-mlx93',
-  });
+  // Try to use service account if available, otherwise use default
+  try {
+    const serviceAccountPath = path.resolve(__dirname, '../serviceAccountKey.json');
+    const fs = require('fs');
+    if (fs.existsSync(serviceAccountPath)) {
+      const serviceAccount = require(serviceAccountPath);
+      initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: process.env.FIREBASE_PROJECT_ID || 'messageai-mlx93',
+      });
+      console.log('✅ Using service account credentials');
+    } else {
+      throw new Error('Service account not found');
+    }
+  } catch (error) {
+    // Fallback to default initialization (requires GOOGLE_APPLICATION_CREDENTIALS)
+    console.log('⚠️ No service account found, attempting default initialization');
+    console.log('📝 To fix this, either:');
+    console.log('   1. Download service account key from Firebase Console');
+    console.log('   2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable');
+    console.log('   3. Run: gcloud auth application-default login');
+    
+    initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || 'messageai-mlx93',
+    });
+  }
 }
 
 const db = getFirestore();
@@ -330,7 +354,7 @@ async function main() {
 }
 
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   main();
 }
 

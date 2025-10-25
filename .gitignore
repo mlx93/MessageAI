@@ -26,6 +26,8 @@ functions/lib/
 
 # Credentials folder - NEVER commit these!
 creds/
+serviceAccountKey.json
+**/serviceAccountKey.json
 
 # Native
 .kotlin/

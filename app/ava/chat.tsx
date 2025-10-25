@@ -18,7 +18,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import aiService from '../../services/aiService';
 import avaChatHistory from '../../services/avaChatHistory';
 import {auth} from '../../services/firebase';
-import {getFirestore, collection, query, where, orderBy, limit, getDocs} from 'firebase/firestore';
+import {getFirestore, collection, query as firestoreQuery, where, orderBy, limit, getDocs} from 'firebase/firestore';
 
 interface Message {
   id: string;
@@ -42,14 +42,15 @@ export default function ChatWithAvaScreen() {
   const initialQuery = params.initialQuery as string;
   const sessionId = params.sessionId as string;
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
+  // Only show welcome message for new sessions (no sessionId)
+  const [messages, setMessages] = useState<Message[]>(
+    sessionId ? [] : [{
       id: '1',
       role: 'assistant',
-      content: "Hi! I'm Ava, your AI assistant. I can help you:\n\n• Summarize conversations (by name or person)\n• Find information about people in your chats\n• Search your messages\n• Track action items and decisions\n\nI can recognize first names, last names, and full names from your conversation history!\n\nWhat can I help you with?",
+      content: "Hi! I'm Ava, your AI assistant. I can help you:\n\n• Summarize conversations (by name or person)\n• Find information about people in your chats\n• Search your messages\n• Track action items and decisions\n• Show your action items and tasks\n\nI can recognize first names, last names, and full names from your conversation history!\n\nWhat can I help you with?",
       timestamp: Date.now(),
-    },
-  ]);
+    }]
+  );
   const [inputText, setInputText] = useState(initialQuery || '');
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationOption[]>([]);
@@ -92,7 +93,7 @@ export default function ChatWithAvaScreen() {
 
       console.log('Ava: Loading conversations for user:', userId);
       const db = getFirestore();
-      const conversationsQuery = query(
+      const conversationsQuery = firestoreQuery(
         collection(db, 'conversations'),
         where('participants', 'array-contains', userId),
         orderBy('updatedAt', 'desc'),
@@ -292,39 +293,57 @@ export default function ChatWithAvaScreen() {
     console.log('Ava: Searching for conversations with names:', searchTerms);
     console.log('Ava: Available conversations:', conversations.map(c => c.title));
     
-    // Get current user ID for exact matching
-    const userId = auth.currentUser?.uid;
+    // Extract actual names from the query (not filler words)
+    const actualNames = searchTerms.filter(term => 
+      !['summarize', 'conversation', 'with', 'and', 'my', 'the'].includes(term.toLowerCase())
+    );
     
-    // Try to find conversations where all search terms match participants
+    // De-duplicate names (case-insensitive)
+    const uniqueNames = Array.from(
+      new Set(actualNames.map(name => name.toLowerCase()))
+    );
+    
+    console.log('Ava: Actual names from query:', actualNames);
+    console.log('Ava: Unique names:', uniqueNames);
+    
+    // Try to find conversations where all actual names match participants
     const matchedConversations = conversations.filter(conv => {
       const titleLower = conv.title.toLowerCase();
-      // Check if all search terms are in the title
-      return searchTerms.every(term => 
-        titleLower.includes(term.toLowerCase())
+      // Check if all actual names are in the title
+      return actualNames.every(name => 
+        titleLower.includes(name.toLowerCase())
       );
     });
     
+    console.log('Ava: Matched conversations:', matchedConversations.map(c => 
+      `${c.title} (${c.participants?.length || 0} participants)`
+    ));
+    
     if (matchedConversations.length > 0) {
       // If we have multiple matches, prioritize by exact participant count
-      // Count how many unique names were mentioned in the query
-      const uniqueQueryNames = new Set(searchTerms.map(t => t.toLowerCase()));
+      // Expected participant count = number of UNIQUE names mentioned + current user
+      const expectedCount = uniqueNames.length + 1;
+      
+      console.log('Ava: Expected participant count:', expectedCount);
       
       // Sort by: exact participant count match, then fewest total participants
       const sortedMatches = matchedConversations.sort((a, b) => {
         const aParticipantCount = a.participants?.length || 0;
         const bParticipantCount = b.participants?.length || 0;
         
-        // Calculate how many names in title match query terms
-        const aNameCount = a.title.split(',').length;
-        const bNameCount = b.title.split(',').length;
+        console.log(`Ava: Comparing - ${a.title} (${aParticipantCount}) vs ${b.title} (${bParticipantCount})`);
         
-        // Prioritize conversations where participant count matches query + current user
-        const expectedCount = uniqueQueryNames.size + 1; // +1 for current user
         const aIsExact = aParticipantCount === expectedCount;
         const bIsExact = bParticipantCount === expectedCount;
         
-        if (aIsExact && !bIsExact) return -1;
-        if (!aIsExact && bIsExact) return 1;
+        if (aIsExact && !bIsExact) {
+          console.log(`Ava: ${a.title} is exact match!`);
+          return -1;
+        }
+        if (!aIsExact && bIsExact) {
+          console.log(`Ava: ${b.title} is exact match!`);
+          return 1;
+        }
         
         // If both are exact or both aren't, prefer fewer participants
         return aParticipantCount - bParticipantCount;
@@ -377,6 +396,7 @@ export default function ChatWithAvaScreen() {
   const getAvaResponse = async (query: string): Promise<string> => {
     const lowerQuery = query.toLowerCase();
     const userId = auth.currentUser?.uid;
+    const db = getFirestore();
 
     if (!userId) {
       return "Please log in to use AI features.";
@@ -392,9 +412,7 @@ export default function ChatWithAvaScreen() {
           console.log('Ava: Summarizing conversation:', convoMatch.title, 'ID:', convoMatch.id);
           const result = await aiService.summarizeThread(convoMatch.id);
           console.log('Ava: Summarization result:', result);
-          const startDate = new Date(result.dateRange.start).toLocaleDateString();
-          const endDate = new Date(result.dateRange.end).toLocaleDateString();
-          return `📝 Summary of ${convoMatch.title}:\n\n${result.summary}\n\n**Message Count:** ${result.messageCount}\n**Date Range:** ${startDate} - ${endDate}`;
+          return `📝 Summary of ${convoMatch.title}:\n\n${result.summary}\n\nMessage Count: ${result.messageCount}`;
         } catch (error: any) {
           console.error('Ava: Summarization error details:', {
             error: error,
@@ -413,6 +431,48 @@ export default function ChatWithAvaScreen() {
         return `I couldn't find a conversation with that name. Here are your active conversations:\n\n${convoList}\n\nTry saying the exact name from the list above, or just say "summarize" to see all options!`;
       } else {
         return "You don't have any active conversations yet. Start chatting with someone first!";
+      }
+    }
+
+    // Action items query
+    if (lowerQuery.includes('action') || lowerQuery.includes('task') || lowerQuery.includes('to do') || lowerQuery.includes('todo')) {
+      try {
+        const actionItemsSnapshot = await getDocs(
+          firestoreQuery(
+            collection(db, 'action_items'),
+            where('status', '==', 'pending'),
+            where('assigneeId', '==', userId),
+            orderBy('createdAt', 'desc')
+          )
+        );
+
+        if (actionItemsSnapshot.empty) {
+          return "🎉 You don't have any pending action items!";
+        }
+
+        const items = actionItemsSnapshot.docs.map(doc => doc.data());
+        const itemsList = items.map((item: any, i: number) => {
+          let itemText = `${i + 1}. ${item.task}`;
+          if (item.deadline) {
+            try {
+              const deadlineDate = item.deadline?.toDate?.()
+                ? item.deadline.toDate()
+                : new Date(item.deadline);
+              if (!isNaN(deadlineDate.getTime())) {
+                const dueDate = deadlineDate.toLocaleDateString();
+                itemText += ` (Due: ${dueDate})`;
+              }
+            } catch (e) {
+              // Skip deadline if parsing fails
+            }
+          }
+          return itemText;
+        }).join('\n');
+
+        return `📋 Your Action Items:\n\n${itemsList}\n\n💡 Tap "Action Items" in the Ava tab to see more details and mark items complete!`;
+      } catch (error: any) {
+        console.error('Error fetching action items:', error);
+        return `Sorry, I couldn't fetch your action items: ${error.message}`;
       }
     }
 

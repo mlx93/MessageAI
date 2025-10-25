@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web",
+    "start": "node node_modules/expo/bin/cli start",
+    "start:clear": "node node_modules/expo/bin/cli start -c",
+    "android": "node node_modules/expo/bin/cli run:android",
+    "ios": "node node_modules/expo/bin/cli run:ios",
+    "web": "node node_modules/expo/bin/cli start --web",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --coverageReporters=text --coverageReporters=html",
@@ -19,6 +20,7 @@
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "create-pinecone-index": "ts-node scripts/create-pinecone-index.ts",
     "embed-messages": "ts-node scripts/embed-existing-messages.ts",
+    "check-vectors": "ts-node scripts/check-pinecone-vectors.ts",
     "deploy-indexes": "ts-node scripts/deploy-firestore-indexes.ts",
     "create-indexes-file": "ts-node scripts/create-indexes-file.ts",
     "fix-index-names": "ts-node scripts/fix-index-field-names.ts"

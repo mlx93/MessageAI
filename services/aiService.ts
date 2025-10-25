@@ -40,6 +40,9 @@ export interface Decision {
   rationale: string;
   alternativesConsidered: string[];
   participants: string[];
+  participantIds?: string[];
+  decisionMaker?: string;
+  decisionMakerId?: string;
   messageIds: string[];
   confidence: number;
   conversationId: string;
@@ -244,12 +247,38 @@ class AIService {
   }
 
   /**
+   * Get action items assigned to a specific user
+   */
+  getUserActionItems(userId: string) {
+    const q = query(
+      collection(this.db, 'action_items'),
+      where('status', '==', 'pending'),
+      where('assigneeId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    return {
+      onSnapshot: (callback: (snapshot: any) => void) =>
+        onSnapshot(q, callback),
+    };
+  }
+
+  /**
    * Mark action item as completed
    */
   async completeActionItem(itemId: string) {
     await updateDoc(doc(this.db, 'action_items', itemId), {
       status: 'completed',
       completedAt: serverTimestamp(),
+    });
+  }
+
+  /**
+   * Delete an action item
+   */
+  async deleteActionItem(itemId: string) {
+    await updateDoc(doc(this.db, 'action_items', itemId), {
+      status: 'deleted',
+      deletedAt: serverTimestamp(),
     });
   }
 
@@ -270,7 +299,7 @@ class AIService {
   }
 
   /**
-   * Get all decisions
+   * Get all decisions for user's conversations
    */
   getAllDecisions() {
     const q = query(
@@ -279,9 +308,53 @@ class AIService {
       orderBy('madeAt', 'desc')
     );
     return {
-      onSnapshot: (callback: (snapshot: any) => void) =>
-        onSnapshot(q, callback),
+      onSnapshot: (callback: (snapshot: any) => void) => {
+        return onSnapshot(q, (snapshot) => {
+          console.log(`📊 Decisions snapshot: ${snapshot.size} active decisions`);
+          callback(snapshot);
+        });
+      },
     };
+  }
+
+  /**
+   * Delete a single decision
+   */
+  async deleteDecision(decisionId: string): Promise<{success: boolean; message: string} | null> {
+    return withAIErrorHandling(
+      async () => {
+        const deleteFunc = httpsCallable(this.functions, 'deleteDecision');
+        const result = await deleteFunc({decisionId});
+        return result.data as {success: boolean; message: string};
+      },
+      'deleteDecision',
+      {showAlert: false, retries: 1}
+    );
+  }
+
+  /**
+   * Bulk delete decisions
+   */
+  async bulkDeleteDecisions(decisionIds: string[]): Promise<{success: boolean; deletedCount: number; message: string} | null> {
+    return withAIErrorHandling(
+      async () => {
+        const deleteFunc = httpsCallable(this.functions, 'bulkDeleteDecisions');
+        const result = await deleteFunc({decisionIds});
+        return result.data as {success: boolean; deletedCount: number; message: string};
+      },
+      'bulkDeleteDecisions',
+      {showAlert: true, retries: 1}
+    );
+  }
+
+  /**
+   * Mark a decision as deleted
+   */
+  async deleteDecision(decisionId: string) {
+    await updateDoc(doc(this.db, 'decisions', decisionId), {
+      status: 'deleted',
+      deletedAt: serverTimestamp(),
+    });
   }
 
   /**

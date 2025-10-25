@@ -60,7 +60,9 @@ export const smartSearch = onCall({
       const index = getIndex();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pineconeFilters: any = {
-        userId: {$eq: userId},
+        // Filter by participants array to show ALL messages
+        // from user's conversations
+        participants: {$in: [userId]},
       };
 
       if (filters?.conversationId) {
@@ -127,12 +129,33 @@ Return format: Just the IDs, one per line \
           const data = doc.data();
           if (!data) return null;
 
+          // Filter out messages deleted by this user
+          const deletedBy = data.deletedBy || [];
+          if (deletedBy.includes(userId)) return null;
+
+          // Convert Firestore timestamp to milliseconds
+          let timestamp = Date.now();
+          if (data.timestamp) {
+            if (typeof data.timestamp === "object" &&
+                "toMillis" in data.timestamp) {
+              // Firestore Timestamp object
+              timestamp = data.timestamp.toMillis();
+            } else if (typeof data.timestamp === "object" &&
+                       "_seconds" in data.timestamp) {
+              // Raw Firestore timestamp from admin SDK
+              timestamp = data.timestamp._seconds * 1000;
+            } else if (typeof data.timestamp === "number") {
+              // Already a number
+              timestamp = data.timestamp;
+            }
+          }
+
           return {
             messageId: id,
             score: match?.score || 0,
             text: data.text as string,
-            sender: data.sender as string,
-            timestamp: data.timestamp as number,
+            sender: data.senderName || data.sender || "Unknown",
+            timestamp,
             conversationId: conversationId,
           } as SearchResult;
         })

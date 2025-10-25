@@ -85,7 +85,7 @@ const SwipeableSessionCard = ({
         <TouchableOpacity
           style={styles.deleteButtonContent}
           onPress={() => onDelete(session)}>
-          <Ionicons name="trash" size={20} color="#FFF" />
+          <Ionicons name="trash" size={18} color="#FFF" />
         </TouchableOpacity>
       </View>
       
@@ -101,22 +101,24 @@ const SwipeableSessionCard = ({
           style={styles.recentCard}
           onPress={handlePress}>
           <View style={styles.recentCardContent}>
-            <View style={styles.recentCardHeader}>
-              <Text style={styles.recentCardTitle} numberOfLines={1}>
-                {session.title}
-              </Text>
-              <Text style={styles.recentCardTime}>
-                {formatDistanceToNow(session.updatedAt, {addSuffix: true})}
-              </Text>
-            </View>
-            <Text style={styles.recentCardMessage} numberOfLines={2}>
-              {session.lastMessage}
-            </Text>
-            <View style={styles.recentCardFooter}>
-              <Text style={styles.recentCardCount}>
-                {session.messageCount} messages
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color="#999" />
+            <View style={styles.recentCardRow}>
+              <View style={styles.recentCardLeft}>
+                <Text style={styles.recentCardTitle} numberOfLines={1}>
+                  {session.title}
+                </Text>
+                <Text style={styles.recentCardMessage} numberOfLines={1}>
+                  {session.lastMessage}
+                </Text>
+              </View>
+              <View style={styles.recentCardRight}>
+                <Text style={styles.recentCardTime}>
+                  {formatDistanceToNow(session.updatedAt, {addSuffix: true})}
+                </Text>
+                <Text style={styles.recentCardCount}>
+                  {session.messageCount} msgs
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="#999" />
             </View>
           </View>
         </TouchableOpacity>
@@ -225,7 +227,7 @@ export default function AvaAssistant() {
         <View>
           <Text style={styles.greeting}>Hey there! 👋</Text>
           <Text style={styles.title}>I'm Ava</Text>
-          <Text style={styles.subtitle}>Your AI assistant for MessageAI</Text>
+          <Text style={styles.subtitle}>Your AI assistant for aiMessage</Text>
         </View>
       </View>
 
@@ -235,7 +237,7 @@ export default function AvaAssistant() {
           <View style={styles.chatButtonContent}>
             <View style={styles.chatButtonHeader}>
               <Text style={styles.chatButtonTitle}>Chat with Ava</Text>
-              <Ionicons name="arrow-forward" size={20} color="#AF52DE" />
+              <Ionicons name="arrow-forward" size={18} color="#AF52DE" />
             </View>
             <View style={styles.chatInputContainer}>
               <TextInput
@@ -253,7 +255,7 @@ export default function AvaAssistant() {
                 disabled={!searchQuery.trim()}>
                 <Ionicons
                   name="send"
-                  size={16}
+                  size={14}
                   color={searchQuery.trim() ? '#AF52DE' : '#CCC'}
                 />
               </TouchableOpacity>
@@ -264,57 +266,56 @@ export default function AvaAssistant() {
 
       {/* Features Grid */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>What can I help you with?</Text>
-
         <View style={styles.featuresGrid}>
           {features.map((feature, index) => (
             <TouchableOpacity
               key={index}
               style={[styles.featureCard, {borderLeftColor: feature.color}]}
               onPress={() => router.push(feature.route as any)}>
-              <View style={styles.featureHeader}>
+              <View style={styles.featureContent}>
                 <Text style={styles.featureIcon}>{feature.icon}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#999" />
+                <View style={styles.featureTextContent}>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                  <Text style={styles.featureDescription}>
+                    {feature.description}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#999" />
               </View>
-              <Text style={styles.featureTitle}>{feature.title}</Text>
-              <Text style={styles.featureDescription}>
-                {feature.description}
-              </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Recent Activity */}
-        <View style={styles.recentSection}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          {recentSessions.length > 0 ? (
-            recentSessions.map((session) => (
+        {recentSessions.length > 0 ? (
+          <View style={styles.recentSection}>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            {recentSessions.map((session) => (
               <SwipeableSessionCard
                 key={session.id}
                 session={session}
                 onPress={handleRecentSessionPress}
                 onDelete={handleDeleteSession}
               />
-            ))
-          ) : (
-            <View style={styles.recentCard}>
-              <Ionicons name="time-outline" size={20} color="#666" />
-              <Text style={styles.recentText}>
-                Your recent AI interactions will appear here
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyRecentSection}>
+            <View style={styles.emptyRecentCard}>
+              <Ionicons name="sparkles" size={14} color="#C7C7CC" />
+              <Text style={styles.emptyRecentText}>
+                Start a conversation with Ava to see your history here
               </Text>
             </View>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Tips */}
         <View style={styles.tipsSection}>
-          <Text style={styles.sectionTitle}>💡 Tips</Text>
           <View style={styles.tipCard}>
+            <Ionicons name="bulb-outline" size={14} color="#007AFF" />
             <Text style={styles.tipText}>
-              • Ask me to summarize any conversation{'\n'}
-              • I automatically detect priority messages{'\n'}
-              • Search using natural language{'\n'}
-              • I'll proactively suggest meeting times
+              Ask me to summarize • Find action items • Search conversations • Track decisions
             </Text>
           </View>
         </View>
@@ -330,7 +331,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingVertical: 12,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E5',
@@ -340,10 +341,10 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: '#000',
-    marginTop: 4,
+    marginTop: 2,
   },
   subtitle: {
     fontSize: 14,
@@ -352,26 +353,26 @@ const styles = StyleSheet.create({
   },
   chatButtonContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     backgroundColor: '#FFF',
   },
   chatButton: {
     backgroundColor: '#F8F9FA',
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E5E5',
   },
   chatButtonContent: {
-    padding: 20,
+    padding: 14,
   },
   chatButtonHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   chatButtonTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#000',
   },
@@ -379,21 +380,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#E5E5E5',
   },
   chatInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#000',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   sendIconButton: {
-    padding: 8,
-    borderRadius: 16,
+    padding: 6,
+    borderRadius: 12,
     backgroundColor: '#F0F8FF',
   },
   sendIconButtonDisabled: {
@@ -403,27 +404,51 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#000',
-    marginTop: 24,
-    marginBottom: 12,
+    marginTop: 16,
+    marginBottom: 10,
     paddingHorizontal: 20,
   },
   featuresGrid: {
     paddingHorizontal: 20,
-    gap: 16,
+    paddingTop: 12,
+    gap: 8,
   },
   featureCard: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    borderLeftWidth: 4,
+    borderRadius: 10,
+    padding: 10,
+    borderLeftWidth: 3,
     shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
+    marginBottom: 6,
+  },
+  featureContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  featureTextContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  featureIcon: {
+    fontSize: 24,
+  },
+  featureTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 2,
+  },
+  featureDescription: {
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 16,
   },
   featureHeader: {
     flexDirection: 'row',
@@ -431,59 +456,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  featureIcon: {
-    fontSize: 32,
-  },
-  featureTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
-  },
-  featureDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
   recentSection: {
-    marginTop: 16,
-    marginBottom: 16,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  emptyRecentSection: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  emptyRecentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    gap: 8,
+  },
+  emptyRecentText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
   },
   recentCard: {
     backgroundColor: '#FFF',
     marginHorizontal: 20,
-    marginBottom: 8,
-    borderRadius: 12,
+    marginBottom: 6,
+    borderRadius: 10,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   recentCardContent: {
-    padding: 16,
+    padding: 10,
+  },
+  recentCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recentCardLeft: {
+    flex: 1,
+  },
+  recentCardRight: {
+    marginRight: 8,
+    alignItems: 'flex-end',
   },
   recentCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   recentCardTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     color: '#000',
-    flex: 1,
   },
   recentCardTime: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#999',
   },
   recentCardMessage: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#666',
-    lineHeight: 20,
-    marginBottom: 8,
+    marginTop: 2,
   },
   recentCardFooter: {
     flexDirection: 'row',
@@ -491,8 +530,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   recentCardCount: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#999',
+    marginTop: 2,
   },
   recentText: {
     flex: 1,
@@ -502,7 +542,7 @@ const styles = StyleSheet.create({
   swipeContainer: {
     position: 'relative',
     marginHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   swipeContent: {
     backgroundColor: '#FFF',
@@ -534,20 +574,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tipsSection: {
-    marginBottom: 32,
+    marginTop: 8,
+    marginBottom: 16,
   },
   tipCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F0F8FF',
     marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#007AFF20',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
   },
   tipText: {
-    fontSize: 14,
-    color: '#333',
-    lineHeight: 22,
+    flex: 1,
+    fontSize: 11,
+    color: '#007AFF',
+    lineHeight: 14,
   },
 });
 

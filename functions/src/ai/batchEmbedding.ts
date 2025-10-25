@@ -19,13 +19,24 @@ export const batchEmbedMessages = onSchedule({
     const allUnembeddedMessages: admin.firestore.QueryDocumentSnapshot[] = [];
 
     for (const convDoc of conversationsSnapshot.docs) {
+      const conversationId = convDoc.id;
       const messagesSnapshot = await db
-        .collection(`conversations/${convDoc.id}/messages`)
+        .collection(`conversations/${conversationId}/messages`)
         .where("embedded", "==", false)
         .limit(50) // Limit per conversation to avoid timeout
         .get();
 
-      allUnembeddedMessages.push(...messagesSnapshot.docs);
+      // Add conversationId to each message doc's data if not present
+      const messagesWithConvId = messagesSnapshot.docs.map((doc) => {
+        const data = doc.data();
+        if (!data.conversationId) {
+          // Add conversationId if missing
+          doc.ref.update({conversationId});
+        }
+        return doc;
+      });
+
+      allUnembeddedMessages.push(...messagesWithConvId);
 
       if (allUnembeddedMessages.length >= 100) break; // Total limit
     }
@@ -52,9 +63,36 @@ export const batchEmbedMessages = onSchedule({
       input: texts,
     });
 
+    // Get unique conversation IDs and fetch their participants
+    const uniqueConversationIds = [...new Set(
+      snapshot.docs.map((doc) => doc.data().conversationId)
+        .filter((id) => id && id.length > 0) // Filter out undefined/empty IDs
+    )];
+
+    const conversationParticipants: Record<string, string[]> = {};
+    await Promise.all(
+      uniqueConversationIds.map(async (convId) => {
+        if (!convId) return; // Skip if no conversation ID
+        try {
+          const convDoc = await db.collection("conversations")
+            .doc(convId).get();
+          conversationParticipants[convId] = convDoc.exists ?
+            convDoc.data()?.participants || [] : [];
+        } catch (error) {
+          console.error(`Error fetching conversation ${convId}:`, error);
+          conversationParticipants[convId] = [];
+        }
+      })
+    );
+
     // Prepare vectors for Pinecone
     const vectors = snapshot.docs.map((doc, i) => {
       const data = doc.data();
+      // Get conversation ID from doc path if not in data
+      const conversationId = data.conversationId ||
+        doc.ref.parent.parent?.id || "";
+      const participants = conversationParticipants[conversationId] || [];
+
       // Convert Firestore Timestamp to number if needed
       let timestampValue = data.timestamp;
       if (timestampValue && typeof timestampValue === "object" &&
@@ -68,10 +106,13 @@ export const batchEmbedMessages = onSchedule({
         id: doc.id,
         values: response.data[i].embedding,
         metadata: {
-          userId: data.userId,
-          conversationId: data.conversationId,
+          // Kept for backward compatibility
+          userId: data.senderId || data.userId,
+          senderId: data.senderId || data.userId, // Who sent the message
+          participants, // All users who can access this message
+          conversationId,
           timestamp: timestampValue,
-          sender: data.sender,
+          sender: data.senderName || data.sender || "Unknown",
           text: data.text.substring(0, 500), // Preview only
         },
       };

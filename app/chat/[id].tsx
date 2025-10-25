@@ -60,6 +60,7 @@ export default function ChatScreen() {
   const navigation = useNavigation();
   const { user, userProfile } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isInitialLoad, setIsInitialLoad] = useState(true); // Prevent render until messages loaded
   const [inputText, setInputText] = useState('');
   const [isOnline, setIsOnline] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -89,132 +90,61 @@ export default function ChatScreen() {
   const appStateSubscription = useRef<any>(null); // Phase 4: App state subscription
   const conversationId = id as string;
   const flatListRef = useRef<FlatList>(null);
-  const hasScrolledToEnd = useRef(false); // Track if we've scrolled to end on initial load
   const prevMessageCount = useRef(0); // Track previous message count to detect NEW messages
-  const lockScrollToBottom = useRef(false); // Lock scroll at bottom during image loading
-  const [shouldRenderImages, setShouldRenderImages] = useState(false); // Defer image rendering until after scroll
+  const [shouldRenderImages, setShouldRenderImages] = useState(true); // Render images immediately
   const lastOnlineStatusRef = useRef(isOnline);
-  const layoutReadyRef = useRef(false);
-  const initialDataReadyRef = useRef(false);
-  const hasSnappedToBottomRef = useRef(false);
-  const pendingInitialSnapRef = useRef(false);
-  const contentHeightRef = useRef(0);
-  const layoutHeightRef = useRef(0);
   const isGestureActiveRef = useRef(false);
-  const pendingScrollReasonRef = useRef<string | null>(null);
-  const scrollRequestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentSizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDeletedThreadRef = useRef(false);
   const scrollOffsetRef = useRef(0);
   const pendingPrependAdjustmentRef = useRef<{ prevContentHeight: number; prevScrollOffset: number } | null>(null);
-
-  const logDeletedThreadEvent = useCallback((message: string) => {
-    if (__DEV__ && isDeletedThreadRef.current) {
-      console.log(`[DeletedThread] ${message}`);
-    }
-  }, []);
+  const contentHeightRef = useRef(0);
+  const hasInitializedRef = useRef(false);
   
-  const ensureInitialSnapRef = useRef<() => void>(() => {});
-
-  const cancelPendingScrollRequest = useCallback(() => {
-    if (scrollRequestTimeoutRef.current) {
-      clearTimeout(scrollRequestTimeoutRef.current);
-      scrollRequestTimeoutRef.current = null;
-      logDeletedThreadEvent('Cancelled pending scroll request');
-    }
-  }, [logDeletedThreadEvent]);
-
-  const requestScrollToBottom = useCallback((reason: string) => {
-    pendingScrollReasonRef.current = reason;
-    cancelPendingScrollRequest();
-    scrollRequestTimeoutRef.current = setTimeout(() => {
-      scrollRequestTimeoutRef.current = null;
-      ensureInitialSnapRef.current();
-    }, 16);
-    logDeletedThreadEvent(`Scroll requested (${reason})`);
-  }, [cancelPendingScrollRequest, logDeletedThreadEvent]);
-
-  const ensureInitialSnap = useCallback(() => {
-    if (!flatListRef.current || !layoutReadyRef.current || !initialDataReadyRef.current) {
-      return;
-    }
-
-    // Add extra padding to ensure last message is fully visible
-    // Animated scrolls sometimes fall short, so we add 50px buffer
-    const buffer = 50;
-    const rawOffset = contentHeightRef.current - layoutHeightRef.current + buffer;
+  // Calculate list mode based on current messages - synchronous determination
+  const useInvertedList = useMemo(() => {
+    if (messages.length === 0) return false;
     
-    // Clamp to valid range: never negative, never beyond content
-    // Max scroll is content height minus layout height (can't scroll past end)
-    const maxScroll = Math.max(contentHeightRef.current - layoutHeightRef.current, 0);
-    const targetOffset = Math.min(Math.max(rawOffset, 0), maxScroll);
-
-    const performSnap = () => {
-      if (!flatListRef.current) return;
-      if (isGestureActiveRef.current) {
-        logDeletedThreadEvent('Ensure snap blocked by gesture, scheduling follow-up');
-        requestScrollToBottom('gesture-active');
-        return;
-      }
-
-      try {
-        logDeletedThreadEvent(`Performing snap via reason ${pendingScrollReasonRef.current ?? 'direct'} (targetOffset=${targetOffset}, maxScroll=${maxScroll})`);
-        // Use smooth animation for initial load to prevent jarring jump
-        const isInitialLoad = pendingScrollReasonRef.current === 'cache-warm';
-        flatListRef.current.scrollToOffset({ offset: targetOffset, animated: isInitialLoad });
-
-        hasSnappedToBottomRef.current = true;
-        hasScrolledToEnd.current = true;
-        pendingScrollReasonRef.current = null;
-
-        requestAnimationFrame(() => {
-          setShouldRenderImages(true);
-          lockScrollToBottom.current = true;
-          setTimeout(() => {
-            lockScrollToBottom.current = false;
-          }, 300);
-        });
-        logDeletedThreadEvent('Snap complete');
-      } catch (error) {
-        console.warn('Initial snap failed, retrying...', error);
-        requestScrollToBottom('retry');
-      }
-    };
-
-    requestAnimationFrame(performSnap);
-  }, [requestScrollToBottom, logDeletedThreadEvent]);
-
-  useLayoutEffect(() => {
-    ensureInitialSnapRef.current = ensureInitialSnap;
-    return () => {
-      if (ensureInitialSnapRef.current === ensureInitialSnap) {
-        ensureInitialSnapRef.current = () => {};
-      }
-      if (scrollRequestTimeoutRef.current) {
-        clearTimeout(scrollRequestTimeoutRef.current);
-        scrollRequestTimeoutRef.current = null;
-        logDeletedThreadEvent('Cleanup: cleared pending scroll request');
-      }
-      if (contentSizeDebounceRef.current) {
-        clearTimeout(contentSizeDebounceRef.current);
-        contentSizeDebounceRef.current = null;
-        logDeletedThreadEvent('Cleanup: cleared content size debounce');
-      }
-    };
-  }, [ensureInitialSnap, logDeletedThreadEvent]);
-
-  const markInitialDataReady = useCallback(() => {
-    if (initialDataReadyRef.current) return;
-
-    initialDataReadyRef.current = true;
-    logDeletedThreadEvent('Initial data ready');
-
-    if (layoutReadyRef.current) {
-      ensureInitialSnap();
-    } else {
-      pendingInitialSnapRef.current = true;
+    // Use normal mode for conversations with <= 7 messages
+    // This ensures they start at the top of the screen
+    if (messages.length <= 7) {
+      console.log(`📱 Using NORMAL mode for ${messages.length} messages (starts at top)`);
+      return false;
     }
-  }, [ensureInitialSnap, logDeletedThreadEvent]);
+    
+    // Use inverted mode for longer conversations
+    // Estimate ~80px per message, typical screen height ~600px
+    const estimatedContentHeight = messages.length * 80;
+    const screenHeight = 600;
+    const shouldInvert = estimatedContentHeight > screenHeight;
+    console.log(`📱 Using ${shouldInvert ? 'INVERTED' : 'NORMAL'} mode for ${messages.length} messages (height: ${estimatedContentHeight})`);
+    return shouldInvert;
+  }, [messages.length]);
+
+  // Deduplicate messages by localId/id to prevent duplicate blue bubbles
+  const dedupeMessages = useCallback((messages: Message[]): Message[] => {
+    const messageMap = new Map<string, Message>();
+    
+    messages.forEach(msg => {
+      const key = msg.localId || msg.id;
+      const existing = messageMap.get(key);
+      
+      // If we have both optimistic and confirmed, keep confirmed (has real id)
+      if (existing) {
+        if (msg.id && msg.id !== msg.localId && existing.id === existing.localId) {
+          // This is the confirmed version, replace optimistic
+          messageMap.set(key, msg);
+        } else if (existing.id && existing.id !== existing.localId) {
+          // Already have confirmed, skip this one
+          return;
+        }
+      } else {
+        messageMap.set(key, msg);
+      }
+    });
+    
+    return Array.from(messageMap.values()).sort((a, b) => 
+      a.timestamp.getTime() - b.timestamp.getTime()
+    );
+  }, []);
 
   // Phase 2: Load older messages for upward pagination
   const loadOlderMessages = useCallback(async () => {
@@ -252,8 +182,10 @@ export default function ChatScreen() {
       if (cachedOlderMessages && cachedOlderMessages.length > 0) {
         loadedCount = cachedOlderMessages.length;
         setMessages(prevMessages => {
-          const newMessages = [...cachedOlderMessages, ...prevMessages];
-          return manageMessageMemory(newMessages);
+          // Deduplicate to prevent duplicate blue bubbles
+          const combined = [...cachedOlderMessages, ...prevMessages];
+          const dedupedMessages = dedupeMessages(combined);
+          return manageMessageMemory(dedupedMessages);
         });
         
         // Check if we have more messages to load
@@ -267,8 +199,10 @@ export default function ChatScreen() {
         if (firestoreOlderMessages && firestoreOlderMessages.length > 0) {
           loadedCount = firestoreOlderMessages.length;
           setMessages(prevMessages => {
-            const newMessages = [...firestoreOlderMessages, ...prevMessages];
-            return manageMessageMemory(newMessages);
+            // Deduplicate to prevent duplicate blue bubbles
+            const combined = [...firestoreOlderMessages, ...prevMessages];
+            const dedupedMessages = dedupeMessages(combined);
+            return manageMessageMemory(dedupedMessages);
           });
           
           // Cache the new messages
@@ -299,7 +233,7 @@ export default function ChatScreen() {
 
       pendingPrependAdjustmentRef.current = null;
     }
-  }, [isLoadingOlderMessages, hasMoreOlderMessages, messages, conversationId]);
+  }, [isLoadingOlderMessages, hasMoreOlderMessages, messages, conversationId, dedupeMessages]);
 
   // Phase 3: Memory management for large conversations
   const manageMessageMemory = useCallback((newMessages: Message[]) => {
@@ -336,19 +270,7 @@ export default function ChatScreen() {
     if (!user) return;
 
     lastOnlineStatusRef.current = isOnline;
-    layoutReadyRef.current = false;
-    initialDataReadyRef.current = false;
-    hasSnappedToBottomRef.current = false;
-    pendingInitialSnapRef.current = false;
-    hasScrolledToEnd.current = false;
-    lockScrollToBottom.current = false;
-    setShouldRenderImages(false);
     contentHeightRef.current = 0;
-    layoutHeightRef.current = 0;
-    pendingScrollReasonRef.current = null;
-    cancelPendingScrollRequest();
-    contentSizeDebounceRef.current && clearTimeout(contentSizeDebounceRef.current);
-    contentSizeDebounceRef.current = null;
 
     const loadConversationData = async () => {
       try {
@@ -381,9 +303,22 @@ export default function ChatScreen() {
     let cachedMessagesData: any[] = [];
     
     const conversationDataPromise = loadConversationData();
-    const cachedMessagesPromise = getCachedMessagesPaginated(conversationId, 30).then(cachedMsgs => {
-      cachedMessagesData = cachedMsgs;
-      return cachedMsgs;
+    const cachedMessagesPromise = getCachedMessagesPaginated(conversationId, 50).then(cachedMsgs => {
+      // Prioritize text messages (up to 20) for instant display
+      const textMessages = cachedMsgs.filter(m => m.type !== 'image').slice(-20);
+      
+      // If we don't have 20 text messages, include images to reach 20
+      if (textMessages.length < 20) {
+        const remainingCount = 20 - textMessages.length;
+        const imageMessages = cachedMsgs.filter(m => m.type === 'image').slice(-remainingCount);
+        cachedMessagesData = [...textMessages, ...imageMessages].sort((a, b) => 
+          a.timestamp.getTime() - b.timestamp.getTime()
+        );
+      } else {
+        cachedMessagesData = textMessages;
+      }
+      
+      return cachedMessagesData;
     }).catch(error => {
       console.error('Failed to load cached messages:', error);
       return [];
@@ -398,21 +333,20 @@ export default function ChatScreen() {
           !m.deletedBy || !m.deletedBy.includes(user!.uid)
         );
         
-        console.log(`📱 Cache warming: Loaded ${visibleMessages.length} recent messages instantly (filtered from ${cachedMessagesData.length})`);
-        setMessages(visibleMessages);
+        // Dedupe before setting state to prevent duplicate blue bubbles
+        const dedupedMessages = dedupeMessages(visibleMessages);
         
-        // For deleted messages, we need to ensure proper scroll calculation
-        if (cachedMessagesData.length !== visibleMessages.length) {
-          console.log(`📱 Deleted messages detected: ${cachedMessagesData.length - visibleMessages.length} messages filtered out`);
-          isDeletedThreadRef.current = true;
-        } else {
-          isDeletedThreadRef.current = false;
-        }
-        hasSnappedToBottomRef.current = false;
-        logDeletedThreadEvent('Cache warm (initial) scheduling scroll');
-        requestScrollToBottom('cache-warm');
+        console.log(`📱 Cache warming: Loaded ${dedupedMessages.length} recent messages instantly`);
+        console.log(`📱 List mode will be: ${dedupedMessages.length > 7 ? 'Inverted (many messages)' : 'Normal (few messages)'}`);
+        
+        setMessages(dedupedMessages);
+        prevMessageCount.current = dedupedMessages.length;
+        hasInitializedRef.current = true;
+      } else {
+        console.log('📱 No cached messages, starting fresh');
+        hasInitializedRef.current = true;
       }
-      markInitialDataReady();
+      setIsInitialLoad(false); // Ready to render
     });
 
     // Phase 4: Smart preloading - warm up cache for this conversation
@@ -469,8 +403,10 @@ export default function ChatScreen() {
         setMessages(prevMessages => {
         // Quick check: if lengths differ, definitely update
         if (prevMessages.length !== visibleMessages.length) {
+          // Merge with deduplication to prevent duplicate blue bubbles
+          const merged = dedupeMessages([...prevMessages, ...visibleMessages]);
+          
           // Cache only NEW messages (not already in state)
-          // Check both id and localId for proper deduplication
           const existingIds = new Set([
             ...prevMessages.map(m => m.id),
             ...prevMessages.map(m => m.localId).filter(Boolean)
@@ -479,7 +415,7 @@ export default function ChatScreen() {
             .filter(m => !existingIds.has(m.id) && !existingIds.has(m.localId))
             .forEach(m => cacheMessageBatched(m));
           
-          return manageMessageMemory(visibleMessages);
+          return manageMessageMemory(merged);
         }
         
         // Check if any message actually changed (status, readBy, deliveredTo)
@@ -511,16 +447,17 @@ export default function ChatScreen() {
           return oldMsg;
         });
         
-        // Only update if something changed
-        return hasChanges ? manageMessageMemory(updatedMessages) : prevMessages;
+        // Only update if something changed, and dedupe to prevent duplicates
+        const finalMessages = hasChanges ? manageMessageMemory(dedupeMessages(updatedMessages)) : prevMessages;
+        
+        // Log mode change if it happens
+        if (hasInitializedRef.current && prevMessages.length <= 7 && finalMessages.length > 7) {
+          console.log('📱 List mode will switch to inverted - messages exceed threshold');
+        }
+        
+        return finalMessages;
         });
       }, 50); // Small delay to prevent flicker
-      markInitialDataReady();
-      
-      // Only scroll to bottom when NEW messages arrive (not on status updates)
-      if (hasScrolledToEnd.current && isNewMessage) {
-        requestScrollToBottom('new-message');
-      }
       
       // Mark messages as delivered
       visibleMessages.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
@@ -541,7 +478,7 @@ export default function ChatScreen() {
       unsubscribeNet();
       unsubscribeMessages();
     };
-  }, [conversationId, user, cancelPendingScrollRequest, logDeletedThreadEvent, requestScrollToBottom]);
+  }, [conversationId, user, dedupeMessages]);
   
   // Separate effect for updating header when presence/add mode changes
   // This prevents re-subscribing to messages on every presence update
@@ -864,8 +801,10 @@ export default function ChatScreen() {
   }, []);
 
   const handleSend = useCallback(async () => {
+    if (pendingSend) return; // Guard against double-tap first
+    
     const trimmedInput = inputText.trim();
-    if (!trimmedInput || !user || pendingSend) return;
+    if (!trimmedInput || !user) return;
 
     setPendingSend(true);
 
@@ -898,7 +837,6 @@ export default function ChatScreen() {
       setMessages(prev => [...prev, tempMessage]);
       setInputText('');
       trackKeyboardDismissal();
-      requestScrollToBottom('send-message');
 
       // 3. Cache immediately
       await cacheMessage(tempMessage);
@@ -993,8 +931,6 @@ export default function ChatScreen() {
       'worklet';
       runOnJS(() => {
         isGestureActiveRef.current = true;
-        logDeletedThreadEvent('Gesture begin - locking scroll');
-        cancelPendingScrollRequest();
       });
     })
     .onUpdate((event) => {
@@ -1026,11 +962,6 @@ export default function ChatScreen() {
       'worklet';
       runOnJS(() => {
         isGestureActiveRef.current = false;
-        logDeletedThreadEvent('Gesture finalize - releasing scroll lock');
-        if (pendingScrollReasonRef.current) {
-          logDeletedThreadEvent(`Gesture finalize triggering pending scroll (${pendingScrollReasonRef.current})`);
-          requestScrollToBottom('post-gesture');
-        }
       });
     });
 
@@ -1092,7 +1023,6 @@ export default function ChatScreen() {
       // Optimistically show in UI and cache
       setMessages(prev => [...prev, tempMessage]);
       await cacheMessage(tempMessage);
-      requestScrollToBottom('send-image');
 
       if (isOnline) {
         try {
@@ -1326,80 +1256,36 @@ export default function ChatScreen() {
 
   // Stable onLayout callback for FlatList
   const handleFlatListLayout = useCallback((event?: any) => {
-    if (event?.nativeEvent?.layout?.height) {
-      layoutHeightRef.current = event.nativeEvent.layout.height;
-    }
-    layoutReadyRef.current = true;
-    if (initialDataReadyRef.current) {
-      ensureInitialSnap();
-    } else {
-      requestAnimationFrame(() => ensureInitialSnap());
-    }
-  }, [ensureInitialSnap]);
+    // With inverted list, no special layout handling needed
+    // List naturally starts at bottom
+  }, []);
 
-  // Handle content size change - keep at bottom if locked (during initial image loading)
+  // Handle content size change - maintain scroll position when prepending older messages
   const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
-    const previousHeight = contentHeightRef.current;
     contentHeightRef.current = contentHeight;
 
+    // Only adjust scroll position if we're prepending older messages
     const pendingAdjustment = pendingPrependAdjustmentRef.current;
     if (pendingAdjustment) {
       const heightDelta = contentHeight - pendingAdjustment.prevContentHeight;
       if (heightDelta !== 0) {
+        // For inverted list, we need to maintain the visual position
+        // by scrolling by the height delta
         const targetOffset = Math.max(pendingAdjustment.prevScrollOffset + heightDelta, 0);
         requestAnimationFrame(() => {
           flatListRef.current?.scrollToOffset({ offset: targetOffset, animated: false });
         });
       }
       pendingPrependAdjustmentRef.current = null;
-      return;
-    }
-
-    if (contentSizeDebounceRef.current) {
-      clearTimeout(contentSizeDebounceRef.current);
-    }
-
-    contentSizeDebounceRef.current = setTimeout(() => {
-      contentSizeDebounceRef.current = null;
-
-      // If content height decreased (deleted messages), ensure we stay at bottom
-      if (previousHeight > 0 && contentHeight < previousHeight && hasSnappedToBottomRef.current) {
-        logDeletedThreadEvent('Content shrink detected - scheduling bottom lock');
-        requestScrollToBottom('content-shrink');
-        return;
-      }
-
-      if (!hasSnappedToBottomRef.current) {
-        logDeletedThreadEvent('Content size change before snap - ensuring snap');
-        requestScrollToBottom('content-size');
-      } else if (lockScrollToBottom.current) {
-        logDeletedThreadEvent('Content size change while locked - maintaining bottom');
-        requestScrollToBottom('lock-maintain');
-      }
-    }, 16);
-  }, [logDeletedThreadEvent, requestScrollToBottom]);
-
-  // Release lock if user manually scrolls up
-  const handleScroll = useCallback((event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    
-    // If user scrolls up more than 50px from bottom, release the lock
-    if (distanceFromBottom > 50 && lockScrollToBottom.current) {
-      lockScrollToBottom.current = false;
     }
   }, []);
 
-  useEffect(() => {
-    if (!hasSnappedToBottomRef.current && messages.length > 0) {
-      ensureInitialSnap();
-    }
-  }, [messages, ensureInitialSnap]);
-
   // Stable renderItem to prevent unnecessary MessageRow re-renders
   const renderMessageItem = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const isLastInGroup = index === messages.length - 1 || messages[index + 1]?.senderId !== item.senderId;
-    const isFirstInGroup = index === 0 || messages[index - 1]?.senderId !== item.senderId;
+    // Adjust logic based on whether list is inverted
+    const dataArray = useInvertedList ? messages.slice().reverse() : messages;
+    const isLastInGroup = index === dataArray.length - 1 || dataArray[index + 1]?.senderId !== item.senderId;
+    const isFirstInGroup = index === 0 || dataArray[index - 1]?.senderId !== item.senderId;
     return (
       <MessageRow 
         item={item} 
@@ -1409,7 +1295,7 @@ export default function ChatScreen() {
         shouldRenderImages={shouldRenderImages}
       />
     );
-  }, [messages, shouldRenderImages]);
+  }, [messages, shouldRenderImages, useInvertedList]);
 
   const handleCopyMessage = useCallback(async () => {
     if (!selectedMessage) return;
@@ -1977,21 +1863,32 @@ export default function ChatScreen() {
       /> */}
 
       <View style={styles.messagesWrapper}>
-        <GestureDetector 
-          gesture={containerPanGesture}
-        >
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderMessageItem}
-            style={styles.messagesContainer}
-            contentContainerStyle={styles.messagesContent}
-            showsVerticalScrollIndicator={true}
-            removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            windowSize={10}
-            initialNumToRender={15}
+        {isInitialLoad ? (
+          // Show nothing during initial load to prevent flicker
+          <View style={styles.messagesContainer} />
+        ) : (
+          <GestureDetector 
+            gesture={containerPanGesture}
+          >
+            <FlatList
+              ref={flatListRef}
+              data={useInvertedList ? messages.slice().reverse() : messages}
+              inverted={useInvertedList}
+              keyExtractor={(item) => item.id}
+              renderItem={renderMessageItem}
+              style={styles.messagesContainer}
+              contentContainerStyle={[
+                styles.messagesContent,
+                // For few messages in normal mode, ensure they start at top with space below
+                !useInvertedList && { flexGrow: 1 },
+                // For inverted mode, content should be at bottom
+                useInvertedList && { flexGrow: 0 }
+              ]}
+              showsVerticalScrollIndicator={true}
+              removeClippedSubviews={true}
+              maxToRenderPerBatch={10}
+              windowSize={10}
+              initialNumToRender={20}
             getItemLayout={(data, index) => ({
               length: 80, // Estimated message height
               offset: 80 * index,
@@ -1999,11 +1896,11 @@ export default function ChatScreen() {
             })}
             onLayout={handleFlatListLayout}
             onContentSizeChange={handleContentSizeChange}
-            maintainVisibleContentPosition={{
+            maintainVisibleContentPosition={useInvertedList ? {
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 10
-            }}
-            extraData={participantDetailsVersion}
+            } : undefined}
+            extraData={`${participantDetailsVersion}-${useInvertedList}`}
             onScroll={({ nativeEvent }) => {
             // Phase 2: Detect when user scrolls near top to load older messages
             const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
@@ -2041,9 +1938,6 @@ export default function ChatScreen() {
                 });
               }
             }
-            
-            // Call existing scroll handler
-            handleScroll({ nativeEvent });
           }}
           scrollEventThrottle={16}
           onScrollToIndexFailed={({ index, averageItemLength }) => {
@@ -2105,8 +1999,9 @@ export default function ChatScreen() {
               )}
             </>
           )}
-        />
-        </GestureDetector>
+          />
+          </GestureDetector>
+        )}
       </View>
 
       {/* Queue Visibility Banner - shows pending/failed messages */}
@@ -2122,8 +2017,8 @@ export default function ChatScreen() {
                 animated: false,
                 viewPosition: 0.5 // Center the message
               });
-            } catch {
-              requestScrollToBottom('queue-banner-fallback');
+            } catch (error) {
+              // Failed to scroll to index, silently fail
             }
           }
         }}
@@ -2152,11 +2047,19 @@ export default function ChatScreen() {
           maxLength={1000}
         />
         <TouchableOpacity 
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+          style={[
+            styles.sendButton, 
+            !inputText.trim() && styles.sendButtonDisabled,
+            pendingSend && styles.sendButtonSending
+          ]}
           onPress={handleSend}
           disabled={!inputText.trim()}
         >
-          <Text style={styles.sendButtonText}>Send</Text>
+          {pendingSend ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.sendButtonText}>Send</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -2357,7 +2260,6 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingLeft: 16,
     paddingRight: 0, // No right padding - timestamps flush with screen edge
-    flexGrow: 1, // Allow content to grow beyond screen height
   },
   messageRow: {
     flexDirection: 'row',
@@ -2548,6 +2450,10 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: '#C0C0C0',
+  },
+  sendButtonSending: {
+    backgroundColor: '#007AFF',
+    opacity: 0.7,
   },
   sendButtonText: {
     color: '#fff',

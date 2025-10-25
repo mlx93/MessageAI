@@ -47,6 +47,8 @@ export {
 
 export {
   extractDecisions,
+  deleteDecision,
+  bulkDeleteDecisions,
 } from "./ai/decisionTracking";
 
 export {
