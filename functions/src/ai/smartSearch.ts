@@ -105,37 +105,56 @@ matches from Pinecone`);
       const HIGH_QUALITY_THRESHOLD = 0.4; // 40% for high-quality results
       const MAX_RESULTS = 20; // Maximum total results
       const MIN_RESULTS_DESIRED = 5; // Minimum results to show if possible
-      
+
       // First, filter by minimum threshold and sort by score
       const filteredMatches = searchResults.matches
         .filter((m) => (m.score || 0) >= MIN_THRESHOLD)
         .sort((a, b) => (b.score || 0) - (a.score || 0));
 
-      console.log(`[SmartSearch] ${filteredMatches.length} matches above ${MIN_THRESHOLD} threshold`);
+      console.log(
+        `[SmartSearch] ${filteredMatches.length} matches above \
+${MIN_THRESHOLD} threshold`
+      );
 
       // Apply smart filtering logic
       let relevantMatches = filteredMatches;
-      const highQualityCount = filteredMatches.filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD).length;
-      
+      const highQualityCount = filteredMatches
+        .filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD).length;
+
       if (highQualityCount >= MIN_RESULTS_DESIRED) {
-        // If we have 5+ high-quality results, show only those (up to MAX_RESULTS)
+        // If we have 5+ high-quality results, show only those
+        // (up to MAX_RESULTS)
         relevantMatches = filteredMatches
           .filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD)
           .slice(0, MAX_RESULTS);
-        console.log(`[SmartSearch] Showing ${relevantMatches.length} high-quality results (≥40%)`);
+        console.log(
+          `[SmartSearch] Showing ${relevantMatches.length} \
+high-quality results (≥40%)`
+        );
       } else {
-        // Otherwise, show all 40%+ results plus enough 30-40% to reach 5 total
-        const highQualityMatches = filteredMatches.filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD);
+        // Otherwise, show all 40%+ results plus enough 30-40% to
+        // reach 5 total
+        const highQualityMatches = filteredMatches
+          .filter((m) => (m.score || 0) >= HIGH_QUALITY_THRESHOLD);
         const mediumQualityMatches = filteredMatches.filter((m) => {
           const score = m.score || 0;
           return score >= MIN_THRESHOLD && score < HIGH_QUALITY_THRESHOLD;
         });
-        
-        const needed = Math.max(0, MIN_RESULTS_DESIRED - highQualityMatches.length);
-        const mediumToInclude = mediumQualityMatches.slice(0, Math.min(needed, 5)); // Max 5 medium-quality
-        
-        relevantMatches = [...highQualityMatches, ...mediumToInclude].slice(0, MAX_RESULTS);
-        console.log(`[SmartSearch] Showing ${highQualityMatches.length} high-quality + ${mediumToInclude.length} medium-quality results`);
+
+        const needed = Math.max(
+          0,
+          MIN_RESULTS_DESIRED - highQualityMatches.length
+        );
+        // Max 5 medium-quality
+        const mediumToInclude = mediumQualityMatches
+          .slice(0, Math.min(needed, 5));
+
+        relevantMatches = [...highQualityMatches, ...mediumToInclude]
+          .slice(0, MAX_RESULTS);
+        console.log(
+          `[SmartSearch] Showing ${highQualityMatches.length} \
+high-quality + ${mediumToInclude.length} medium-quality results`
+        );
       }
 
       if (relevantMatches.length === 0) {
@@ -266,7 +285,9 @@ unique conversations`);
       const validMessages = messages.filter(Boolean) as SearchResult[];
 
       // Step 6: Fetch surrounding context messages for high-scoring results
-      console.log("[SmartSearch] Fetching context messages for high-scoring results");
+      console.log(
+        "[SmartSearch] Fetching context messages for high-scoring results"
+      );
       const contextMessages = await fetchContextMessages(
         db,
         validMessages,
@@ -287,12 +308,14 @@ unique conversations`);
           // Sort conversations by highest score within them
           const aMaxScore = Math.max(
             ...uniqueMessages
-              .filter((m) => m.conversationId === a.conversationId && !m.isContext)
+              .filter((m) => m.conversationId === a.conversationId &&
+                            !m.isContext)
               .map((m) => m.score)
           );
           const bMaxScore = Math.max(
             ...uniqueMessages
-              .filter((m) => m.conversationId === b.conversationId && !m.isContext)
+              .filter((m) => m.conversationId === b.conversationId &&
+                            !m.isContext)
               .map((m) => m.score)
           );
           return bMaxScore - aMaxScore;
@@ -322,6 +345,12 @@ ${contextMessages.length} context messages in ${totalTime}ms`);
 /**
  * Fetch surrounding context messages for high-scoring results
  * For results with score > 40%, fetch 2-3 messages before and after
+ * @param {FirebaseFirestore.Firestore} db - Firestore database
+ * @param {SearchResult[]} results - Search results
+ * @param {Map} conversationMap - Map of conversation data
+ * @param {string} userId - User ID
+ * @param {Function} getConversationName - Function to get conversation name
+ * @return {Promise<SearchResult[]>} Context messages
  */
 async function fetchContextMessages(
   db: admin.firestore.Firestore,
@@ -332,17 +361,21 @@ async function fetchContextMessages(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getConversationName: (convData: any) => string
 ): Promise<SearchResult[]> {
-  const CONTEXT_THRESHOLD = 0.4; // 40% - only fetch context for high-quality results
+  const CONTEXT_THRESHOLD = 0.4; // 40% - only for high-quality results
   const CONTEXT_BEFORE = 2;
   const CONTEXT_AFTER = 3;
 
-  const highScoringResults = results.filter((r) => r.score >= CONTEXT_THRESHOLD);
+  const highScoringResults = results
+    .filter((r) => r.score >= CONTEXT_THRESHOLD);
 
   if (highScoringResults.length === 0) {
     return [];
   }
 
-  console.log(`[Context] Fetching context for ${highScoringResults.length} high-scoring results`);
+  console.log(
+    `[Context] Fetching context for ${highScoringResults.length} \
+high-scoring results`
+  );
 
   // Group by conversation for batch fetching
   const byConversation = new Map<string, SearchResult[]>();
@@ -374,13 +407,18 @@ async function fetchContextMessages(
 
       // For each high-scoring result, find surrounding messages
       for (const result of convResults) {
-        const resultIndex = allMessages.findIndex((m) => m.id === result.messageId);
+        const resultIndex = allMessages
+          .findIndex((m) => m.id === result.messageId);
         if (resultIndex === -1) continue;
 
         // Get surrounding messages
         const startIndex = Math.max(0, resultIndex - CONTEXT_BEFORE);
-        const endIndex = Math.min(allMessages.length, resultIndex + CONTEXT_AFTER + 1);
-        const surroundingMessages = allMessages.slice(startIndex, endIndex);
+        const endIndex = Math.min(
+          allMessages.length,
+          resultIndex + CONTEXT_AFTER + 1
+        );
+        const surroundingMessages = allMessages
+          .slice(startIndex, endIndex);
 
         // Convert to SearchResult format
         for (const msg of surroundingMessages) {
@@ -398,14 +436,16 @@ async function fetchContextMessages(
           if ((msg as any).timestamp) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (typeof (msg as any).timestamp === "object" &&
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  "toMillis" in (msg as any).timestamp) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                "toMillis" in (msg as any).timestamp) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               timestamp = (msg as any).timestamp.toMillis();
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } else if (typeof (msg as any).timestamp === "object" &&
+            } else if (
+              typeof (msg as any).timestamp === "object" &&
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                         "_seconds" in (msg as any).timestamp) {
+              "_seconds" in (msg as any).timestamp
+            ) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               timestamp = (msg as any).timestamp._seconds * 1000;
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -419,8 +459,8 @@ async function fetchContextMessages(
           const senderId = (msg as any).senderId || (msg as any).sender;
           const senderName = participantDetails[senderId]?.displayName ||
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                           (msg as any).senderName ||
-                           "Unknown";
+            (msg as any).senderName ||
+            "Unknown";
 
           contextMessages.push({
             messageId: msg.id,
@@ -440,7 +480,11 @@ async function fetchContextMessages(
         }
       }
     } catch (error) {
-      console.error(`[Context] Error fetching context for conversation ${conversationId}:`, error);
+      console.error(
+        `[Context] Error fetching context for conversation \
+${conversationId}:`,
+        error
+      );
     }
   }
 

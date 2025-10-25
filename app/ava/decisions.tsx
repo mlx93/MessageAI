@@ -260,6 +260,8 @@ export default function DecisionsScreen() {
 
   const SwipeableDecisionItem = ({item}: {item: Decision & {id: string}}) => {
     const translateX = useRef(new Animated.Value(0)).current;
+    const [deleteRevealed, setDeleteRevealed] = useState(false);
+    
     const panResponder = useRef(
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) => {
@@ -270,41 +272,88 @@ export default function DecisionsScreen() {
         },
         onPanResponderMove: (_, gestureState) => {
           if (gestureState.dx < 0) {
-            // Limit the swipe distance
-            const limitedDx = Math.max(gestureState.dx, -120);
+            // Limit the swipe distance to reveal delete button
+            const limitedDx = Math.max(gestureState.dx, -100);
+            translateX.setValue(limitedDx);
+          } else if (deleteRevealed && gestureState.dx > 0) {
+            // Allow swiping back to close
+            const limitedDx = Math.min(gestureState.dx - 100, 0);
             translateX.setValue(limitedDx);
           }
         },
         onPanResponderRelease: (_, gestureState) => {
-          if (gestureState.dx < -80) {
-            // Snap to delete position
-            Animated.timing(translateX, {
-              toValue: -120,
-              duration: 200,
+          if (!deleteRevealed && gestureState.dx < -50) {
+            // Snap to reveal delete button
+            Animated.spring(translateX, {
+              toValue: -100,
               useNativeDriver: true,
+              tension: 80,
+              friction: 8,
             }).start();
-            // Delete after a delay
-            setTimeout(() => {
-              handleDelete(item.id);
-            }, 100);
+            setDeleteRevealed(true);
+          } else if (deleteRevealed && gestureState.dx > 30) {
+            // Snap back to hide delete button
+            Animated.spring(translateX, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 80,
+              friction: 8,
+            }).start();
+            setDeleteRevealed(false);
+          } else if (deleteRevealed) {
+            // Keep button revealed
+            Animated.spring(translateX, {
+              toValue: -100,
+              useNativeDriver: true,
+              tension: 80,
+              friction: 8,
+            }).start();
           } else {
             // Snap back
             Animated.spring(translateX, {
               toValue: 0,
               useNativeDriver: true,
-              tension: 100,
+              tension: 80,
+              friction: 8,
             }).start();
           }
         },
       })
     ).current;
 
+    const handleDeletePress = () => {
+      Alert.alert(
+        'Delete Decision',
+        'Are you sure you want to delete this decision?',
+        [
+          {text: 'Cancel', style: 'cancel'},
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              // Animate out
+              Animated.timing(translateX, {
+                toValue: -SCREEN_WIDTH,
+                duration: 300,
+                useNativeDriver: true,
+              }).start(() => {
+                handleDelete(item.id);
+              });
+            },
+          },
+        ]
+      );
+    };
+
     return (
       <View style={styles.swipeContainer}>
-        <View style={styles.deleteBackground}>
+        <TouchableOpacity
+          style={styles.deleteBackground}
+          onPress={handleDeletePress}
+          activeOpacity={0.8}>
           <Ionicons name="trash-outline" size={24} color="#FFF" />
           <Text style={styles.deleteText}>Delete</Text>
-        </View>
+        </TouchableOpacity>
         <Animated.View
           style={[styles.animatedCard, {transform: [{translateX}]}]}
           {...panResponder.panHandlers}>
@@ -351,14 +400,29 @@ export default function DecisionsScreen() {
             <Text style={styles.dateText}>
               {(() => {
                 try {
-                  const madeAtDate = typeof item.madeAt === 'number'
-                    ? new Date(item.madeAt)
-                    : new Date();
+                  let timestamp = item.madeAt;
                   
-                  if (!isNaN(madeAtDate.getTime())) {
-                    return format(madeAtDate, 'MMM d');
+                  // Convert to number if it's a Firestore Timestamp
+                  if (timestamp && typeof timestamp === 'object' && 'toMillis' in timestamp) {
+                    timestamp = (timestamp as any).toMillis();
+                  }
+                  
+                  if (typeof timestamp === 'number') {
+                    // Check if timestamp is in seconds (Unix epoch) instead of milliseconds
+                    // Timestamps before year 2000 in milliseconds would be less than 946684800000
+                    // If we get a number less than that, it's likely in seconds
+                    if (timestamp < 946684800000) {
+                      timestamp = timestamp * 1000; // Convert seconds to milliseconds
+                    }
+                    
+                    const madeAtDate = new Date(timestamp);
+                    
+                    if (!isNaN(madeAtDate.getTime()) && madeAtDate.getFullYear() > 2000) {
+                      return format(madeAtDate, 'MMM d');
+                    }
                   }
                 } catch (error) {
+                  console.log('Date formatting error:', error);
                   return '';
                 }
                 return '';

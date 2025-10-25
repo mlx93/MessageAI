@@ -188,10 +188,38 @@ export default function DecisionDetailScreen() {
           <View style={styles.cardHeader}>
             <Text style={styles.decisionLabel}>Decision</Text>
             <Text style={styles.dateText}>
-              {format(
-                decision.madeAt instanceof Date ? decision.madeAt : new Date(decision.madeAt),
-                'MMM d, yyyy'
-              )}
+              {(() => {
+                try {
+                  let timestamp = decision.madeAt;
+                  
+                  // Convert to number if it's a Firestore Timestamp
+                  if (timestamp && typeof timestamp === 'object' && 'toMillis' in timestamp) {
+                    timestamp = (timestamp as any).toMillis();
+                  } else if (timestamp && typeof timestamp === 'object' && timestamp instanceof Date) {
+                    timestamp = timestamp.getTime();
+                  }
+                  
+                  if (typeof timestamp === 'number') {
+                    // Check if timestamp is in seconds (Unix epoch) instead of milliseconds
+                    // Timestamps before year 2000 in milliseconds would be less than 946684800000
+                    if (timestamp < 946684800000) {
+                      timestamp = timestamp * 1000; // Convert seconds to milliseconds
+                    }
+                    
+                    const madeAtDate = new Date(timestamp);
+                    
+                    if (!isNaN(madeAtDate.getTime()) && madeAtDate.getFullYear() > 2000) {
+                      return format(madeAtDate, 'MMM d, yyyy');
+                    }
+                  }
+                  
+                  // Fallback
+                  return format(new Date(), 'MMM d, yyyy');
+                } catch (error) {
+                  console.log('Date formatting error:', error);
+                  return format(new Date(), 'MMM d, yyyy');
+                }
+              })()}
             </Text>
           </View>
           <Text style={styles.decisionText}>{decision.decision}</Text>

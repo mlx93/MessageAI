@@ -206,11 +206,38 @@ export const extractDecisions = onCall({
         schema: DecisionSchema,
         prompt: `Extract decisions made in this team conversation.
 
-Look for patterns:
-- "Let's go with X", "We decided to..."
-- "The decision is...", "After discussion, we'll..."
-- Consensus signals (multiple agreements)
-- Poll results, "Everyone agree?"
+ONLY extract decisions that meet ALL these criteria:
+1. **Decision Indicators**: Look for explicit decision language:
+   - "Let's go with X", "We decided to...", "The decision is..."
+   - "After discussion, we'll...", "We've chosen to..."
+   - "Agreed, we'll do X", "Final decision: X"
+   - Poll results, "Everyone agree?", "All in favor?"
+   
+2. **Context Required**: Decision must have supporting context
+   - At least 3+ messages discussing the topic
+   - Clear rationale or discussion visible
+   - Not just a single message announcement
+   
+3. **Substance Required**: Decision must be meaningful
+   - NOT greetings ("Hi", "Hello", "Hey there")
+   - NOT small talk ("How's it going?", "What's up?")
+   - NOT off-topic chat (weather, sports, casual banter)
+   - NOT questions without answers
+   - NOT jokes, sarcasm, or informal banter
+   
+4. **Team Consensus**: Look for agreement signals
+   - Multiple participants agreeing
+   - Clear resolution after discussion
+   - Consensus statements
+
+EXCLUDE these patterns:
+- Greetings and salutations
+- Social pleasantries
+- Single-message announcements without discussion
+- Proposals that weren't accepted
+- Questions or suggestions (unless answered with agreement)
+- Off-topic or casual conversation
+- Unclear or ambiguous statements
 
 Conversation Participants:
 ${Object.entries(uidToName)
@@ -221,24 +248,26 @@ ${limitedMessages.map((m, i) =>
     `[${i}] ${m.senderName}: ${(m.text || "").slice(0, 200)}`
   ).join("\n\n")}
 
-For each decision:
-- decision: The actual decision made
-- rationale: Why this decision was made
-- alternativesConsidered: Other options discussed
+For each decision found:
+- decision: The actual decision made (clear and specific)
+- rationale: Why this decision was made (from the discussion)
+- alternativesConsidered: Other options discussed (if any)
 - participants: Array of participant NAMES (use actual names)
 - participantIds: Array of participant UIDs matching the names
 - decisionMaker: NAME of the person who made/announced the decision
 - decisionMakerId: UID of the person who made/announced the decision
 - messageIds: Relevant message IDs (use the [numbers] from messages)
-- confidence: 0-1 score
+- confidence: 0-1 score (be honest - use low scores for unclear decisions)
+  * 0.9-1.0: Clear, explicit decision with team consensus
+  * 0.7-0.9: Decision stated but limited discussion
+  * 0.5-0.7: Implicit decision, needs inference
+  * <0.5: Unclear or questionable (DO NOT INCLUDE THESE)
 
-IMPORTANT: Use the actual names from the conversation,
-NOT generic names like "Participant 1" or "Unnamed Participant".
-
-Distinguish:
-- Actual decisions vs. proposals
-- Team consensus vs. individual opinions
-- Serious decisions vs. sarcasm/jokes`,
+IMPORTANT: 
+- Use the actual names from the conversation, NOT generic names
+- If confidence is below 0.5, do NOT include the decision
+- Quality over quantity - better to return nothing than false positives
+- Distinguish actual decisions from proposals, opinions, or casual chat`,
       });
     } catch (aiError: unknown) {
       const error = aiError as Error & {cause?: unknown};
@@ -265,6 +294,39 @@ Distinguish:
       };
     }
 
+    // Filter out low-confidence decisions (below 0.5)
+    const highConfidenceDecisions = result.object.decisions.filter((item) => {
+      if (item.confidence < 0.5) {
+        console.log(`Filtering out low-confidence decision: "${item.decision}" (${item.confidence})`);
+        return false;
+      }
+      
+      // Additional validation: ensure decision has substance
+      if (!item.decision || item.decision.trim().length < 10) {
+        console.log("Filtering out decision with insufficient content");
+        return false;
+      }
+      
+      // Check for greeting patterns
+      const greetingPatterns = /^(hi|hello|hey|good morning|good afternoon|good evening|what's up|how are you|how's it going)/i;
+      if (greetingPatterns.test(item.decision.trim())) {
+        console.log(`Filtering out greeting: "${item.decision}"`);
+        return false;
+      }
+      
+      return true;
+    });
+
+    console.log(`AI extracted ${result.object.decisions.length} decisions, ${highConfidenceDecisions.length} passed quality filters`);
+
+    if (highConfidenceDecisions.length === 0) {
+      return {
+        decisions: [],
+        count: 0,
+        message: "No high-quality decisions found in conversation",
+      };
+    }
+
     // Check for duplicates before storing
     const existingDecisions = await db.collection("decisions")
       .where("conversationId", "==", conversationId)
@@ -279,7 +341,7 @@ Distinguish:
     );
 
     // Filter out duplicates
-    const newDecisions = result.object.decisions.filter((item) =>
+    const newDecisions = highConfidenceDecisions.filter((item) =>
       !existingDecisionTexts.has(`${item.decision}_${conversationId}`)
     );
 
@@ -340,11 +402,20 @@ Distinguish:
             // idx could be a string like "0" or "1"
             const index = parseInt(String(idx), 10);
             if (!isNaN(index) && index < messagesWithNames.length) {
-              return messagesWithNames[index].timestamp;
+              const ts = messagesWithNames[index].timestamp;
+              // Check if timestamp is a Firestore Timestamp object
+              if (ts && typeof ts === "object" && "toMillis" in ts) {
+                return (ts as any).toMillis();
+              }
+              // Check if timestamp is in seconds instead of milliseconds
+              if (typeof ts === "number" && ts < 946684800000) {
+                return ts * 1000; // Convert seconds to milliseconds
+              }
+              return ts as number;
             }
             return null;
           })
-          .filter((ts): ts is number => ts !== null);
+          .filter((ts): ts is number => ts !== null && ts > 0);
 
         if (messageTimestamps.length > 0) {
           decisionTimestamp = Math.max(...messageTimestamps);
