@@ -22,9 +22,21 @@ export const initDB = (): Promise<void> => {
           localId TEXT,
           mediaURL TEXT,
           readBy TEXT,
-          deliveredTo TEXT
+          deliveredTo TEXT,
+          deletedBy TEXT
         )`
       );
+      
+      // Migration: Add deletedBy column if it doesn't exist (for existing databases)
+      try {
+        db.execSync(`ALTER TABLE messages ADD COLUMN deletedBy TEXT DEFAULT '[]'`);
+        console.log('✅ Added deletedBy column to messages table');
+      } catch (error: any) {
+        // Column already exists (expected on new installations)
+        if (!error.message?.includes('duplicate column')) {
+          console.warn('Migration warning:', error);
+        }
+      }
       
       // Conversations table
       db.execSync(
@@ -53,7 +65,7 @@ export const cacheMessage = (message: Message): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
       db.runSync(
-        'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           message.id,
           message.conversationId,
@@ -65,7 +77,8 @@ export const cacheMessage = (message: Message): Promise<void> => {
           message.localId,
           message.mediaURL || null,
           JSON.stringify(message.readBy),
-          JSON.stringify(message.deliveredTo)
+          JSON.stringify(message.deliveredTo),
+          JSON.stringify(message.deletedBy || [])
         ]
       );
       resolve();
@@ -102,7 +115,7 @@ export const cacheMessageBatched = (message: Message) => {
       try {
         batch.forEach(msg => {
           db.runSync(
-            'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               msg.id,
               msg.conversationId,
@@ -114,7 +127,8 @@ export const cacheMessageBatched = (message: Message) => {
               msg.localId,
               msg.mediaURL || null,
               JSON.stringify(msg.readBy),
-              JSON.stringify(msg.deliveredTo)
+              JSON.stringify(msg.deliveredTo),
+              JSON.stringify(msg.deletedBy || [])
             ]
           );
         });
@@ -160,7 +174,8 @@ export const getCachedMessages = (conversationId: string): Promise<Message[]> =>
         localId: row.localId,
         mediaURL: row.mediaURL,
         readBy: JSON.parse(row.readBy),
-        deliveredTo: JSON.parse(row.deliveredTo)
+        deliveredTo: JSON.parse(row.deliveredTo),
+        deletedBy: row.deletedBy ? JSON.parse(row.deletedBy) : []
       })) as Message[];
       
       resolve(messages);
@@ -196,7 +211,8 @@ export const getCachedMessagesPaginated = (
         localId: row.localId,
         mediaURL: row.mediaURL,
         readBy: JSON.parse(row.readBy),
-        deliveredTo: JSON.parse(row.deliveredTo)
+        deliveredTo: JSON.parse(row.deliveredTo),
+        deletedBy: row.deletedBy ? JSON.parse(row.deletedBy) : []
       })) as Message[];
       
       // Reverse to get chronological order (oldest first)
@@ -236,7 +252,8 @@ export const getCachedMessagesBefore = (
         localId: row.localId,
         mediaURL: row.mediaURL,
         readBy: JSON.parse(row.readBy),
-        deliveredTo: JSON.parse(row.deliveredTo)
+        deliveredTo: JSON.parse(row.deliveredTo),
+        deletedBy: row.deletedBy ? JSON.parse(row.deletedBy) : []
       })) as Message[];
       
       // Reverse to get chronological order (oldest first)

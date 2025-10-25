@@ -1,0 +1,16 @@
+[debug] [2025-10-25T19:51:29.102Z] ----------------------------------------------------------------------
+[debug] [2025-10-25T19:51:29.106Z] Command:       /Users/mylessjs/.pocket-server/bin/node /Users/mylessjs/.pocket-server/bin/firebase deploy --only functions:extractDecisions
+[debug] [2025-10-25T19:51:29.106Z] CLI Version:   14.20.0
+[debug] [2025-10-25T19:51:29.106Z] Platform:      darwin
+[debug] [2025-10-25T19:51:29.106Z] Node Version:  v22.18.0
+[debug] [2025-10-25T19:51:29.107Z] Time:          Sat Oct 25 2025 14:51:29 GMT-0500 (Central Daylight Time)
+[debug] [2025-10-25T19:51:29.107Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-10-25T19:51:29.176Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-10-25T19:51:29.176Z] > authorizing via signed-in user (mylesethan93@gmail.com)
+[debug] [2025-10-25T19:51:29.176Z] [iam] checking project messageai-mlx93 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2025-10-25T19:51:29.176Z] Checked if tokens are valid: false, expires at: 1761419319013
+[debug] [2025-10-25T19:51:29.176Z] Checked if tokens are valid: false, expires at: 1761419319013
+[debug] [2025-10-25T19:51:29.176Z] > refreshing access token with scopes: []
+[debug] [2025-10-25T19:51:29.177Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-10-25T19:51:29.177Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]

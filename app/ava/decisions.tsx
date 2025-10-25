@@ -62,7 +62,7 @@ export default function DecisionsScreen() {
         console.log('User conversations loaded:', convIds.size);
 
         // Now subscribe to decisions with the conversation IDs ready
-        const unsubscribe = aiService.getAllDecisions(userId).onSnapshot((snapshot: any) => {
+        const unsubscribe = aiService.getAllDecisions().onSnapshot((snapshot: any) => {
           console.log('Raw decisions from Firestore:', snapshot.docs.length);
           
           if (snapshot.docs.length === 0) {
@@ -176,7 +176,7 @@ export default function DecisionsScreen() {
         try {
           console.log('Extracting decisions from conversation:', convDoc.id);
           const result = await aiService.extractDecisions(convDoc.id);
-          if (result?.count > 0) {
+          if (result && result.count && result.count > 0) {
             totalExtracted += result.count;
           }
           setAnalyzingProgress((i + 1) / totalConversations);
@@ -187,9 +187,7 @@ export default function DecisionsScreen() {
 
       Alert.alert(
         'Analysis Complete',
-        `Found ${totalExtracted} new decision${totalExtracted !== 1 ? 's' : ''} from the last 7 days.${
-          skippedConversations > 0 ? ` (${skippedConversations} conversation${skippedConversations !== 1 ? 's' : ''} skipped)` : ''
-        }`
+        `Found ${totalExtracted} new decision${totalExtracted !== 1 ? 's' : ''} from the last 7 days.`
       );
     } catch (error) {
       console.error('Error analyzing conversations:', error);
@@ -326,7 +324,7 @@ export default function DecisionsScreen() {
         if (selectionMode) {
           toggleSelection(item.id);
         } else {
-          router.push(`/chat/${item.conversationId}`);
+          router.push(`/decision/${item.id}`);
         }
       }}
       onLongPress={() => {
@@ -338,7 +336,7 @@ export default function DecisionsScreen() {
       <View style={styles.cardRow}>
         {selectionMode && (
           <Ionicons
-            name={selectedDecisions.has(item.id) ? 'checkmark-circle' : 'circle-outline'}
+            name={selectedDecisions.has(item.id) ? 'checkmark-circle' : 'ellipse-outline'}
             size={20}
             color={selectedDecisions.has(item.id) ? '#007AFF' : '#999'}
             style={styles.checkbox}
@@ -353,9 +351,9 @@ export default function DecisionsScreen() {
             <Text style={styles.dateText}>
               {(() => {
                 try {
-                  const madeAtDate = item.madeAt instanceof Date
-                    ? item.madeAt
-                    : new Date(item.madeAt);
+                  const madeAtDate = typeof item.madeAt === 'number'
+                    ? new Date(item.madeAt)
+                    : new Date();
                   
                   if (!isNaN(madeAtDate.getTime())) {
                     return format(madeAtDate, 'MMM d');
@@ -363,6 +361,7 @@ export default function DecisionsScreen() {
                 } catch (error) {
                   return '';
                 }
+                return '';
               })()}
             </Text>
           </View>
@@ -382,15 +381,16 @@ export default function DecisionsScreen() {
                 </View>
               )}
               {item.participants && item.participants.length > 0 && (
-                <Text style={styles.participantsText}>
-                  {item.participants
-                    .filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant'))
-                    .slice(0, 2)
-                    .map(p => p.split(' ')[0])
-                    .join(', ')}
-                  {item.participants.filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant')).length > 2 && 
-                    ` +${item.participants.filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant')).length - 2}`
-                  }
+                <Text style={styles.participantsText} numberOfLines={1}>
+                  {(() => {
+                    const validParticipants = item.participants
+                      .filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant'))
+                      .map(p => p.split(' ')[0]);
+                    
+                    // Show all names, let it naturally truncate if too long
+                    // The numberOfLines={1} will handle overflow gracefully
+                    return validParticipants.join(', ');
+                  })()}
                 </Text>
               )}
             </View>

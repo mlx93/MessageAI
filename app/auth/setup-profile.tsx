@@ -15,18 +15,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert
+  Alert,
+  ScrollView
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { createUserProfileWithPhone } from '../../services/authService';
 import { useAuth } from '../../store/AuthContext';
 
 export default function SetupProfileScreen() {
-  const { userId, phoneNumber } = useLocalSearchParams<{
-    userId: string;
-    phoneNumber: string;
+  const params = useLocalSearchParams<{
+    userId?: string;
+    phoneNumber?: string;
   }>();
-  const { refreshUserProfile } = useAuth();
+  const { user, userProfile, refreshUserProfile, signOut } = useAuth();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -34,14 +35,25 @@ export default function SetupProfileScreen() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
+  // Get userId and phoneNumber from auth context or params
+  const userId = user?.uid || params.userId;
+  const phoneNumber = userProfile?.phoneNumber || params.phoneNumber;
+
   // Pre-populate fields if user has existing data
   useEffect(() => {
     const loadExistingProfile = async () => {
-      if (!userId) return;
+      if (!userId) {
+        setInitialLoading(false);
+        return;
+      }
       
       try {
-        const { getUserProfile } = await import('../../services/authService');
-        const profile = await getUserProfile(userId);
+        // Use userProfile from context if available, otherwise fetch
+        let profile = userProfile;
+        if (!profile) {
+          const { getUserProfile } = await import('../../services/authService');
+          profile = await getUserProfile(userId);
+        }
         
         if (profile) {
           // Pre-populate from existing profile
@@ -64,9 +76,19 @@ export default function SetupProfileScreen() {
     };
 
     loadExistingProfile();
-  }, [userId]);
+  }, [userId, userProfile]);
 
   const handleContinue = async () => {
+    if (!userId) {
+      Alert.alert('Error', 'User ID not found. Please sign out and try again.');
+      return;
+    }
+
+    if (!phoneNumber) {
+      Alert.alert('Error', 'Phone number not found. Please sign out and try again.');
+      return;
+    }
+
     if (!firstName.trim()) {
       Alert.alert('First Name Required', 'Please enter your first name');
       return;
@@ -122,6 +144,28 @@ export default function SetupProfileScreen() {
   const isValidEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+  };
+
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out? You can sign in with a different number.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+              router.replace('/auth/phone-login');
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Show loading while checking existing profile
@@ -200,6 +244,14 @@ export default function SetupProfileScreen() {
           )}
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.signOutButton}
+          onPress={handleSignOut}
+          disabled={loading}
+        >
+          <Text style={styles.signOutButtonText}>Sign Out</Text>
+        </TouchableOpacity>
+
         <Text style={styles.disclaimer}>
           Your phone number won't be shared with other users
         </Text>
@@ -269,13 +321,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   buttonDisabled: {
     backgroundColor: '#C0C0C0',
   },
   buttonText: {
     color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  signOutButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  signOutButtonText: {
+    color: '#FF3B30',
     fontSize: 18,
     fontWeight: '600',
   },

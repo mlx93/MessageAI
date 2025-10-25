@@ -146,8 +146,15 @@ export default function SmartSearchScreen() {
           messageId: result.messageId,
           score: result.score,
           text: result.text.substring(0, 50),
+          conversationName: result.conversationName,
         });
-        const conversationName = await getConversationName(result.conversationId, userId);
+
+        // Use conversation name from backend if available, otherwise fetch
+        let conversationName = result.conversationName;
+        if (!conversationName) {
+          conversationName = await getConversationName(result.conversationId, userId);
+        }
+
         results.push({
           ...result,
           conversationName,

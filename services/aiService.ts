@@ -21,6 +21,8 @@ export interface SearchResult {
   sender: string;
   timestamp: number;
   conversationId: string;
+  conversationName?: string;
+  conversationType?: "direct" | "group";
 }
 
 export interface ActionItem {

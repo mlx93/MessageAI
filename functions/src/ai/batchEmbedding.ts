@@ -63,7 +63,7 @@ export const batchEmbedMessages = onSchedule({
       input: texts,
     });
 
-    // Get unique conversation IDs and fetch their participants
+    // Get unique conversation IDs and fetch their participants + metadata
     const uniqueConversationIds = [...new Set(
       snapshot.docs.map((doc) => {
         // Get conversation ID from doc path or data
@@ -74,6 +74,12 @@ export const batchEmbedMessages = onSchedule({
     )];
 
     const conversationParticipants: Record<string, string[]> = {};
+    const conversationsData: Array<{
+      id: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: any;
+    }> = [];
+
     console.log(`Found ${uniqueConversationIds.length} unique conversations`);
 
     await Promise.all(
@@ -86,17 +92,24 @@ export const batchEmbedMessages = onSchedule({
             convDoc.data()?.participants || [] : [];
           conversationParticipants[convId] = participants;
 
+          // Store full conversation data for metadata
+          conversationsData.push({
+            id: convId,
+            data: convDoc.exists ? convDoc.data() : null,
+          });
+
           if (participants.length === 0) {
             console.warn(`⚠️ Conversation ${convId} has no participants`);
           }
         } catch (error) {
           console.error(`Error fetching conversation ${convId}:`, error);
           conversationParticipants[convId] = [];
+          conversationsData.push({id: convId, data: null});
         }
       })
     );
 
-    // Prepare vectors for Pinecone
+    // Prepare vectors for Pinecone with enhanced metadata
     const vectors = snapshot.docs.map((doc, i) => {
       const data = doc.data();
       // Get conversation ID from doc path if not in data
@@ -113,18 +126,57 @@ export const batchEmbedMessages = onSchedule({
           Math.floor((timestampValue._nanoseconds || 0) / 1000000);
       }
 
+      // Get conversation metadata for enhanced context
+      const convDoc = conversationsData.find((c) => c.id === conversationId);
+      const convData = convDoc?.data;
+      const isGroup = convData?.isGroup || false;
+      const participantCount = participants.length;
+
+      // Build conversation name from participants for better search context
+      let conversationName = "Unknown";
+      if (convData) {
+        if (isGroup) {
+          conversationName = convData.groupName || "Group Chat";
+        } else {
+          // For direct messages, join participant names
+          const participantDetails = convData.participantDetails || {};
+          const names = Object.values(participantDetails)
+            .map((details) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const d = details as any;
+              return d?.displayName;
+            })
+            .filter(Boolean);
+          conversationName = names.join(", ") || "Direct Message";
+        }
+      }
+
+      // Get deletedBy array for per-user filtering in Pinecone
+      const deletedBy = data.deletedBy || [];
+
       return {
         id: doc.id,
         values: response.data[i].embedding,
         metadata: {
-          // Kept for backward compatibility
-          userId: data.senderId || data.userId,
+          // User/sender fields
+          userId: data.senderId || data.userId, // Backward compatibility
           senderId: data.senderId || data.userId, // Who sent the message
-          participants, // All users who can access this message
-          conversationId,
-          timestamp: timestampValue,
           sender: data.senderName || data.sender || "Unknown",
-          text: data.text.substring(0, 500), // Preview only
+
+          // Access control
+          participants, // All users who can access this message
+          deletedBy, // Users who deleted this message (for filtering)
+
+          // Conversation context
+          conversationId,
+          conversationName, // Searchable conversation name
+          conversationType: isGroup ? "group" : "direct",
+          participantCount,
+          isGroup,
+
+          // Message content and metadata
+          text: data.text.substring(0, 2000), // Increased from 500 to 2000
+          timestamp: timestampValue,
         },
       };
     });

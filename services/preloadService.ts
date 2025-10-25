@@ -59,13 +59,13 @@ export class PreloadService {
       };
     }
     
-    // Filter out any corrupted or deleted messages
+    // Filter out any corrupted messages
+    // Note: Deleted messages are already filtered out by the caller
     const validMessages = currentMessages.filter(msg => 
       msg && 
       msg.id && 
       msg.timestamp && 
       msg.senderId &&
-      !msg.deletedBy && // Skip messages deleted by current user
       // Skip deleted images
       !(msg.type === 'image' && (!msg.mediaURL || msg.mediaURL === 'deleted' || msg.mediaURL === ''))
     );

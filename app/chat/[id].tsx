@@ -418,7 +418,7 @@ export default function ChatScreen() {
           return manageMessageMemory(merged);
         }
         
-        // Check if any message actually changed (status, readBy, deliveredTo)
+        // Check if any message actually changed (status, readBy, deliveredTo, deletedBy)
         let hasChanges = false;
         const updatedMessages = visibleMessages.map(newMsg => {
           // Find existing message by id or localId
@@ -437,7 +437,8 @@ export default function ChatScreen() {
           // Check if important fields changed
           if (oldMsg.status !== newMsg.status ||
               oldMsg.readBy.length !== newMsg.readBy.length ||
-              oldMsg.deliveredTo.length !== newMsg.deliveredTo.length) {
+              oldMsg.deliveredTo.length !== newMsg.deliveredTo.length ||
+              (oldMsg.deletedBy || []).length !== (newMsg.deletedBy || []).length) {
             hasChanges = true;
             cacheMessageBatched(newMsg); // Cache changed message
             return newMsg;
@@ -446,6 +447,14 @@ export default function ChatScreen() {
           // No change, keep old reference to prevent re-render
           return oldMsg;
         });
+        
+        // Check if any messages were deleted (present in prevMessages but not in visibleMessages)
+        const visibleIds = new Set(visibleMessages.map(m => m.id));
+        const deletedCount = prevMessages.filter(m => !visibleIds.has(m.id)).length;
+        if (deletedCount > 0) {
+          hasChanges = true;
+          console.log(`🗑️ Detected ${deletedCount} deleted message(s)`);
+        }
         
         // Only update if something changed, and dedupe to prevent duplicates
         const finalMessages = hasChanges ? manageMessageMemory(dedupeMessages(updatedMessages)) : prevMessages;
@@ -1332,16 +1341,34 @@ export default function ChatScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Optimistic update: Remove from UI immediately
+              const messageIdToDelete = selectedMessage.id;
+              setMessages(prev => prev.filter(m => m.id !== messageIdToDelete));
+              
+              // Update Firestore
               await deleteMessage(conversationId, selectedMessage.id, user.uid);
+              
+              // Update SQLite cache with deletedBy field
+              const updatedMessage = {
+                ...selectedMessage,
+                deletedBy: [...(selectedMessage.deletedBy || []), user.uid]
+              };
+              await cacheMessageBatched(updatedMessage);
+              
+              console.log(`🗑️ Message deleted: ${selectedMessage.id}`);
             } catch (error) {
               console.error('Failed to delete message:', error);
               Alert.alert('Error', 'Failed to delete message');
+              // Rollback: Re-add message to UI on error
+              setMessages(prev => dedupeMessages([...prev, selectedMessage]).sort((a, b) => 
+                a.timestamp.getTime() - b.timestamp.getTime()
+              ));
             }
           }
         }
       ]
     );
-  }, [selectedMessage, user, conversationId]);
+  }, [selectedMessage, user, conversationId, dedupeMessages]);
 
   // Manual retry handler for queued messages
   const handleRetryMessage = useCallback(async (localId: string) => {
@@ -1922,7 +1949,7 @@ export default function ChatScreen() {
                 msg.id && 
                 msg.timestamp && 
                 msg.senderId &&
-                !msg.deletedBy && // Skip messages deleted by current user
+                (!msg.deletedBy || !msg.deletedBy.includes(user!.uid)) && // Skip messages deleted by current user
                 // Skip deleted images
                 !(msg.type === 'image' && (!msg.mediaURL || msg.mediaURL === 'deleted' || msg.mediaURL === ''))
               );

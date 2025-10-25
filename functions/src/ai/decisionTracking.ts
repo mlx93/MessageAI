@@ -86,19 +86,20 @@ export const extractDecisions = onCall({
     }
 
     // Get participant names from the conversation metadata
-    const participantProfiles = convData.participantProfiles || {};
-    const participants = convData.participants || [];
+    const participantDetails = convData.participantDetails || {};
+    const participants = (convData.participants || [])
+      .filter((uid: unknown) => uid && typeof uid === "string");
 
     // Build a map of UID to display name (first name only)
     const uidToName: Record<string, string> = {};
     for (const uid of participants) {
       // Try to get the name from profiles first
-      if (participantProfiles[uid]) {
-        const profile = participantProfiles[uid];
+      if (participantDetails[uid]) {
+        const profile = participantDetails[uid];
         let name = profile.displayName || profile.phoneNumber || "";
 
         // Extract first name only if it's a full name
-        if (name && name.includes(" ")) {
+        if (name && typeof name === "string" && name.includes(" ")) {
           name = name.split(" ")[0];
         }
 
@@ -107,11 +108,11 @@ export const extractDecisions = onCall({
           uidToName[uid] = name;
         } else {
           console.log(`No valid name for ${uid}, using fallback`);
-          uidToName[uid] = `User_${uid.slice(0, 4)}`;
+          uidToName[uid] = `User_${(uid || "unknown").slice(0, 4)}`;
         }
       } else {
         console.log(`No profile for ${uid}, using fallback`);
-        uidToName[uid] = `User_${uid.slice(0, 4)}`;
+        uidToName[uid] = `User_${(uid || "unknown").slice(0, 4)}`;
       }
     }
 
@@ -143,18 +144,22 @@ export const extractDecisions = onCall({
     const messages: MessageData[] = snapshot.docs
       .filter((doc) => {
         const data = doc.data();
-        // Exclude deleted or hidden messages
+        // Exclude deleted or hidden messages, and validate required fields
         return !data.deleted &&
                !data.hiddenBy?.includes(userId) &&
                !data.deletedBy?.includes(userId) &&
-               data.text; // Ensure message has content
+               data.text &&
+               typeof data.text === "string" &&
+               data.text.trim().length > 0 &&
+               data.senderId &&
+               typeof data.senderId === "string"; // Ensure senderId exists
       })
       .map((doc) => {
         const data = doc.data();
         return {
           id: doc.id,
           text: data.text as string,
-          sender: data.sender as string,
+          sender: data.senderId as string,
           timestamp: data.timestamp as number,
           conversationId: data.conversationId as string,
         };
@@ -172,10 +177,10 @@ export const extractDecisions = onCall({
       let senderName = uidToName[m.sender];
       if (!senderName) {
         // Try to add this sender to the map if not already there
-        if (participantProfiles[m.sender]) {
-          const profile = participantProfiles[m.sender];
+        if (participantDetails[m.sender]) {
+          const profile = participantDetails[m.sender];
           let name = profile.displayName || profile.phoneNumber || "";
-          if (name && name.includes(" ")) {
+          if (name && typeof name === "string" && name.includes(" ")) {
             name = name.split(" ")[0];
           }
           if (name && name !== "undefined" && name !== "null") {
@@ -187,7 +192,7 @@ export const extractDecisions = onCall({
 
       return {
         ...m,
-        senderName: senderName || `User_${m.sender.slice(0, 4)}`,
+        senderName: senderName || `User_${(m.sender || "unknown").slice(0, 4)}`,
       };
     });
 
@@ -213,7 +218,7 @@ ${Object.entries(uidToName)
 
 Messages (with names):
 ${limitedMessages.map((m, i) =>
-    `[${i}] ${m.senderName}: ${m.text.slice(0, 200)}`
+    `[${i}] ${m.senderName}: ${(m.text || "").slice(0, 200)}`
   ).join("\n\n")}
 
 For each decision:
@@ -235,11 +240,12 @@ Distinguish:
 - Team consensus vs. individual opinions
 - Serious decisions vs. sarcasm/jokes`,
       });
-    } catch (aiError: any) {
-      console.error("AI generation failed:", aiError);
+    } catch (aiError: unknown) {
+      const error = aiError as Error & {cause?: unknown};
+      console.error("AI generation failed:", error);
       console.error("AI error details:", {
-        message: aiError?.message,
-        cause: aiError?.cause,
+        message: error?.message,
+        cause: error?.cause,
       });
       // Return empty result if AI fails
       return {
@@ -288,6 +294,13 @@ Distinguish:
     // Store new decisions in Firestore
     const batch = db.batch();
 
+    // We need to get message timestamps for accurate decision dates
+    // Build a map of message IDs to their timestamps
+    const messageIdToTimestamp: Record<string, number> = {};
+    messages.forEach((msg) => {
+      messageIdToTimestamp[msg.id] = msg.timestamp;
+    });
+
     newDecisions.forEach((item) => {
       const ref = db.collection("decisions").doc();
 
@@ -316,13 +329,35 @@ Distinguish:
         validatedDecisionMaker = validatedParticipants[0] || "Unknown";
       }
 
+      // Get the timestamp from the last relevant message
+      // messageIds come from the AI as array indices [0, 1, 2, ...]
+      let decisionTimestamp = Date.now();
+      if (item.messageIds && item.messageIds.length > 0) {
+        // messageIds are indices into the messagesWithNames array
+        // Find the latest timestamp from the relevant messages
+        const messageTimestamps = item.messageIds
+          .map((idx) => {
+            // idx could be a string like "0" or "1"
+            const index = parseInt(String(idx), 10);
+            if (!isNaN(index) && index < messagesWithNames.length) {
+              return messagesWithNames[index].timestamp;
+            }
+            return null;
+          })
+          .filter((ts): ts is number => ts !== null);
+
+        if (messageTimestamps.length > 0) {
+          decisionTimestamp = Math.max(...messageTimestamps);
+        }
+      }
+
       batch.set(ref, {
         ...item,
         participants: validatedParticipants,
         decisionMaker: validatedDecisionMaker,
         conversationId,
         extractedBy: userId,
-        madeAt: Date.now(),
+        madeAt: decisionTimestamp,
         status: "active",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -337,14 +372,15 @@ Distinguish:
         newDecisions.length !== 1 ? "s" : ""
       }`,
     };
-  } catch (error: any) {
-    console.error("Decision extraction error:", error);
+  } catch (error: unknown) {
+    const err = error as Error & {code?: string; stack?: string};
+    console.error("Decision extraction error:", err);
     console.error("Error details:", {
-      message: error?.message,
-      code: error?.code,
-      stack: error?.stack,
+      message: err?.message,
+      code: err?.code,
+      stack: err?.stack,
     });
-    const errorMsg = error?.message || "Failed to extract decisions";
+    const errorMsg = err?.message || "Failed to extract decisions";
     throw new HttpsError("internal", errorMsg);
   }
 });
