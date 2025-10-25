@@ -16,6 +16,16 @@ const ActionItemSchema = z.object({
   })),
 });
 
+interface ExistingActionItem {
+  id: string;
+  task: string;
+  assignee: string | null;
+  messageId: string;
+  conversationId: string;
+  status: string;
+  [key: string]: unknown;
+}
+
 interface MessageData {
   id: string;
   text: string;
@@ -190,10 +200,12 @@ Don't extract:
       .where("status", "==", "pending")
       .get();
 
-    const existingItems = existingItemsQuery.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const existingItems: ExistingActionItem[] = existingItemsQuery.docs.map(
+      (doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      } as ExistingActionItem)
+    );
 
     console.log(`Found ${existingItems.length} existing pending action items`);
 
@@ -204,7 +216,7 @@ Don't extract:
 
     for (const item of result.object.actionItems) {
       // Check for duplicates based on task, messageId, and assignee
-      const isDuplicate = existingItems.some((existing: any) => {
+      const isDuplicate = existingItems.some((existing) => {
         const sameTask = existing.task === item.task;
         const sameMessage = existing.messageId === item.messageId;
         const sameAssignee = existing.assignee === item.assignee;
@@ -294,7 +306,7 @@ Don't extract:
     return {
       actionItems: result.object.actionItems.filter((item) => {
         // Return only non-duplicate items
-        return !existingItems.some((existing: any) => {
+        return !existingItems.some((existing) => {
           const sameTask = existing.task === item.task;
           const sameMessage = existing.messageId === item.messageId;
           const sameAssignee = existing.assignee === item.assignee;

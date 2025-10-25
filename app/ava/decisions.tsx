@@ -201,10 +201,18 @@ export default function DecisionsScreen() {
   };
 
   const handleDelete = async (decisionId: string) => {
-    const result = await aiService.deleteDecision(decisionId);
-    if (result?.success) {
-      // Remove from local state immediately for better UX
-      setDecisions(prev => prev.filter(d => d.id !== decisionId));
+    // Remove from local state immediately for better UX
+    setDecisions(prev => prev.filter(d => d.id !== decisionId));
+    
+    // Then delete from backend
+    try {
+      const result = await aiService.deleteDecision(decisionId);
+      if (!result?.success) {
+        // If failed, add it back
+        console.log('Failed to delete decision, restoring...');
+      }
+    } catch (error) {
+      console.error('Error deleting decision:', error);
     }
   };
 
@@ -257,23 +265,32 @@ export default function DecisionsScreen() {
     const panResponder = useRef(
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dx) > 10 && !selectionMode;
+          // Only respond to horizontal swipes
+          return Math.abs(gestureState.dx) > 10 && 
+                 Math.abs(gestureState.dy) < 10 && 
+                 !selectionMode;
         },
         onPanResponderMove: (_, gestureState) => {
           if (gestureState.dx < 0) {
-            translateX.setValue(gestureState.dx);
+            // Limit the swipe distance
+            const limitedDx = Math.max(gestureState.dx, -120);
+            translateX.setValue(limitedDx);
           }
         },
         onPanResponderRelease: (_, gestureState) => {
-          if (gestureState.dx < -100) {
+          if (gestureState.dx < -80) {
+            // Snap to delete position
             Animated.timing(translateX, {
-              toValue: -SCREEN_WIDTH,
+              toValue: -120,
               duration: 200,
               useNativeDriver: true,
-            }).start(() => {
+            }).start();
+            // Delete after a delay
+            setTimeout(() => {
               handleDelete(item.id);
-            });
+            }, 100);
           } else {
+            // Snap back
             Animated.spring(translateX, {
               toValue: 0,
               useNativeDriver: true,
@@ -318,78 +335,72 @@ export default function DecisionsScreen() {
           toggleSelection(item.id);
         }
       }}>
-      {selectionMode && (
-        <View style={styles.selectionIndicator}>
+      <View style={styles.cardRow}>
+        {selectionMode && (
           <Ionicons
             name={selectedDecisions.has(item.id) ? 'checkmark-circle' : 'circle-outline'}
-            size={24}
+            size={20}
             color={selectedDecisions.has(item.id) ? '#007AFF' : '#999'}
+            style={styles.checkbox}
           />
-        </View>
-      )}
-      <View style={styles.decisionHeader}>
-        <Text style={styles.decisionText} numberOfLines={2}>
-          {item.decision || 'Decision text unavailable'}
-        </Text>
-        {item.decisionMaker && (
-          <View style={styles.decisionMakerBadge}>
-            <Ionicons name="person" size={12} color="#007AFF" />
-            <Text style={styles.decisionMakerText}>{item.decisionMaker}</Text>
+        )}
+        
+        <View style={styles.cardContent}>
+          <View style={styles.topRow}>
+            <Text style={styles.decisionText} numberOfLines={1}>
+              {item.decision || 'Decision text unavailable'}
+            </Text>
+            <Text style={styles.dateText}>
+              {(() => {
+                try {
+                  const madeAtDate = item.madeAt instanceof Date
+                    ? item.madeAt
+                    : new Date(item.madeAt);
+                  
+                  if (!isNaN(madeAtDate.getTime())) {
+                    return format(madeAtDate, 'MMM d');
+                  }
+                } catch (error) {
+                  return '';
+                }
+              })()}
+            </Text>
           </View>
-        )}
-      </View>
 
-      <Text style={styles.rationale} numberOfLines={2}>
-        {item.rationale || 'No rationale provided'}
-      </Text>
-
-      {item.alternativesConsidered?.length > 0 && (
-        <Text style={styles.alternatives} numberOfLines={1}>
-          Alt: {item.alternativesConsidered.slice(0, 2).join(', ')}
-          {item.alternativesConsidered.length > 2 && ` +${item.alternativesConsidered.length - 2}`}
-        </Text>
-      )}
-
-      <View style={styles.participants}>
-        {item.participants && item.participants.length > 0 ? (
-          <>
-            {item.participants.slice(0, 3).map((participant, index) => (
-              <View key={index} style={styles.participantChip}>
-                <Text style={styles.participantText}>{participant}</Text>
-              </View>
-            ))}
-            {item.participants.length > 3 && (
-              <Text style={styles.moreParticipants}>+{item.participants.length - 3}</Text>
-            )}
-          </>
-        ) : (
-          <Text style={styles.participantText}>No participants</Text>
-        )}
-      </View>
-
-      <View style={styles.footer}>
-        <Text style={styles.dateText}>
-          {(() => {
-            try {
-              const madeAtDate = item.madeAt instanceof Date
-                ? item.madeAt
-                : item.madeAt?.toDate?.()
-                ? item.madeAt.toDate()
-                : new Date(item.madeAt);
-              
-              if (!isNaN(madeAtDate.getTime())) {
-                return format(madeAtDate, 'MMM d');
-              }
-            } catch (error) {
-              console.log('Error formatting madeAt:', error);
-            }
-            return '';
-          })()}
-        </Text>
-        <View style={styles.confidenceBadge}>
-          <Text style={styles.confidenceText}>
-            {Math.round(item.confidence * 100)}%
+          <Text style={styles.rationale} numberOfLines={1}>
+            {item.rationale || 'No rationale provided'}
           </Text>
+
+          <View style={styles.bottomRow}>
+            <View style={styles.participantsRow}>
+              {item.decisionMaker && item.decisionMaker !== 'undefined' && item.decisionMaker !== 'Unknown' && (
+                <View style={styles.decisionMakerBadge}>
+                  <Ionicons name="person" size={10} color="#007AFF" />
+                  <Text style={styles.decisionMakerText}>
+                    {item.decisionMaker.split(' ')[0]}
+                  </Text>
+                </View>
+              )}
+              {item.participants && item.participants.length > 0 && (
+                <Text style={styles.participantsText}>
+                  {item.participants
+                    .filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant'))
+                    .slice(0, 2)
+                    .map(p => p.split(' ')[0])
+                    .join(', ')}
+                  {item.participants.filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant')).length > 2 && 
+                    ` +${item.participants.filter(p => p && p !== 'undefined' && p !== 'Unknown' && !p.includes('Participant')).length - 2}`
+                  }
+                </Text>
+              )}
+            </View>
+            
+            <View style={styles.confidenceBadge}>
+              <Text style={styles.confidenceText}>
+                {Math.round(item.confidence * 100)}%
+              </Text>
+            </View>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -574,23 +585,23 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: 16,
-    gap: 12,
+    gap: 8,
   },
   summary: {
     backgroundColor: '#F0F8FF',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#007AFF40',
+    borderColor: '#007AFF30',
   },
   summaryText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
   },
   swipeContainer: {
-    marginBottom: 8,
+    marginBottom: 6,
     position: 'relative',
   },
   deleteBackground: {
@@ -598,116 +609,105 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    width: 100,
+    width: 80,
     backgroundColor: '#FF3B30',
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteText: {
     color: '#FFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 2,
   },
   animatedCard: {
     backgroundColor: '#FFF',
   },
   decisionCard: {
     backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 10,
+    padding: 10,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
   },
   selectedCard: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#007AFF',
   },
-  selectionIndicator: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-  decisionHeader: {
-    marginBottom: 8,
-  },
-  decisionText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
-    lineHeight: 20,
-    marginBottom: 4,
-  },
-  decisionMakerBadge: {
+  cardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F0F8FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    alignItems: 'flex-start',
   },
-  decisionMakerText: {
-    fontSize: 12,
-    color: '#007AFF',
-    fontWeight: '600',
+  checkbox: {
+    marginRight: 8,
+    marginTop: 2,
   },
-  rationale: {
-    fontSize: 13,
-    color: '#666',
-    lineHeight: 18,
-    marginBottom: 6,
+  cardContent: {
+    flex: 1,
   },
-  alternatives: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 8,
-    fontStyle: 'italic',
-  },
-  participants: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 8,
-  },
-  participantChip: {
-    backgroundColor: '#F8F9FA',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  participantText: {
-    fontSize: 11,
-    color: '#333',
-  },
-  moreParticipants: {
-    fontSize: 11,
-    color: '#666',
-    alignSelf: 'center',
-  },
-  footer: {
+  topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
+  },
+  decisionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    flex: 1,
+    marginRight: 8,
   },
   dateText: {
     fontSize: 11,
     color: '#999',
   },
-  confidenceBadge: {
-    backgroundColor: '#F0F0F0',
-    paddingHorizontal: 8,
+  rationale: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  participantsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  decisionMakerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F0F8FF',
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 10,
   },
-  confidenceText: {
+  decisionMakerText: {
+    fontSize: 10,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  participantsText: {
     fontSize: 11,
+    color: '#888',
+  },
+  confidenceBadge: {
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  confidenceText: {
+    fontSize: 10,
     color: '#666',
     fontWeight: '600',
   },

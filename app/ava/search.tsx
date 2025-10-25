@@ -233,7 +233,7 @@ export default function SmartSearchScreen() {
           <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by keyword or meaning..."
+            placeholder="Search"
             placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={setSearchQuery}

@@ -65,19 +65,30 @@ export const batchEmbedMessages = onSchedule({
 
     // Get unique conversation IDs and fetch their participants
     const uniqueConversationIds = [...new Set(
-      snapshot.docs.map((doc) => doc.data().conversationId)
+      snapshot.docs.map((doc) => {
+        // Get conversation ID from doc path or data
+        const data = doc.data();
+        return data.conversationId || doc.ref.parent.parent?.id || "";
+      })
         .filter((id) => id && id.length > 0) // Filter out undefined/empty IDs
     )];
 
     const conversationParticipants: Record<string, string[]> = {};
+    console.log(`Found ${uniqueConversationIds.length} unique conversations`);
+
     await Promise.all(
       uniqueConversationIds.map(async (convId) => {
         if (!convId) return; // Skip if no conversation ID
         try {
           const convDoc = await db.collection("conversations")
             .doc(convId).get();
-          conversationParticipants[convId] = convDoc.exists ?
+          const participants = convDoc.exists ?
             convDoc.data()?.participants || [] : [];
+          conversationParticipants[convId] = participants;
+
+          if (participants.length === 0) {
+            console.warn(`⚠️ Conversation ${convId} has no participants`);
+          }
         } catch (error) {
           console.error(`Error fetching conversation ${convId}:`, error);
           conversationParticipants[convId] = [];

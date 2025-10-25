@@ -39,22 +39,22 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="contacts"
-        options={{
-          title: 'Contacts',
-          headerLargeTitle: true,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="ava"
         options={{
           title: 'Ava',
           headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="sparkles" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="contacts"
+        options={{
+          title: 'Contacts',
+          headerLargeTitle: true,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people" size={size} color={color} />
           ),
         }}
       />

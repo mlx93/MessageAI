@@ -44,16 +44,34 @@
 **Decisions Feature Complete Overhaul:**
 - **User Privacy**: Decisions now filtered to only show from user's conversations
 - **Hidden Content Excluded**: Skips hidden/deleted conversations and messages
-- **Participant Names**: Shows actual names from group chat metadata (not generic names)
-- **Decision Maker**: Prominently displays who made each decision
-- **Swipe-to-Delete**: Individual decisions can be deleted with left swipe
+- **Participant Names FIXED**: 
+  - Properly extracts names from participantProfiles (displayName or phoneNumber)
+  - Shows first names only for cleaner display
+  - Maps UIDs to actual names before AI processing
+  - Validates and filters out "undefined", "Participant X", "Unnamed Participant"
+  - Falls back to "User_XXXX" only when no profile exists
+- **Decision Maker**: Prominently displays who made each decision (with validation)
+- **Swipe-to-Delete FIXED**: 
+  - Improved gesture detection for horizontal swipes only
+  - Limited swipe distance for better UX
+  - Immediate visual feedback with delete on swipe
 - **Bulk Operations**: Long-press to select, then bulk delete multiple decisions
-- **Compact UI**: Redesigned cards to show more decisions on screen
+- **Sleeker Compact UI**: 
+  - Cards now much narrower and cleaner like action items
+  - Single line decision text with date on same row
+  - Minimal padding and smaller fonts for higher density
+  - Confidence badge and participants on bottom row
 - **Duplicate Prevention**: Checks existing decisions before creating new ones
 - **7-Day Default**: Analyzes last 7 days of conversations by default
 - **Progress Bar**: Shows extraction progress with percentage
 - **Test Data Filtered**: Removes any generic test names (Alice, Bob, etc.)
 - **Loading Fix**: Removed infinite loading spinner, shows empty state immediately
+- **Error Handling Improved**: 
+  - Better handling of AI extraction failures with message limits  
+  - Added result validation before processing
+  - Comprehensive logging for debugging (conv, user, participants, messages, AI errors)
+  - Graceful handling when AI fails or returns invalid results
+  - Created debug guide at DECISION_EXTRACTION_DEBUG.md
 
 **Semantic Search Fully Operational:**
 - **Access Control Fixed**: Search now shows ALL messages from user's conversations (not just sent messages)

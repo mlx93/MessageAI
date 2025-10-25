@@ -56,14 +56,20 @@ export const extractDecisions = onCall({
   try {
     const db = admin.firestore();
 
+    console.log(`extractDecisions: conv=${conversationId}, user=${userId}`);
+
     // Check if user is participant in the conversation
     const convDoc = await db.collection("conversations")
       .doc(conversationId).get();
     if (!convDoc.exists) {
+      console.log(`Conversation ${conversationId} not found`);
       throw new HttpsError("not-found", "Conversation not found");
     }
 
     const convData = convDoc.data();
+    console.log(
+      `Conversation has ${convData?.participants?.length || 0} participants`
+    );
     if (!convData?.participants?.includes(userId)) {
       throw new HttpsError(
         "permission-denied",
@@ -80,7 +86,40 @@ export const extractDecisions = onCall({
     }
 
     // Get participant names from the conversation metadata
-    const participantNames = convData.participantNames || {};
+    const participantProfiles = convData.participantProfiles || {};
+    const participants = convData.participants || [];
+
+    // Build a map of UID to display name (first name only)
+    const uidToName: Record<string, string> = {};
+    for (const uid of participants) {
+      // Try to get the name from profiles first
+      if (participantProfiles[uid]) {
+        const profile = participantProfiles[uid];
+        let name = profile.displayName || profile.phoneNumber || "";
+
+        // Extract first name only if it's a full name
+        if (name && name.includes(" ")) {
+          name = name.split(" ")[0];
+        }
+
+        // Validate the name
+        if (name && name !== "undefined" && name !== "null") {
+          uidToName[uid] = name;
+        } else {
+          console.log(`No valid name for ${uid}, using fallback`);
+          uidToName[uid] = `User_${uid.slice(0, 4)}`;
+        }
+      } else {
+        console.log(`No profile for ${uid}, using fallback`);
+        uidToName[uid] = `User_${uid.slice(0, 4)}`;
+      }
+    }
+
+    console.log("Participant mapping:", JSON.stringify(uidToName));
+
+    if (Object.keys(uidToName).length === 0) {
+      console.log("WARNING: No participant names mapped!");
+    }
 
     // Query messages from conversation subcollection
     // Default to last 7 days if no date range specified
@@ -122,13 +161,45 @@ export const extractDecisions = onCall({
       });
 
     if (messages.length === 0) {
-      return {decisions: [], count: 0};
+      console.log(`No messages in conversation ${conversationId}`);
+      return {decisions: [], count: 0, message: "No messages in date range"};
     }
 
-    const result = await generateObject({
-      model: openai("gpt-4o"),
-      schema: DecisionSchema,
-      prompt: `Extract decisions made in this team conversation.
+    console.log(`Processing ${messages.length} messages for extraction`);
+
+    // Map messages to include sender names
+    const messagesWithNames = messages.map((m) => {
+      let senderName = uidToName[m.sender];
+      if (!senderName) {
+        // Try to add this sender to the map if not already there
+        if (participantProfiles[m.sender]) {
+          const profile = participantProfiles[m.sender];
+          let name = profile.displayName || profile.phoneNumber || "";
+          if (name && name.includes(" ")) {
+            name = name.split(" ")[0];
+          }
+          if (name && name !== "undefined" && name !== "null") {
+            senderName = name;
+            uidToName[m.sender] = name;
+          }
+        }
+      }
+
+      return {
+        ...m,
+        senderName: senderName || `User_${m.sender.slice(0, 4)}`,
+      };
+    });
+
+    let result;
+    try {
+      // Limit messages to prevent token limit issues
+      const limitedMessages = messagesWithNames.slice(0, 50);
+
+      result = await generateObject({
+        model: openai("gpt-4o"),
+        schema: DecisionSchema,
+        prompt: `Extract decisions made in this team conversation.
 
 Look for patterns:
 - "Let's go with X", "We decided to..."
@@ -136,29 +207,57 @@ Look for patterns:
 - Consensus signals (multiple agreements)
 - Poll results, "Everyone agree?"
 
-Participants Map:
-${Object.entries(participantNames)
-    .map(([uid, name]) => `${uid}: ${name}`).join("\n")}
+Conversation Participants:
+${Object.entries(uidToName)
+    .map(([uid, name]) => `- ${name} (ID: ${uid})`).join("\n")}
 
-Messages:
-${messages.map((m, i) => `[${i}] ${m.sender}: ${m.text}`).join("\n\n")}
+Messages (with names):
+${limitedMessages.map((m, i) =>
+    `[${i}] ${m.senderName}: ${m.text.slice(0, 200)}`
+  ).join("\n\n")}
 
 For each decision:
 - decision: The actual decision made
 - rationale: Why this decision was made
 - alternativesConsidered: Other options discussed
-- participants: Names of people involved (use the participant map above)
-- participantIds: UIDs of people involved
-- decisionMaker: Name of the person who made/announced the decision
+- participants: Array of participant NAMES (use actual names)
+- participantIds: Array of participant UIDs matching the names
+- decisionMaker: NAME of the person who made/announced the decision
 - decisionMakerId: UID of the person who made/announced the decision
-- messageIds: Relevant message IDs
+- messageIds: Relevant message IDs (use the [numbers] from messages)
 - confidence: 0-1 score
+
+IMPORTANT: Use the actual names from the conversation,
+NOT generic names like "Participant 1" or "Unnamed Participant".
 
 Distinguish:
 - Actual decisions vs. proposals
 - Team consensus vs. individual opinions
 - Serious decisions vs. sarcasm/jokes`,
-    });
+      });
+    } catch (aiError: any) {
+      console.error("AI generation failed:", aiError);
+      console.error("AI error details:", {
+        message: aiError?.message,
+        cause: aiError?.cause,
+      });
+      // Return empty result if AI fails
+      return {
+        decisions: [],
+        count: 0,
+        message: "Failed to extract decisions from conversation",
+      };
+    }
+
+    // Check if result is valid
+    if (!result || !result.object || !result.object.decisions) {
+      console.error("Invalid result from AI:", result);
+      return {
+        decisions: [],
+        count: 0,
+        message: "No decisions found in conversation",
+      };
+    }
 
     // Check for duplicates before storing
     const existingDecisions = await db.collection("decisions")
@@ -191,16 +290,36 @@ Distinguish:
 
     newDecisions.forEach((item) => {
       const ref = db.collection("decisions").doc();
+
+      // Ensure we have valid participant names
+      const validatedParticipants = item.participants.map((p: string) => {
+        // If it's a UID that we have a name for, use the name
+        if (uidToName[p]) {
+          return uidToName[p];
+        }
+        // If it already looks like a name, keep it
+        if (p && p.length < 30 && !p.includes("Participant")) {
+          return p;
+        }
+        // Fallback to a generic name if needed
+        return "Unknown";
+      }).filter((name: string) => name !== "Unknown" && name !== "undefined");
+
+      // Validate decision maker name
+      let validatedDecisionMaker = item.decisionMaker;
+      if (item.decisionMakerId && uidToName[item.decisionMakerId]) {
+        validatedDecisionMaker = uidToName[item.decisionMakerId];
+      } else if (!validatedDecisionMaker ||
+                 validatedDecisionMaker === "undefined" ||
+                 validatedDecisionMaker === "Unnamed Participant") {
+        // Try to get from first participant
+        validatedDecisionMaker = validatedParticipants[0] || "Unknown";
+      }
+
       batch.set(ref, {
         ...item,
-        // Ensure participant names are used
-        participants: item.participants.map((p: string) => {
-          // If it looks like a UID, try to map it to a name
-          if (p.length === 28 && participantNames[p]) {
-            return participantNames[p];
-          }
-          return p;
-        }),
+        participants: validatedParticipants,
+        decisionMaker: validatedDecisionMaker,
         conversationId,
         extractedBy: userId,
         madeAt: Date.now(),
@@ -218,9 +337,15 @@ Distinguish:
         newDecisions.length !== 1 ? "s" : ""
       }`,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Decision extraction error:", error);
-    throw new HttpsError("internal", "Failed to extract decisions");
+    console.error("Error details:", {
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+    });
+    const errorMsg = error?.message || "Failed to extract decisions";
+    throw new HttpsError("internal", errorMsg);
   }
 });
 
