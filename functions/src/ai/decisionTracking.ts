@@ -3,7 +3,11 @@ import {openai} from "@ai-sdk/openai";
 import {generateObject} from "ai";
 import {z} from "zod";
 import * as admin from "firebase-admin";
-import {openaiKey} from "../utils/openai";
+import {
+  openaiKey,
+  generateEmbedding,
+  cosineSimilarity,
+} from "../utils/openai";
 
 const DecisionSchema = z.object({
   decisions: z.array(z.object({
@@ -338,33 +342,177 @@ IMPORTANT:
       };
     }
 
-    // Check for duplicates before storing
+    // Check for semantic duplicates before storing
+    console.log("[Deduplication] Fetching existing decisions...");
     const existingDecisions = await db.collection("decisions")
       .where("conversationId", "==", conversationId)
       .where("status", "==", "active")
       .get();
 
-    const existingDecisionTexts = new Set(
-      existingDecisions.docs.map((doc) => {
+    console.log(
+      `[Deduplication] Found ${existingDecisions.size} existing decisions`
+    );
+
+    // Prepare existing decisions with embeddings
+    interface ExistingDecision {
+      id: string;
+      text: string;
+      confidence: number;
+      embedding?: number[];
+    }
+
+    const existingDecisionData: ExistingDecision[] = existingDecisions.docs
+      .map((doc) => {
         const data = doc.data();
-        return `${data.decision}_${data.conversationId}`;
+        return {
+          id: doc.id,
+          text: data.decision || "",
+          confidence: data.confidence || 0,
+          embedding: data.embedding as number[] | undefined,
+        };
+      })
+      .filter((d) => d.text.length > 0);
+
+    // Generate embeddings for new decisions and existing ones that lack them
+    console.log(
+      "[Deduplication] Generating embeddings for semantic comparison..."
+    );
+    const embeddingStartTime = Date.now();
+
+    // Generate embeddings for all new decisions
+    const newDecisionsWithEmbeddings = await Promise.all(
+      highConfidenceDecisions.map(async (item) => {
+        const embedding = await generateEmbedding(item.decision);
+        return {...item, embedding};
       })
     );
 
-    // Filter out duplicates
-    const newDecisions = highConfidenceDecisions.filter((item) =>
-      !existingDecisionTexts.has(`${item.decision}_${conversationId}`)
+    // Generate embeddings for existing decisions that don't have them
+    const existingNeedingEmbeddings = existingDecisionData
+      .filter((d) => !d.embedding || d.embedding.length === 0);
+
+    if (existingNeedingEmbeddings.length > 0) {
+      console.log(
+        `[Deduplication] ${existingNeedingEmbeddings.length} existing ` +
+        "decisions need embeddings"
+      );
+      const existingEmbeddings = await Promise.all(
+        existingNeedingEmbeddings.map((d) => generateEmbedding(d.text))
+      );
+
+      // Update existing decisions with their embeddings
+      existingNeedingEmbeddings.forEach((d, i) => {
+        d.embedding = existingEmbeddings[i];
+      });
+    }
+
+    console.log(
+      `[Deduplication] Embeddings generated in ${
+        Date.now() - embeddingStartTime}ms`
     );
 
-    if (newDecisions.length === 0) {
+    // Semantic deduplication: compare each new decision with existing ones
+    // 75% similarity (lowered from 80% for better detection)
+    const SIMILARITY_THRESHOLD = 0.75;
+    const decisionsToAdd: typeof newDecisionsWithEmbeddings = [];
+    const decisionsToUpdate: Array<{
+      docId: string;
+      newData: typeof newDecisionsWithEmbeddings[0];
+    }> = [];
+    const duplicatesSkipped: Array<{
+      newText: string;
+      existingText: string;
+      similarity: number;
+    }> = [];
+
+    for (const newDecision of newDecisionsWithEmbeddings) {
+      let isDuplicate = false;
+      let bestMatch: ExistingDecision | null = null;
+      let bestSimilarity = 0;
+
+      // Compare with all existing decisions
+      for (const existing of existingDecisionData) {
+        if (!existing.embedding || !newDecision.embedding) continue;
+
+        const similarity = cosineSimilarity(
+          newDecision.embedding,
+          existing.embedding
+        );
+
+        if (similarity > bestSimilarity) {
+          bestSimilarity = similarity;
+          bestMatch = existing;
+        }
+
+        if (similarity >= SIMILARITY_THRESHOLD) {
+          isDuplicate = true;
+          console.log(
+            `[Deduplication] Found semantic duplicate: "${
+              newDecision.decision.slice(0, 60)
+            }..." matches existing "${
+              existing.text.slice(0, 60)
+            }..." (${(similarity * 100).toFixed(1)}% similar)`
+          );
+
+          // Keep the higher confidence version
+          if (newDecision.confidence > existing.confidence) {
+            console.log(
+              "[Deduplication] New decision has higher confidence " +
+              `(${newDecision.confidence.toFixed(2)} vs ${
+                existing.confidence.toFixed(2)}), will update`
+            );
+            decisionsToUpdate.push({
+              docId: existing.id,
+              newData: newDecision,
+            });
+          } else {
+            console.log(
+              "[Deduplication] Existing decision has equal/higher " +
+              "confidence, skipping new one"
+            );
+          }
+
+          duplicatesSkipped.push({
+            newText: newDecision.decision,
+            existingText: existing.text,
+            similarity,
+          });
+
+          break; // Stop checking other existing decisions
+        }
+      }
+
+      // If no duplicate found, or similarity is borderline, log it
+      if (!isDuplicate) {
+        if (bestMatch && bestSimilarity > 0.6) {
+          console.log(
+            `[Deduplication] Similar but not duplicate: "${
+              newDecision.decision.slice(0, 60)
+            }..." vs "${
+              bestMatch.text.slice(0, 60)
+            }..." (${(bestSimilarity * 100).toFixed(1)}% similar)`
+          );
+        }
+        decisionsToAdd.push(newDecision);
+      }
+    }
+
+    console.log(
+      `[Deduplication] Results: ${decisionsToAdd.length} to add, ` +
+      `${decisionsToUpdate.length} to update, ` +
+      `${duplicatesSkipped.length} duplicates skipped`
+    );
+
+    if (decisionsToAdd.length === 0 && decisionsToUpdate.length === 0) {
       return {
         decisions: [],
         count: 0,
-        message: "No new decisions found",
+        message: "No new unique decisions found - " +
+          `${duplicatesSkipped.length} semantic duplicate(s) detected`,
       };
     }
 
-    // Store new decisions in Firestore
+    // Store new decisions and update existing ones in Firestore
     const batch = db.batch();
 
     // We need to get message timestamps for accurate decision dates
@@ -374,7 +522,8 @@ IMPORTANT:
       messageIdToTimestamp[msg.id] = msg.timestamp;
     });
 
-    newDecisions.forEach((item) => {
+    // Add new decisions
+    decisionsToAdd.forEach((item) => {
       const ref = db.collection("decisions").doc();
 
       // Ensure we have valid participant names
@@ -441,18 +590,91 @@ IMPORTANT:
         extractedBy: userId,
         madeAt: decisionTimestamp,
         status: "active",
+        embedding: item.embedding, // Store embedding for future comparisons
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    // Update existing decisions with higher confidence versions
+    decisionsToUpdate.forEach(({docId, newData}) => {
+      const ref = db.collection("decisions").doc(docId);
+
+      // Validate participants and decision maker (same logic as above)
+      const validatedParticipants = newData.participants
+        .map((p: string) => {
+          if (uidToName[p]) return uidToName[p];
+          if (p && p.length < 30 && !p.includes("Participant")) return p;
+          return "Unknown";
+        })
+        .filter((name: string) => name !== "Unknown" && name !== "undefined");
+
+      let validatedDecisionMaker = newData.decisionMaker;
+      if (newData.decisionMakerId && uidToName[newData.decisionMakerId]) {
+        validatedDecisionMaker = uidToName[newData.decisionMakerId];
+      } else if (!validatedDecisionMaker ||
+                 validatedDecisionMaker === "undefined" ||
+                 validatedDecisionMaker === "Unnamed Participant") {
+        validatedDecisionMaker = validatedParticipants[0] || "Unknown";
+      }
+
+      // Get timestamp (same logic as above)
+      let decisionTimestamp = Date.now();
+      if (newData.messageIds && newData.messageIds.length > 0) {
+        const messageTimestamps = newData.messageIds
+          .map((idx) => {
+            const index = parseInt(String(idx), 10);
+            if (!isNaN(index) && index < messagesWithNames.length) {
+              const ts = messagesWithNames[index].timestamp;
+              if (ts && typeof ts === "object" && "toMillis" in ts) {
+                return (ts as {toMillis: () => number}).toMillis();
+              }
+              if (typeof ts === "number" && ts < 946684800000) {
+                return ts * 1000;
+              }
+              return ts as number;
+            }
+            return null;
+          })
+          .filter((ts): ts is number => ts !== null && ts > 0);
+
+        if (messageTimestamps.length > 0) {
+          decisionTimestamp = Math.max(...messageTimestamps);
+        }
+      }
+
+      // Update with new, higher-confidence data
+      batch.update(ref, {
+        decision: newData.decision,
+        rationale: newData.rationale,
+        alternativesConsidered: newData.alternativesConsidered,
+        participants: validatedParticipants,
+        participantIds: newData.participantIds,
+        decisionMaker: validatedDecisionMaker,
+        decisionMakerId: newData.decisionMakerId,
+        messageIds: newData.messageIds,
+        confidence: newData.confidence,
+        madeAt: decisionTimestamp,
+        embedding: newData.embedding, // Update with new embedding
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: userId,
       });
     });
 
     await batch.commit();
 
+    const totalProcessed = decisionsToAdd.length + decisionsToUpdate.length;
+    const allDecisions = [
+      ...decisionsToAdd,
+      ...decisionsToUpdate.map((u) => u.newData),
+    ];
     return {
-      decisions: newDecisions,
-      count: newDecisions.length,
-      message: `Extracted ${newDecisions.length} new decision${
-        newDecisions.length !== 1 ? "s" : ""
-      }`,
+      decisions: allDecisions,
+      count: totalProcessed,
+      message: `Processed ${totalProcessed} decision${
+        totalProcessed !== 1 ? "s" : ""
+      } (${decisionsToAdd.length} new, ${
+        decisionsToUpdate.length} updated, ${
+        duplicatesSkipped.length} semantic duplicates skipped)`,
     };
   } catch (error: unknown) {
     const err = error as Error & {code?: string; stack?: string};

@@ -92,11 +92,6 @@ export const extractActions = onCall({
       return {actionItems: [], count: 0};
     }
 
-    // Get user details for default assignee
-    const userDoc = await db.collection("users").doc(userId).get();
-    const userData = userDoc.data();
-    const currentUserName = userData?.displayName || "Unknown User";
-
     // Query messages from conversation subcollection
     // Exclude deleted messages
     let query = db
@@ -194,6 +189,7 @@ Don't extract:
     );
 
     // Check for existing action items to avoid duplicates
+    // Only check PENDING items - completed/deleted items can be re-extracted
     const existingItemsQuery = await db
       .collection("action_items")
       .where("conversationId", "==", conversationId)
@@ -209,27 +205,50 @@ Don't extract:
 
     console.log(`Found ${existingItems.length} existing pending action items`);
 
+    // Also check for completed/deleted items that could be resurrected
+    const completedOrDeletedQuery = await db
+      .collection("action_items")
+      .where("conversationId", "==", conversationId)
+      .where("status", "in", ["completed", "deleted"])
+      .get();
+
+    const completedOrDeletedItems: ExistingActionItem[] =
+      completedOrDeletedQuery.docs.map(
+        (doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        } as ExistingActionItem)
+      );
+
+    console.log(
+      `Found ${completedOrDeletedItems.length} completed/deleted items ` +
+      "that could be resurrected"
+    );
+
     // Store action items in Firestore
     const batch = db.batch();
     let duplicatesSkipped = 0;
     let newItems = 0;
+    let resurrectedItems = 0;
 
     for (const item of result.object.actionItems) {
-      // Check for duplicates based on task, messageId, and assignee
-      const isDuplicate = existingItems.some((existing) => {
-        const sameTask = existing.task === item.task;
-        const sameMessage = existing.messageId === item.messageId;
-        const sameAssignee = existing.assignee === item.assignee;
-        return sameTask && sameMessage && sameAssignee;
-      });
-
-      if (isDuplicate) {
-        console.log(`Skipping duplicate action item: ${item.task}`);
-        duplicatesSkipped++;
-        continue;
+      // Convert AI-returned index to actual message ID
+      let actualMessageId: string;
+      try {
+        const messageIndex = parseInt(item.messageId);
+        if (isNaN(messageIndex) || messageIndex < 0 ||
+            messageIndex >= messages.length) {
+          console.warn(
+            `Invalid message index: ${item.messageId}, using first message`
+          );
+          actualMessageId = messages[0]?.id || item.messageId;
+        } else {
+          actualMessageId = messages[messageIndex].id;
+        }
+      } catch (e) {
+        console.warn(`Failed to parse messageId: ${item.messageId}`, e);
+        actualMessageId = messages[0]?.id || item.messageId;
       }
-
-      const ref = db.collection("action_items").doc();
 
       // Try to map assignee name to user ID
       let assigneeId = null;
@@ -246,7 +265,7 @@ Don't extract:
           if (selfReferences.includes(item.assignee.toLowerCase())) {
             // Find the sender of the original message
             const originalMessage = messages.find(
-              (m) => m.id === item.messageId
+              (m) => m.id === actualMessageId
             );
             if (originalMessage) {
               // Try to map the sender to a user ID
@@ -270,24 +289,79 @@ Don't extract:
         }
       }
 
-      // Default to the current user if unassigned (their own action queue)
-      if (!assigneeId && !item.assignee) {
-        assigneeId = userId;
-        finalAssignee = currentUserName;
-        console.log(
-          `Defaulting unassigned item to current user: ${currentUserName}`
-        );
-      }
-
       console.log(
-        `Mapping assignee "${item.assignee}" to ID: ${assigneeId || "NULL"},` +
-        ` final name: ${finalAssignee}`
+        `Action item: "${item.task.slice(0, 50)}..." | ` +
+        `Assignee: "${item.assignee}" → ` +
+        `"${finalAssignee}" (${assigneeId || "NULL"}) | ` +
+        `MessageId: [${item.messageId}] → ${actualMessageId.slice(0, 8)}...`
       );
 
+      // Check for duplicates in PENDING items only
+      const isPendingDuplicate = existingItems.some((existing) => {
+        const sameTask = existing.task === item.task;
+        const sameMessage = existing.messageId === actualMessageId;
+        const sameAssignee = existing.assigneeId === assigneeId;
+        return sameTask && sameMessage && sameAssignee;
+      });
+
+      if (isPendingDuplicate) {
+        console.log(
+          `✓ Skipping duplicate: "${item.task.slice(0, 40)}..." ` +
+          `(assigneeId: ${assigneeId || "NULL"}, ` +
+          `msgId: ${actualMessageId.slice(0, 8)}...)`
+        );
+        duplicatesSkipped++;
+        continue;
+      }
+
+      // Check if this matches a completed/deleted item that can be
+      // resurrected
+      const completedOrDeletedMatch = completedOrDeletedItems.find(
+        (existing) => {
+          const sameTask = existing.task === item.task;
+          const sameMessage = existing.messageId === actualMessageId;
+          const sameAssignee = existing.assigneeId === assigneeId;
+          return sameTask && sameMessage && sameAssignee;
+        });
+
+      if (completedOrDeletedMatch) {
+        // Resurrect the item by updating it back to pending
+        console.log(
+          `♻️ Resurrecting ${completedOrDeletedMatch.status} item: ` +
+          `"${item.task.slice(0, 40)}..."`
+        );
+
+        const itemRef = db.collection("action_items")
+          .doc(completedOrDeletedMatch.id);
+        batch.update(itemRef, {
+          status: "pending",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          completedAt: admin.firestore.FieldValue.delete(),
+          deletedAt: admin.firestore.FieldValue.delete(),
+          // Update other fields in case they changed
+          task: item.task,
+          assignee: finalAssignee,
+          assigneeId,
+          deadline: item.deadline,
+          context: item.context,
+          confidence: item.confidence,
+          extractedBy: userId,
+        });
+        resurrectedItems++;
+        continue;
+      }
+
+      // Create new item
+      const ref = db.collection("action_items").doc();
+
       batch.set(ref, {
-        ...item,
+        task: item.task,
         assignee: finalAssignee, // Use the resolved assignee name
         assigneeId, // Add the user ID for querying
+        deadline: item.deadline,
+        context: item.context,
+        messageId: actualMessageId, // Use actual Firestore document ID
+        confidence: item.confidence,
         conversationId,
         extractedBy: userId,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -296,28 +370,73 @@ Don't extract:
       newItems++;
     }
 
-    await batch.commit();
+    // Only commit if there are items to create or update
+    if (newItems > 0 || resurrectedItems > 0) {
+      await batch.commit();
+      console.log(
+        `✓ Committed ${newItems} new action items ` +
+        `and resurrected ${resurrectedItems} items to Firestore`
+      );
+    }
 
     console.log(
-      `Created ${newItems} new action items, skipped ${duplicatesSkipped}` +
-      " duplicates"
+      `📊 Extraction complete for conversation ${conversationId}: ` +
+      `${newItems} created, ${resurrectedItems} resurrected, ` +
+      `${duplicatesSkipped} duplicates skipped, ` +
+      `${result.object.actionItems.length} total found by AI`
     );
 
+    // Return successful response with the new items
     return {
-      actionItems: result.object.actionItems.filter((item) => {
-        // Return only non-duplicate items
-        return !existingItems.some((existing) => {
-          const sameTask = existing.task === item.task;
-          const sameMessage = existing.messageId === item.messageId;
-          const sameAssignee = existing.assignee === item.assignee;
-          return sameTask && sameMessage && sameAssignee;
-        });
-      }),
-      count: newItems,
+      actionItems: result.object.actionItems
+        .slice(0, newItems + resurrectedItems),
+      count: newItems + resurrectedItems,
       duplicatesSkipped,
     };
-  } catch (error) {
-    console.error("Action extraction error:", error);
-    throw new HttpsError("internal", "Failed to extract action items");
+  } catch (error: unknown) {
+    // Log detailed error for debugging
+    const err = error as {
+      message?: string;
+      code?: string;
+      stack?: string;
+    };
+    console.error("❌ Action extraction error:", {
+      conversationId,
+      error: err.message || error,
+      code: err.code,
+      stack: err.stack?.split("\n").slice(0, 3),
+    });
+
+    // Check for specific error types
+    if (err.code === "permission-denied") {
+      throw new HttpsError(
+        "permission-denied",
+        "You don't have permission to extract action items" +
+        " from this conversation"
+      );
+    }
+
+    if (err.message?.includes("quota") ||
+        err.message?.includes("insufficient_quota")) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "AI service quota exceeded. Please try again later."
+      );
+    }
+
+    if (err.code === "deadline-exceeded" ||
+        err.message?.includes("timeout")) {
+      throw new HttpsError(
+        "deadline-exceeded",
+        "Request timed out. This conversation may be too large. " +
+        "Try with a shorter date range."
+      );
+    }
+
+    // Generic error - still throw but with better message
+    throw new HttpsError(
+      "internal",
+      `Failed to extract action items: ${err.message || "Unknown error"}`
+    );
   }
 });

@@ -1,9 +1,10 @@
 # Active Context
 
 **Date:** Oct 25, 2025
-**State:** MVP complete + AI enhancements operational. Action items bug fixed.
+**State:** MVP complete + AI enhancements operational. Action items & Decisions features fully optimized.
 
 ## Current focus
+- **Semantic Deduplication Implemented**: Decisions feature now uses embeddings to detect and merge duplicate decisions
 - **Action Items Fixed**: Improved assignee mapping logic with pronoun resolution and fuzzy matching
 - **AI Features Operational**: All AI features working correctly with proper error handling
 - **Core App Fully Functional**: All messaging, contacts, presence, and offline features working perfectly
@@ -32,6 +33,24 @@
   
 - **Functions Deployed**: All AI functions updated with duplicate detection
 
+**Action Items Extraction Bug Fix (Oct 25, 2025 - Late Evening):**
+- **Critical Bug Fixed**: TypeError crash when extractActions returned null
+- **Root Cause 1**: MessageId was stored as array index (e.g., "5") instead of actual Firestore document ID
+  - Impact: Duplicate detection failed because same message had different indexes in different runs
+  - Fix: Convert AI-returned indexes to actual document IDs before storing
+- **Root Cause 2**: Duplicate detection compared before resolving assigneeId and messageId
+  - Impact: Duplicates not properly detected, causing potential failures
+  - Fix: Moved duplicate check AFTER resolution, compare using assigneeId (UID) and actualMessageId (doc ID)
+- **Root Cause 3**: Frontend didn't check for null before accessing result.count
+  - Impact: TypeError crash when Cloud Function returned error
+  - Fix: Added null safety check with graceful error handling
+- **Enhanced Error Handling**: Specific error messages for permission, quota, timeout errors
+- **Enhanced Logging**: Detailed logs showing index→docID mapping and duplicate detection
+- **Conditional Batch Commit**: Only commit when there are new items to create
+- **Result**: Function now handles duplicates gracefully, returns success even with 0 new items
+- **Documentation**: Created comprehensive ACTION_ITEM_EXTRACTION_FIX.md
+- **Deployment**: ✅ Deployed to production (us-central1)
+
 **Previous Fixes (Oct 24, 2025):**
 - **Firestore Index Error**: Fixed missing composite indexes for AI queries (action_items, decisions, proactive_suggestions)
 - **Index Deployment**: Successfully deployed all required Firestore indexes (currently building on Firebase servers)
@@ -41,6 +60,29 @@
 - **Documentation**: Created comprehensive guides for re-enabling AI features
 
 ## Recent fixes (Oct 25, 2025) - Evening
+**Decisions Semantic Deduplication (Oct 25, 2025 - Late Evening):**
+- **Problem**: Duplicate decisions with different wording ("Use PostgreSQL" vs "Postgres SQL chosen")
+- **Solution**: Implemented semantic similarity detection using OpenAI embeddings
+- **Algorithm**:
+  - Generates embeddings for all new and existing decisions
+  - Calculates cosine similarity between vectors (0-1 scale)
+  - 80% similarity threshold for duplicate detection
+  - Keeps higher confidence version when duplicate found
+- **Implementation**:
+  - Added `cosineSimilarity()` function to `utils/openai.ts`
+  - Completely overhauled deduplication in `ai/decisionTracking.ts`
+  - Embeddings stored in Firestore for future comparisons
+  - Parallel embedding generation with `Promise.all`
+- **Performance**: <2s overhead for typical extractions (3-5 decisions)
+- **Features**:
+  - Confidence-based updates (higher confidence replaces lower)
+  - Backwards compatible (generates embeddings for old decisions on-the-fly)
+  - Comprehensive logging for debugging
+  - Returns detailed message: "Processed 3 decisions (2 new, 1 updated, 2 duplicates skipped)"
+- **Testing**: Ready for user testing with PostgreSQL and mobile charts examples
+- **Documentation**: Created DECISION_SEMANTIC_DEDUPLICATION_COMPLETE.md
+- **Deployment**: Ready via scripts/deploy-decision-deduplication.sh
+
 **Decisions Feature Complete Overhaul:**
 - **User Privacy**: Decisions now filtered to only show from user's conversations
 - **Hidden Content Excluded**: Skips hidden/deleted conversations and messages

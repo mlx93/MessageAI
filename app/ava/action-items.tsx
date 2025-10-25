@@ -47,69 +47,100 @@ export default function ActionItemsScreen() {
 
     console.log('👤 Loading action items for user:', userId);
 
-    // Query action items - try user-specific first, then fall back to all
-    const unsubscribe = aiService.getAllActionItems().onSnapshot(async (snapshot: any) => {
-      console.log(`📋 All action items snapshot received: ${snapshot.size} items`);
-      
-      // Filter to show: assigned to user OR unassigned
-      const userItems = snapshot.docs.filter((doc: any) => {
-        const data = doc.data();
-        return data.assigneeId === userId || !data.assigneeId;
-      });
-      
-      console.log(`📋 Filtered to ${userItems.length} items (assigned to you or unassigned)`);
-      
-      const items = userItems.map((doc: any) => {
-        const data = doc.data();
-        console.log('Action item:', {
-          id: doc.id,
-          task: data.task,
-          assignee: data.assignee,
-          assigneeId: data.assigneeId,
-          status: data.status,
-        });
-        return {
-          id: doc.id,
-          ...data,
-        };
-      });
-      
-      // Fetch conversation names for each item
-      const itemsWithNames = await Promise.all(
-        items.map(async (item: ActionItemWithConversation) => {
-          try {
-            const convDoc = await getDoc(doc(db, 'conversations', item.conversationId));
-            if (convDoc.exists()) {
-              const convData = convDoc.data();
-              let conversationName = 'Unknown Conversation';
-              
-              if (convData.isGroup) {
-                conversationName = convData.groupName || 'Group Chat';
-              } else if (convData.participantDetails) {
-                // For direct messages, show other participants' names
-                const names = Object.entries(convData.participantDetails)
-                  .filter(([id]) => id !== userId)
-                  .map(([, details]: [string, any]) => details.displayName)
-                  .filter(Boolean)
-                  .join(', ');
-                conversationName = names || 'Direct Message';
-              }
-              
-              return { ...item, conversationName };
-            }
-          } catch (error) {
-            console.error('Error fetching conversation name:', error);
-          }
-          return item;
-        })
-      );
-      
-      console.log(`✅ Loaded ${itemsWithNames.length} action items with conversation names`);
-      setActionItems(itemsWithNames);
-      setLoading(false);
-    });
+    // First, get all conversations where user is a participant
+    const loadActionItems = async () => {
+      try {
+        const convsRef = collection(db, 'conversations');
+        const convsQuery = query(
+          convsRef,
+          where('participants', 'array-contains', userId)
+        );
+        const convsSnapshot = await getDocs(convsQuery);
+        const userConversationIds = convsSnapshot.docs.map(doc => doc.id);
 
-    return () => unsubscribe();
+        console.log(`📋 User is in ${userConversationIds.length} conversations`);
+
+        // Query all action items (no filtering by assignee)
+        const unsubscribe = aiService.getAllActionItems().onSnapshot(async (snapshot: any) => {
+          console.log(`📋 All action items snapshot received: ${snapshot.size} items`);
+          
+          // Filter to show items from user's conversations
+          const userItems = snapshot.docs.filter((doc: any) => {
+            const data = doc.data();
+            return userConversationIds.includes(data.conversationId);
+          });
+          
+          console.log(`📋 Filtered to ${userItems.length} items from your conversations`);
+          
+          const items = userItems.map((doc: any) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              ...data,
+            };
+          });
+          
+          // Fetch conversation names for each item
+          const itemsWithNames = await Promise.all(
+            items.map(async (item: ActionItemWithConversation) => {
+              try {
+                const convDoc = await getDoc(doc(db, 'conversations', item.conversationId));
+                if (convDoc.exists()) {
+                  const convData = convDoc.data();
+                  let conversationName = 'Unknown Conversation';
+                  
+                  if (convData.isGroup) {
+                    conversationName = convData.groupName || 'Group Chat';
+                  } else if (convData.participantDetails) {
+                    // For direct messages, show other participants' names
+                    const names = Object.entries(convData.participantDetails)
+                      .filter(([id]) => id !== userId)
+                      .map(([, details]: [string, any]) => details.displayName)
+                      .filter(Boolean)
+                      .join(', ');
+                    conversationName = names || 'Direct Message';
+                  }
+                  
+                  return { ...item, conversationName };
+                }
+              } catch (error) {
+                console.error('Error fetching conversation name:', error);
+              }
+              return item;
+            })
+          );
+          
+          // Sort: user's items first, then by creation date (newest first)
+          const sortedItems = itemsWithNames.sort((a, b) => {
+            const aIsPersonal = a.assigneeId === userId;
+            const bIsPersonal = b.assigneeId === userId;
+            
+            // Primary sort: personal items first
+            if (aIsPersonal && !bIsPersonal) return -1;
+            if (!aIsPersonal && bIsPersonal) return 1;
+            
+            // Secondary sort: by creation date (newest first)
+            const aTime = a.createdAt?.toMillis?.() || 0;
+            const bTime = b.createdAt?.toMillis?.() || 0;
+            return bTime - aTime;
+          });
+          
+          console.log(`✅ Loaded ${sortedItems.length} action items with conversation names`);
+          setActionItems(sortedItems);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error loading action items:', error);
+        setLoading(false);
+      }
+    };
+
+    const unsubPromise = loadActionItems();
+    return () => {
+      unsubPromise.then(unsub => unsub && unsub());
+    };
   }, []);
 
   const handleAnalyze = async () => {
@@ -157,6 +188,14 @@ export default function ActionItemsScreen() {
         try {
           console.log('📋 Extracting actions from conversation:', convDoc.id);
           const result = await aiService.extractActions(convDoc.id);
+          
+          // Null safety check - result can be null if there's an error
+          if (result === null) {
+            console.error('❌ extractActions returned null for', convDoc.id);
+            totalErrors++;
+            continue;
+          }
+          
           console.log(`✅ Extracted ${result.count} action items from ${convDoc.id}`);
           totalExtracted++;
         } catch (error: any) {
@@ -346,7 +385,9 @@ export default function ActionItemsScreen() {
   };
 
   const renderItem = ({item}: {item: ActionItemWithConversation}) => {
+    const userId = auth.currentUser?.uid;
     const isSelected = selectedItems.has(item.id);
+    const isPersonal = item.assigneeId === userId;
     
     return (
       <Swipeable
@@ -360,6 +401,7 @@ export default function ActionItemsScreen() {
         <View
           style={[
             styles.itemCard,
+            isPersonal && styles.itemCardPersonal,
             isSelected && styles.itemCardSelected
           ]}>
           <View style={styles.itemRow}>
@@ -390,7 +432,7 @@ export default function ActionItemsScreen() {
             
             <TouchableOpacity 
               style={styles.itemContent}
-              onPress={() => selectMode ? toggleSelection(item.id) : router.push(`/chat/${item.conversationId}`)}
+              onPress={() => selectMode ? toggleSelection(item.id) : router.push(`/ava/action-item-detail/${item.id}`)}
               onLongPress={() => {
                 if (!selectMode) {
                   setSelectMode(true);
@@ -697,6 +739,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 2,
     elevation: 1,
+  },
+  itemCardPersonal: {
+    backgroundColor: '#E8F2FF',
+    borderLeftWidth: 3,
+    borderLeftColor: '#007AFF',
   },
   itemCardSelected: {
     backgroundColor: '#E8F2FF',

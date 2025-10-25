@@ -109,9 +109,23 @@ export default function DecisionsScreen() {
                 return false;
               }
               return true;
+            })
+            // Sort by madeAt timestamp descending (newest first) to prevent flicker
+            .sort((a, b) => {
+              const getTimestamp = (decision: any) => {
+                const ts = decision.madeAt;
+                if (ts && typeof ts === 'object' && 'toMillis' in ts) {
+                  return ts.toMillis();
+                }
+                if (typeof ts === 'number') {
+                  return ts < 946684800000 ? ts * 1000 : ts;
+                }
+                return 0;
+              };
+              return getTimestamp(b) - getTimestamp(a);
             });
           
-          console.log('Decisions after filtering test data:', items.length);
+          console.log('Decisions after filtering and sorting:', items.length);
           setDecisions(items);
         });
 

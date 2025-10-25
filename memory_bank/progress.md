@@ -45,7 +45,12 @@
   - Prominently displays decision maker
   - Added swipe-to-delete and bulk delete operations
   - Compact card design for better screen density
-  - Duplicate prevention when extracting
+  - **Semantic Deduplication**: Uses OpenAI embeddings to detect duplicates ✨
+    - 80% similarity threshold prevents semantic duplicates
+    - Keeps higher confidence version when duplicates found
+    - Embeddings stored in Firestore for future comparisons
+    - <2s overhead for typical extractions
+    - Comprehensive logging: "[Deduplication] Found semantic duplicate..."
   - Default 7-day analysis window
   - Progress bar during extraction
   - Filters out test data

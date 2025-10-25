@@ -170,13 +170,29 @@ export default function SmartSearchScreen() {
     setSearched(true);
 
     try {
-      // Perform both keyword and semantic search in parallel
-      const [keywordResults, semanticResults] = await Promise.all([
-        performKeywordSearch(searchQuery.trim(), userId),
-        performSemanticSearch(searchQuery.trim()),
-      ]);
+      console.log('=== Starting Hybrid Search ===');
+      const searchStartTime = Date.now();
       
-      // Merge results, prioritizing keyword matches
+      // Step 1: Perform semantic search first (fast)
+      const semanticStartTime = Date.now();
+      const semanticResults = await performSemanticSearch(searchQuery.trim());
+      console.log(`✅ Semantic search: ${Date.now() - semanticStartTime}ms, ${semanticResults.length} results`);
+      
+      // Step 2: Only run keyword search if semantic returned <3 high-quality results
+      const highQualitySemanticCount = semanticResults.filter(r => (r.score || 0) >= 0.5).length;
+      const shouldRunKeywordSearch = highQualitySemanticCount < 3;
+      
+      let keywordResults: SearchResultItem[] = [];
+      if (shouldRunKeywordSearch) {
+        console.log('⚠️ Only', highQualitySemanticCount, 'high-quality semantic results, running keyword search...');
+        const keywordStartTime = Date.now();
+        keywordResults = await performKeywordSearch(searchQuery.trim(), userId);
+        console.log(`✅ Keyword search: ${Date.now() - keywordStartTime}ms, ${keywordResults.length} results`);
+      } else {
+        console.log('✨ Skipping keyword search (', highQualitySemanticCount, 'high-quality semantic results)');
+      }
+      
+      // Step 3: Merge results, prioritizing keyword matches
       const mergedResults: SearchResultItem[] = [];
       const seenMessageIds = new Set<string>();
       
@@ -193,6 +209,17 @@ export default function SmartSearchScreen() {
         }
       });
       
+      // Step 4: Sort merged results by score DESC, then by timestamp DESC
+      mergedResults.sort((a, b) => {
+        // Sort by score first (higher scores first)
+        if (a.score !== undefined && b.score !== undefined && a.score !== b.score) {
+          return b.score - a.score;
+        }
+        // If scores are equal or one is keyword match, sort by timestamp (newest first)
+        return b.timestamp - a.timestamp;
+      });
+      
+      console.log(`=== Search Complete: ${Date.now() - searchStartTime}ms, ${mergedResults.length} total results ===`);
       setResults(mergedResults);
     } catch (error) {
       console.error('Search error:', error);
@@ -203,7 +230,14 @@ export default function SmartSearchScreen() {
   };
 
   const handleResultPress = (result: SearchResultItem) => {
-    router.push(`/chat/${result.conversationId}`);
+    // Navigate to message details page for better context
+    router.push({
+      pathname: '/ava/search-result/[messageId]',
+      params: {
+        messageId: result.messageId,
+        conversationId: result.conversationId,
+      },
+    });
   };
 
   return (
