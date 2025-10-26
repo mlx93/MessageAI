@@ -284,7 +284,18 @@ unique conversations`);
 
       const validMessages = messages.filter(Boolean) as SearchResult[];
 
-      // Step 6: Smart context filtering - only fetch if <3 high-quality results
+      // Step 6a: Smart Q&A matching - if high-scoring result is a question,
+      // include the answer
+      const qaContextMessages = await fetchQAContext(
+        db,
+        validMessages,
+        conversationMap,
+        userId,
+        getConversationName
+      );
+
+      // Step 6b: Smart context filtering - only fetch if <3 high-quality
+      // results
       const highQualityResultCount = validMessages
         .filter((m) => m.score >= 0.5).length;
       const shouldFetchContext = highQualityResultCount < 3;
@@ -310,8 +321,12 @@ skipping context fetch`
         );
       }
 
-      // Merge and deduplicate results
-      const allMessages = [...validMessages, ...contextMessages];
+      // Merge and deduplicate results (Q&A context + regular context)
+      const allMessages = [
+        ...validMessages,
+        ...qaContextMessages,
+        ...contextMessages,
+      ];
       const uniqueMessages = Array.from(
         new Map(allMessages.map((m) => [m.messageId, m])).values()
       );
@@ -340,8 +355,11 @@ skipping context fetch`
 
       const totalTime = Date.now() - startTime;
 
-      console.log(`[SmartSearch] Returning ${validMessages.length} results + \
-${contextMessages.length} context messages in ${totalTime}ms`);
+      console.log(
+        `[SmartSearch] Returning ${validMessages.length} results + \
+${qaContextMessages.length} Q&A answers + \
+${contextMessages.length} context messages in ${totalTime}ms`
+      );
 
       return {
         results: sortedResults,
@@ -355,6 +373,173 @@ ${contextMessages.length} context messages in ${totalTime}ms`);
     throw new HttpsError("internal", "Failed to perform search");
   }
 });
+
+/**
+ * Fetch Q&A context - if a high-scoring result is a question,
+ * include the answer as a context result
+ * @param {FirebaseFirestore.Firestore} db - Firestore database
+ * @param {SearchResult[]} results - Search results
+ * @param {Map} conversationMap - Map of conversation data
+ * @param {string} userId - User ID
+ * @param {Function} getConversationName - Function to get conversation name
+ * @return {Promise<SearchResult[]>} Answer messages
+ */
+async function fetchQAContext(
+  db: admin.firestore.Firestore,
+  results: SearchResult[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conversationMap: Map<string, any>,
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getConversationName: (convData: any) => string
+): Promise<SearchResult[]> {
+  const QA_THRESHOLD = 0.6; // 60% - high-scoring results
+  const MAX_QA_PAIRS = 3; // Max Q&A pairs to include
+
+  // Question indicators
+  const isQuestion = (text: string): boolean => {
+    const lowerText = text.toLowerCase().trim();
+    return (
+      lowerText.includes("?") ||
+      lowerText.startsWith("can you") ||
+      lowerText.startsWith("could you") ||
+      lowerText.startsWith("will you") ||
+      lowerText.startsWith("would you") ||
+      lowerText.startsWith("who") ||
+      lowerText.startsWith("what") ||
+      lowerText.startsWith("when") ||
+      lowerText.startsWith("where") ||
+      lowerText.startsWith("why") ||
+      lowerText.startsWith("how") ||
+      lowerText.includes("can you ") ||
+      lowerText.includes("could you ") ||
+      lowerText.includes("will you ")
+    );
+  };
+
+  // Filter for high-scoring questions
+  const questionResults = results
+    .filter((r) => r.score >= QA_THRESHOLD && isQuestion(r.text))
+    .slice(0, MAX_QA_PAIRS);
+
+  if (questionResults.length === 0) {
+    return [];
+  }
+
+  console.log(
+    `[Q&A Context] Found ${questionResults.length} questions, \
+fetching answers...`
+  );
+
+  const answerMessages: SearchResult[] = [];
+  const seenMessageIds = new Set(results.map((r) => r.messageId));
+
+  // For each question, fetch the next 1-2 messages as potential answers
+  for (const questionResult of questionResults) {
+    try {
+      const conversationId = questionResult.conversationId;
+
+      // Fetch all messages from this conversation, ordered by timestamp
+      const messagesSnapshot = await db
+        .collection(`conversations/${conversationId}/messages`)
+        .orderBy("timestamp", "asc")
+        .get();
+
+      interface MessageDoc {
+        id: string;
+        text?: string;
+        senderId?: string;
+        sender?: string;
+        senderName?: string;
+        deletedBy?: string[];
+        timestamp?: {
+          toMillis?: () => number;
+          _seconds?: number;
+        } | number;
+      }
+
+      const allMessages = messagesSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as MessageDoc[];
+
+      // Find the question in the message list
+      const questionIndex = allMessages
+        .findIndex((m) => m.id === questionResult.messageId);
+      if (questionIndex === -1) continue;
+
+      // Get the next 1-2 messages (the answers)
+      const answerStartIndex = questionIndex + 1;
+      const answerEndIndex = Math.min(
+        allMessages.length,
+        questionIndex + 3
+      ); // Max 2 answer messages
+
+      const answerCandidates = allMessages
+        .slice(answerStartIndex, answerEndIndex);
+
+      const convData = conversationMap.get(conversationId);
+      const participantDetails = convData?.participantDetails || {};
+
+      // Convert answer messages to SearchResult format
+      for (const msg of answerCandidates) {
+        // Skip if already in results or deleted by user
+        const deletedBy = msg.deletedBy || [];
+        if (seenMessageIds.has(msg.id) || deletedBy.includes(userId)) {
+          continue;
+        }
+
+        // Convert timestamp
+        let timestamp = Date.now();
+        if (msg.timestamp) {
+          if (typeof msg.timestamp === "object" &&
+              "toMillis" in msg.timestamp &&
+              msg.timestamp.toMillis) {
+            timestamp = msg.timestamp.toMillis();
+          } else if (
+            typeof msg.timestamp === "object" &&
+            "_seconds" in msg.timestamp &&
+            msg.timestamp._seconds
+          ) {
+            timestamp = msg.timestamp._seconds * 1000;
+          } else if (typeof msg.timestamp === "number") {
+            timestamp = msg.timestamp;
+          }
+        }
+
+        const senderId = msg.senderId || msg.sender || "";
+        const senderName = participantDetails[senderId]?.displayName ||
+          msg.senderName ||
+          "Unknown";
+
+        answerMessages.push({
+          messageId: msg.id,
+          score: 0, // Answers don't have relevance scores
+          text: msg.text || "",
+          sender: senderName,
+          timestamp,
+          conversationId,
+          conversationName: getConversationName(convData),
+          conversationType: convData?.isGroup ? "group" : "direct",
+          isContext: true, // Mark as context (answer to question)
+        });
+
+        seenMessageIds.add(msg.id);
+      }
+    } catch (error) {
+      console.error(
+        `[Q&A Context] Error fetching answers for question \
+${questionResult.messageId}:`,
+        error
+      );
+    }
+  }
+
+  console.log(
+    `[Q&A Context] Returning ${answerMessages.length} answer messages`
+  );
+  return answerMessages;
+}
 
 /**
  * Fetch surrounding context messages for high-scoring results

@@ -218,7 +218,7 @@ ONLY extract decisions that meet ALL these criteria:
    - Poll results, "Everyone agree?", "All in favor?"
    
 2. **Context Required**: Decision must have supporting context
-   - At least 3+ messages discussing the topic
+   - At least 2+ messages discussing the topic
    - Clear rationale or discussion visible
    - Not just a single message announcement
    
@@ -256,8 +256,10 @@ For each decision found:
 - decision: The actual decision made (clear and specific)
 - rationale: Why this decision was made (from the discussion)
 - alternativesConsidered: Other options discussed (if any)
-- participants: Array of participant NAMES (use actual names)
-- participantIds: Array of participant UIDs matching the names
+- participants: Array of ALL participant NAMES from the conversation
+  (not just those in the decision message - include everyone)
+- participantIds: Array of ALL participant UIDs from the conversation
+  (match the names above)
 - decisionMaker: NAME of the person who made/announced the decision
 - decisionMakerId: UID of the person who made/announced the decision
 - messageIds: Relevant message IDs (use the [numbers] from messages)
@@ -265,11 +267,12 @@ For each decision found:
   * 0.9-1.0: Clear, explicit decision with team consensus
   * 0.7-0.9: Decision stated but limited discussion
   * 0.5-0.7: Implicit decision, needs inference
-  * <0.5: Unclear or questionable (DO NOT INCLUDE THESE)
+  * 0.4-0.5: Weak decision, minimal context
+  * <0.4: Unclear or questionable (DO NOT INCLUDE THESE)
 
 IMPORTANT: 
 - Use the actual names from the conversation, NOT generic names
-- If confidence is below 0.5, do NOT include the decision
+- If confidence is below 0.4, do NOT include the decision
 - Quality over quantity - better to return nothing than false positives
 - Distinguish actual decisions from proposals, opinions, or casual chat`,
       });
@@ -298,10 +301,10 @@ IMPORTANT:
       };
     }
 
-    // Filter out low-confidence decisions (below 0.5)
+    // Filter out low-confidence decisions (below 0.4)
     const highConfidenceDecisions =
       result.object.decisions.filter((item) => {
-        if (item.confidence < 0.5) {
+        if (item.confidence < 0.4) {
           console.log(
             "Filtering out low-confidence decision: " +
             `"${item.decision}" (${item.confidence})`
@@ -344,6 +347,9 @@ IMPORTANT:
 
     // Check for semantic duplicates before storing
     console.log("[Deduplication] Fetching existing decisions...");
+    console.log(
+      `[Deduplication] Query params: conversationId="${conversationId}"`
+    );
     const existingDecisions = await db.collection("decisions")
       .where("conversationId", "==", conversationId)
       .where("status", "==", "active")
@@ -352,6 +358,17 @@ IMPORTANT:
     console.log(
       `[Deduplication] Found ${existingDecisions.size} existing decisions`
     );
+    // DEBUG: Log each existing decision's ID and status to verify query
+    if (existingDecisions.size > 0) {
+      console.log("[Deduplication] Existing decision IDs and statuses:");
+      existingDecisions.docs.forEach((doc) => {
+        const data = doc.data();
+        console.log(
+          `  - ${doc.id}: status="${data.status}", ` +
+          `text="${(data.decision || "").slice(0, 50)}..."`
+        );
+      });
+    }
 
     // Prepare existing decisions with embeddings
     interface ExistingDecision {
@@ -412,8 +429,8 @@ IMPORTANT:
     );
 
     // Semantic deduplication: compare each new decision with existing ones
-    // 75% similarity (lowered from 80% for better detection)
-    const SIMILARITY_THRESHOLD = 0.75;
+    // 73% similarity (lowered to catch "PostgreSQL" vs "Postgres SQL")
+    const SIMILARITY_THRESHOLD = 0.73;
     const decisionsToAdd: typeof newDecisionsWithEmbeddings = [];
     const decisionsToUpdate: Array<{
       docId: string;
@@ -452,6 +469,10 @@ IMPORTANT:
             }..." matches existing "${
               existing.text.slice(0, 60)
             }..." (${(similarity * 100).toFixed(1)}% similar)`
+          );
+          console.log(
+            "[Deduplication] Existing decision details:" +
+            ` ID=${existing.id}, confidence=${existing.confidence.toFixed(2)}`
           );
 
           // Keep the higher confidence version

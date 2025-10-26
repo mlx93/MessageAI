@@ -109,6 +109,7 @@ export default function SmartSearchScreen() {
               text,
               sender: senderName,
               timestamp: data.timestamp?.toMillis?.() || Date.now(),
+              score: 1.0, // Exact matches = 100%
               matchType: 'keyword',
             });
           }

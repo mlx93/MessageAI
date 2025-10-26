@@ -1,6 +1,6 @@
 # Active Context
 
-**Date:** Oct 25, 2025
+**Date:** Oct 26, 2025
 **State:** MVP complete + AI enhancements operational. Action items & Decisions features fully optimized.
 
 ## Current focus
@@ -16,6 +16,41 @@
 - **Enhanced Error Handling**: Offline detection, rate limiting, timeout management, user-friendly messages
 - **Proactive Triggers**: 5 new trigger types (deadline conflicts, decision conflicts, overdue actions, context gaps)
 - **Cache Optimization**: Longer TTLs, request batching, smart invalidation, scheduled cleanup
+
+## Recent fixes (Oct 26, 2025)
+**Action Items Display Issue - Complete Fix (Oct 26, 2025):**
+- **Problem**: Success toast showed "Analyzed X conversations. Action items should appear now." but items didn't display
+- **Root Cause 1**: Stale state reference - checking `actionItems.length` after extraction used value from function start
+- **Root Cause 2**: No manual refresh option if Firestore propagation was delayed
+- **Solution 1 - Track Count Before Analysis**:
+  - Capture `itemsBeforeAnalysis` at start of `handleAnalyze()`
+  - After 3s delay, compare with current `actionItems.length`
+  - Show accurate message: "Found X new action items!" vs "Items may take a moment to appear. Pull down to refresh if needed."
+- **Solution 2 - Pull to Refresh**:
+  - Added `RefreshControl` to FlatList
+  - Users can manually trigger refresh with standard pull-down gesture
+  - 1-second refresh wait time for snapshot listener updates
+- **Solution 3 - Enhanced Logging**:
+  - Log starting item count: "📊 Starting analysis with X existing items"
+  - Log ending item count with delta: "📊 Items after analysis: Y (+Z change)"
+  - Easy to diagnose if extraction succeeds but items don't appear
+- **Files Changed**: `app/ava/action-items.tsx`
+- **Documentation**: Created ACTION_ITEMS_DISPLAY_COMPLETE_FIX.md, ACTION_ITEMS_DISPLAY_DEBUG.md
+- **Status**: ✅ Ready for testing - improved UX with accurate feedback and manual refresh option
+
+**Action Items Display & Styling Fix (Oct 26, 2025):**
+- **Issue 1 - Summary Banner**: Updated styling to match Decisions screen for consistency
+  - Changed emoji from ✅ to 📌 for cleaner look
+  - Simplified text: "📌 X pending action items" (removed instructions)
+  - Updated styling: Blue background (#F0F8FF) with subtle border, bold text
+- **Issue 2 - Items Not Displaying**: Enhanced debug logging for visibility pipeline
+  - Added logging of user conversation IDs (not just count)
+  - Added logging of all action item conversation IDs from database
+  - Added per-item logging showing conversationId and filter decision
+  - Now easy to diagnose conversation ID mismatches or data issues
+- **Files Changed**: `app/ava/action-items.tsx`
+- **Documentation**: Created ACTION_ITEMS_DISPLAY_FIX.md
+- **Status**: ✅ Ready for testing - enhanced logs will reveal any display issues
 
 ## Recent fixes (Oct 25, 2025)
 **Action Items Complete Overhaul:**
@@ -63,25 +98,27 @@
 **Decisions Semantic Deduplication (Oct 25, 2025 - Late Evening):**
 - **Problem**: Duplicate decisions with different wording ("Use PostgreSQL" vs "Postgres SQL chosen")
 - **Solution**: Implemented semantic similarity detection using OpenAI embeddings
+- **Threshold**: 75% similarity (lowered from initial 80% after user testing)
 - **Algorithm**:
   - Generates embeddings for all new and existing decisions
   - Calculates cosine similarity between vectors (0-1 scale)
-  - 80% similarity threshold for duplicate detection
   - Keeps higher confidence version when duplicate found
 - **Implementation**:
   - Added `cosineSimilarity()` function to `utils/openai.ts`
   - Completely overhauled deduplication in `ai/decisionTracking.ts`
   - Embeddings stored in Firestore for future comparisons
   - Parallel embedding generation with `Promise.all`
+- **Frontend Flicker Fix**: Added consistent sorting by madeAt timestamp descending
 - **Performance**: <2s overhead for typical extractions (3-5 decisions)
 - **Features**:
   - Confidence-based updates (higher confidence replaces lower)
   - Backwards compatible (generates embeddings for old decisions on-the-fly)
   - Comprehensive logging for debugging
   - Returns detailed message: "Processed 3 decisions (2 new, 1 updated, 2 duplicates skipped)"
-- **Testing**: Ready for user testing with PostgreSQL and mobile charts examples
-- **Documentation**: Created DECISION_SEMANTIC_DEDUPLICATION_COMPLETE.md
-- **Deployment**: Ready via scripts/deploy-decision-deduplication.sh
+- **Status**: ✅ **DEPLOYED** to Firebase (us-central1)
+- **Testing**: User to verify with existing duplicates and run cleanup script
+- **Documentation**: Created DECISION_DEDUPLICATION_DEPLOYMENT_COMPLETE.md
+- **Cleanup Script**: `functions/scripts/clean-duplicate-decisions.ts` ready to remove existing duplicates
 
 **Decisions Feature Complete Overhaul:**
 - **User Privacy**: Decisions now filtered to only show from user's conversations

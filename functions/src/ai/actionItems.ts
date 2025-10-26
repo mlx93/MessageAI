@@ -132,8 +132,15 @@ export const extractActions = onCall({
       });
 
     if (messages.length === 0) {
+      console.log(`⚠️ No messages found for conversation ${conversationId}`);
       return {actionItems: [], count: 0};
     }
+
+    console.log(
+      `📧 Retrieved ${messages.length} messages from ` +
+      `conversation ${conversationId}`
+    );
+    console.log(`📧 Sample message: ${messages[0]?.text?.slice(0, 100)}`);
 
     const result = await generateObject({
       model: openai("gpt-4o"),
@@ -172,6 +179,10 @@ Don't extract:
 - Rhetorical questions`,
     });
 
+    console.log(
+      `🤖 AI found ${result.object.actionItems.length} potential action items`
+    );
+
     // Get conversation participants to map names to user IDs
     // (We already fetched conversationDoc earlier)
     const participantDetails =
@@ -203,7 +214,10 @@ Don't extract:
       } as ExistingActionItem)
     );
 
-    console.log(`Found ${existingItems.length} existing pending action items`);
+    console.log(
+      `Found ${existingItems.length} existing pending action items ` +
+      `in conversation ${conversationId}`
+    );
 
     // Also check for completed/deleted items that could be resurrected
     const completedOrDeletedQuery = await db
@@ -229,7 +243,6 @@ Don't extract:
     const batch = db.batch();
     let duplicatesSkipped = 0;
     let newItems = 0;
-    let resurrectedItems = 0;
 
     for (const item of result.object.actionItems) {
       // Convert AI-returned index to actual message ID
@@ -301,6 +314,18 @@ Don't extract:
         const sameTask = existing.task === item.task;
         const sameMessage = existing.messageId === actualMessageId;
         const sameAssignee = existing.assigneeId === assigneeId;
+
+        if (sameTask || sameMessage || sameAssignee) {
+          console.log(
+            `🔍 Duplicate check for "${item.task.slice(0, 30)}...": ` +
+            `sameTask=${sameTask}, sameMessage=${sameMessage}, ` +
+            `sameAssignee=${sameAssignee} ` +
+            `(existing: task="${existing.task.slice(0, 30)}...", ` +
+            `msgId=${existing.messageId?.slice(0, 8)}, ` +
+            `assigneeId=${existing.assigneeId || "NULL"})`
+          );
+        }
+
         return sameTask && sameMessage && sameAssignee;
       });
 
@@ -314,8 +339,14 @@ Don't extract:
         continue;
       }
 
-      // Check if this matches a completed/deleted item that can be
-      // resurrected
+      console.log(
+        "✅ Not a duplicate - proceeding to create: " +
+        `"${item.task.slice(0, 40)}..."`
+      );
+
+      // Check if this matches a completed/deleted item
+      // If found, create a NEW item instead of resurrecting the old one
+      // This preserves history while making the action item visible again
       const completedOrDeletedMatch = completedOrDeletedItems.find(
         (existing) => {
           const sameTask = existing.task === item.task;
@@ -325,35 +356,22 @@ Don't extract:
         });
 
       if (completedOrDeletedMatch) {
-        // Resurrect the item by updating it back to pending
+        // Don't skip - create a NEW duplicate item instead
+        // The old completed/deleted item stays as history
         console.log(
-          `♻️ Resurrecting ${completedOrDeletedMatch.status} item: ` +
-          `"${item.task.slice(0, 40)}..."`
+          `♻️ Found ${completedOrDeletedMatch.status} item: ` +
+          `"${item.task.slice(0, 40)}..." - creating new active duplicate`
         );
-
-        const itemRef = db.collection("action_items")
-          .doc(completedOrDeletedMatch.id);
-        batch.update(itemRef, {
-          status: "pending",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          completedAt: admin.firestore.FieldValue.delete(),
-          deletedAt: admin.firestore.FieldValue.delete(),
-          // Update other fields in case they changed
-          task: item.task,
-          assignee: finalAssignee,
-          assigneeId,
-          deadline: item.deadline,
-          context: item.context,
-          confidence: item.confidence,
-          extractedBy: userId,
-        });
-        resurrectedItems++;
-        continue;
+        // Fall through to create new item below
       }
 
       // Create new item
       const ref = db.collection("action_items").doc();
 
+      console.log(
+        `➕ Creating new item #${newItems + 1}: ` +
+        `"${item.task.slice(0, 40)}..."`
+      );
       batch.set(ref, {
         task: item.task,
         assignee: finalAssignee, // Use the resolved assignee name
@@ -370,18 +388,17 @@ Don't extract:
       newItems++;
     }
 
-    // Only commit if there are items to create or update
-    if (newItems > 0 || resurrectedItems > 0) {
+    // Only commit if there are items to create
+    if (newItems > 0) {
       await batch.commit();
       console.log(
-        `✓ Committed ${newItems} new action items ` +
-        `and resurrected ${resurrectedItems} items to Firestore`
+        `✓ Committed ${newItems} new action items to Firestore`
       );
     }
 
     console.log(
       `📊 Extraction complete for conversation ${conversationId}: ` +
-      `${newItems} created, ${resurrectedItems} resurrected, ` +
+      `${newItems} created, ` +
       `${duplicatesSkipped} duplicates skipped, ` +
       `${result.object.actionItems.length} total found by AI`
     );
@@ -389,8 +406,8 @@ Don't extract:
     // Return successful response with the new items
     return {
       actionItems: result.object.actionItems
-        .slice(0, newItems + resurrectedItems),
-      count: newItems + resurrectedItems,
+        .slice(0, newItems),
+      count: newItems,
       duplicatesSkipped,
     };
   } catch (error: unknown) {

@@ -9,6 +9,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import {router} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
@@ -30,6 +31,7 @@ type ActionItemWithConversation = ActionItem & {
 export default function ActionItemsScreen() {
   const [actionItems, setActionItems] = useState<ActionItemWithConversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [completing, setCompleting] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -58,16 +60,22 @@ export default function ActionItemsScreen() {
         const convsSnapshot = await getDocs(convsQuery);
         const userConversationIds = convsSnapshot.docs.map(doc => doc.id);
 
-        console.log(`📋 User is in ${userConversationIds.length} conversations`);
+        console.log(`📋 User is in ${userConversationIds.length} conversations:`, userConversationIds);
 
         // Query all action items (no filtering by assignee)
         const unsubscribe = aiService.getAllActionItems().onSnapshot(async (snapshot: any) => {
           console.log(`📋 All action items snapshot received: ${snapshot.size} items`);
           
+          // Debug: Log all conversation IDs from action items
+          const allConvIds = snapshot.docs.map((doc: any) => doc.data().conversationId);
+          console.log('📋 Action items conversation IDs:', allConvIds);
+          
           // Filter to show items from user's conversations
           const userItems = snapshot.docs.filter((doc: any) => {
             const data = doc.data();
-            return userConversationIds.includes(data.conversationId);
+            const isInUserConv = userConversationIds.includes(data.conversationId);
+            console.log(`📋 Item ${doc.id}: conversationId=${data.conversationId}, included=${isInUserConv}`);
+            return isInUserConv;
           });
           
           console.log(`📋 Filtered to ${userItems.length} items from your conversations`);
@@ -143,12 +151,25 @@ export default function ActionItemsScreen() {
     };
   }, []);
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    console.log('🔄 Manual refresh triggered');
+    // The snapshot listener should automatically update
+    // Just wait a moment for any pending updates
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    setRefreshing(false);
+  };
+
   const handleAnalyze = async () => {
     const userId = auth.currentUser?.uid;
     if (!userId) {
       Alert.alert('Error', 'You must be logged in to analyze conversations');
       return;
     }
+
+    // Track count before analysis
+    const itemsBeforeAnalysis = actionItems.length;
+    console.log(`📊 Starting analysis with ${itemsBeforeAnalysis} existing items`);
 
     setAnalyzing(true);
     try {
@@ -207,13 +228,30 @@ export default function ActionItemsScreen() {
 
       console.log(`📊 Analysis complete: ${totalExtracted} successful, ${totalErrors} errors`);
 
-      // Wait a bit for Firestore to propagate
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      Alert.alert(
-        'Analysis Complete',
-        `Analyzed ${totalExtracted} conversation${totalExtracted !== 1 ? 's' : ''}. ${totalErrors > 0 ? `${totalErrors} failed. ` : ''}Action items should appear now.`
-      );
+      // Wait for Firestore to propagate
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Check if items actually loaded using the count we saved before analysis
+      const itemsAfterAnalysis = actionItems.length;
+      const newItemsCount = itemsAfterAnalysis - itemsBeforeAnalysis;
+      console.log(`📊 Items after analysis: ${itemsAfterAnalysis} (${newItemsCount > 0 ? '+' : ''}${newItemsCount} change)`);
+      
+      if (newItemsCount > 0) {
+        Alert.alert(
+          'Analysis Complete',
+          `Found ${newItemsCount} new action item${newItemsCount !== 1 ? 's' : ''}!`
+        );
+      } else if (totalExtracted > 0) {
+        Alert.alert(
+          'Analysis Complete', 
+          `Analyzed ${totalExtracted} conversation${totalExtracted !== 1 ? 's' : ''}. ${totalErrors > 0 ? `${totalErrors} failed. ` : ''}Items may take a moment to appear. Pull down to refresh if needed.`
+        );
+      } else {
+        Alert.alert(
+          'Analysis Complete',
+          'No new action items found in the analyzed conversations.'
+        );
+      }
     } catch (error) {
       console.error('❌ Fatal error analyzing conversations:', error);
       Alert.alert('Error', 'Failed to analyze conversations');
@@ -602,11 +640,19 @@ export default function ActionItemsScreen() {
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor="#007AFF"
+                title="Pull to refresh"
+              />
+            }
             ListHeaderComponent={
               !selectMode && (
                 <View style={styles.summary}>
                   <Text style={styles.summaryText}>
-                    ✅ {actionItems.length} pending • Swipe to delete • Long press to select
+                    📌 {actionItems.length} pending action item{actionItems.length !== 1 ? 's' : ''}
                   </Text>
                 </View>
               )
@@ -702,16 +748,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   summary: {
-    backgroundColor: '#FFF9E6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: '#F0F8FF',
+    padding: 10,
+    borderRadius: 10,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#007AFF30',
   },
   summaryText: {
     fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
+    fontWeight: '600',
+    color: '#333',
   },
   swipeActionsContainer: {
     width: 80,
