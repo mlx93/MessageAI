@@ -8,9 +8,39 @@
 ## Data model (Firestore)
 - `users/{uid}` (+ `usersByEmail`, `usersByPhone` indexes)
 - `conversations/{id}` with `participants[]`, `lastMessage{}`, `unreadCounts{}`, `lastMessageId`, `deletedBy[]`, timestamps
-- `conversations/{id}/messages/{messageId}` with status, type, `localId`, `readBy[]`, `deliveredTo[]`, optional `mediaURL`
+- `conversations/{id}/messages/{messageId}` with status, type, `localId`, `readBy[]`, `deliveredTo[]`, `deletedBy[]`, optional `mediaURL`
 - `conversations/{id}/typing/{userId}`
 - `presence/{userId}` (online/background/lastSeen)
+
+### 🔥 CRITICAL: Soft Deletion Pattern
+**Messages and conversations use `deletedBy` arrays, NOT a `deleted` boolean field.**
+
+- **Messages**: `deletedBy: string[]` - Array of user IDs who deleted this message
+- **Conversations**: `deletedBy: string[]` - Array of user IDs who deleted this conversation
+- **WHY**: Per-user soft deletion - each user can delete independently without affecting others
+- **NEVER** query with `.where("deleted", "!=", true)` - this field doesn't exist and returns 0 results
+- **CORRECT** filtering: Check `!data.deletedBy?.includes(userId)` in application code after fetching
+
+**AI Feature Pattern (CRITICAL):**
+```typescript
+// ❌ WRONG - Returns 0 messages (deleted field doesn't exist)
+.where("deleted", "!=", true)
+
+// ✅ CORRECT - Fetch all, filter in code
+const snapshot = await db
+  .collection(`conversations/${conversationId}/messages`)
+  .orderBy("timestamp", "desc")
+  .get();
+
+const messages = snapshot.docs
+  .filter(doc => {
+    const data = doc.data();
+    return !data.deletedBy?.includes(userId);
+  })
+  .map(doc => ({ id: doc.id, ...doc.data() }));
+```
+
+**This pattern broke action items extraction (Oct 26, 2025) - query returned 0 messages causing 0 items extracted.**
 
 ## Conversation determinism
 - Preview updates guarded by `lastMessageId` (UUID v4). Only update if new ID > stored ID (lexicographic compare). Prevents out‑of‑order overwrites across devices and retries.
@@ -52,10 +82,12 @@
   - OpenAI embeddings + cosine similarity
   - Keeps higher confidence version when duplicates found
   - Consistent sorting by `madeAt` descending (prevents flicker)
-- **Action Items**:
+- **Action Items** (Fixed Oct 26, 2025):
+  - **CRITICAL**: Query messages WITHOUT `deleted` field filter (use `deletedBy` array filtering in code)
   - Pull-to-refresh for manual updates
   - Accurate feedback with item count tracking
   - Enhanced logging for debugging display issues
+  - Duplicate detection using actual message IDs (not array indexes)
 - **Proactive Triggers**: Enhanced triggers in Cloud Functions (deadline conflicts, decision conflicts, overdue actions, context gaps).
 - **Cache Optimization**: Enhanced cache with longer TTLs (60min summaries, 30min search, 120min decisions), request batching, smart invalidation.
 - **Chat Integration**: Summarize button (✨), priority badges (🔴🟡), action items banner, proactive suggestion cards, thread summary modal.
@@ -68,7 +100,22 @@
 - **Cache Strategy**: Aggressive caching reduces API costs by 40%+; automatic cleanup of expired entries.
 - **Search Flow**: Conditional keyword search → Semantic Pinecone query → Q&A context detection → Result filtering (40%+)
 - **Decision Flow**: Extract decisions → Generate embeddings → Compare with existing (75% threshold) → Merge or create new
-- **Action Items Flow**: Extract from conversations → Resolve assignees → Check duplicates → Pull-to-refresh UI
+- **Action Items Flow**: Fetch messages (no deleted filter!) → Filter by deletedBy in code → Extract → Resolve assignees → Check duplicates → Pull-to-refresh UI
+
+### 🔥 AI Query Pattern (MUST FOLLOW)
+**When querying messages for ANY AI feature:**
+1. ❌ DO NOT use `.where("deleted", "!=", true)` - field doesn't exist
+2. ✅ Query messages normally: `.orderBy("timestamp", "desc")`
+3. ✅ Filter in code: `!data.deletedBy?.includes(userId)`
+4. ✅ Also filter: `!data.hiddenBy?.includes(userId)`
+5. ✅ Check conversation access: `conversationData.participants.includes(userId)`
+
+**Examples that need this pattern:**
+- Action Items extraction (extractActions) ✅ Fixed Oct 26
+- Decision tracking (extractDecisions) - Check this!
+- Thread summarization (summarizeThread) - Check this!
+- Proactive agent (proactiveAgent) - Check this!
+- Any future AI features querying messages
 
 ## Current State (Updated: Oct 26, 2025)
 - **AI Features Production Ready**: All AI components deployed and operational

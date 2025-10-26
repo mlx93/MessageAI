@@ -1,6 +1,6 @@
 # Progress
 
-## Status (Updated: Oct 26, 2025 - Phase 3 Complete)
+## Status (Updated: Oct 26, 2025 - Action Items FIXED!)
 - **MVP Features**: 10/10 complete (+ image viewer, polish)
 - **AI Features**: 5/5 complete and PRODUCTION READY! 🎉
 - **RAG Pipeline**: ✅ Fully Operational with 200+ message embeddings in Pinecone
@@ -13,11 +13,13 @@
   - ✅ **Real sender names**: No more "Unknown"
   - 💰 **80% lower API costs**: Removed GPT-4o reranking
   - 🔍 **Smart filtering**: Prioritize 40%+ results, cleaner UI
-- **Action Items**: ✅ Complete with pull-to-refresh and accurate feedback
-  - Pull-to-refresh for manual updates
-  - Accurate item count tracking
-  - Enhanced debug logging
-  - Matches Decisions screen styling
+- **Action Items**: ✅ **CRITICAL FIX DEPLOYED - NOW WORKING!**
+  - 🎉 **Extraction working**: 21 items from 2 conversations
+  - 🔥 **Fixed query bug**: Was using non-existent `deleted` field (messages use `deletedBy` array)
+  - 📊 **Enhanced logging**: Full diagnostic pipeline visible in Firebase logs
+  - ⚠️ **Quality issues identified**: See ACTION_ITEMS_IMPROVEMENTS_PROMPT.md for next steps
+  - ✅ **Pull-to-refresh**: Manual updates working
+  - ✅ **Accurate feedback**: Item count tracking
 - **Decision Tracking**: ✅ Semantic deduplication with 75% threshold
   - Catches duplicate decisions intelligently
   - Frontend flicker fixed with consistent sorting
@@ -30,6 +32,29 @@
 - **Tests**: 200+ tests; Firebase emulators configured; 95%+ confidence
 
 ## Recent Deployments (Oct 25-26, 2025)
+
+### 🎉 Action Items CRITICAL FIX (Oct 26 - Evening) ✅
+**Extraction was returning 0 items - now fixed and working!**
+
+**Root Cause - Two Critical Bugs:**
+1. **Wrong query field**: Messages use `deletedBy` array, NOT `deleted` boolean
+   - Query `.where("deleted", "!=", true)` returned ZERO messages (field doesn't exist)
+   - Fixed: Removed incorrect filter, now queries normally
+2. **Resurrection logic**: Completed/deleted match had `continue;` preventing new items
+   - Fixed: Create NEW items instead of resurrecting
+
+**Results:**
+- ✅ 21 action items extracted from 2 conversations
+- ✅ Full diagnostic logging in Firebase logs
+- ✅ Items displaying in UI correctly
+
+**🔥 CRITICAL PATTERN FOR ALL AI FEATURES:**
+Messages use `deletedBy: string[]` NOT `deleted: boolean`
+- Filter in code: `!data.deletedBy?.includes(userId)`
+- Never query: `.where("deleted", "!=", true)`
+- This broke action items - CHECK ALL OTHER AI FUNCTIONS!
+
+**Next:** Quality improvements (see ACTION_ITEMS_IMPROVEMENTS_PROMPT.md)
 
 ### Phase 3.1 Semantic Search (Oct 26) ✅
 - **Exact match scoring**: 100% for keyword matches

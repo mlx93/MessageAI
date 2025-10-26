@@ -1,9 +1,10 @@
 # Active Context
 
-**Date:** Oct 26, 2025
-**State:** MVP complete + AI enhancements operational. Phase 3 semantic search deployed. All AI features production-ready.
+**Date:** Oct 26, 2025  
+**State:** MVP complete + AI enhancements operational. Action items FIXED and working!
 
 ## Current focus
+- **🎉 Action Items CRITICAL FIX (Oct 26 - Evening)**: Extraction now working - 21 items created!
 - **Phase 3.1 Semantic Search Complete**: 60-80% faster search with Q&A context detection and exact match scoring
 - **Action Items UX Complete**: Pull-to-refresh, accurate feedback, enhanced logging for debugging
 - **Semantic Deduplication Live**: 75% similarity threshold catching duplicate decisions intelligently
@@ -19,6 +20,48 @@
 - **Cache Optimization**: Longer TTLs, request batching, smart invalidation, scheduled cleanup
 
 ## Recent Deployments (Oct 26, 2025 - Evening)
+
+### 🎉 Action Items CRITICAL FIX - NOW WORKING! ✅
+**The extraction was returning 0 items - now fixed and extracting 21 items from 2 conversations**
+
+**The Problem - TWO Critical Bugs:**
+1. **Query using wrong field**: Messages use `deletedBy` array, NOT `deleted` boolean
+   - Query: `.where("deleted", "!=", true)` returned ZERO messages (field doesn't exist)
+   - Fix: Removed the incorrect query filter entirely
+   - Result: Messages now retrieved successfully
+
+2. **Resurrection logic preventing new items**: When matching completed/deleted items, code used `continue;`
+   - This skipped creating new items entirely
+   - Fix: Changed to create NEW items instead of resurrecting old ones
+   - Preserves history while making items visible again
+
+**Diagnostic Logging Added:**
+- `📧 Retrieved ${messages.length} messages from conversation`
+- `🤖 AI found ${count} potential action items`
+- `🔍 Duplicate check` with detailed comparison data
+- `➕ Creating new item #${n}` confirmation
+- `✅ Not a duplicate - proceeding to create`
+
+**Testing Results:**
+- ✅ 21 action items extracted from 2 conversations with <50 messages each
+- ✅ Items displaying correctly in UI
+- ✅ Success toast showing accurate count
+- ✅ Firebase logs showing full extraction pipeline
+
+**Known Quality Issues (Next Priority):**
+- Threshold may be too low (21 items seems like a lot)
+- Many "unassigned" and "undefined" assignees
+- No conversation context (can't see who participated)
+- Current user's items not prioritized
+- Some items at 60-70% confidence (may not be real actions)
+
+**Files Changed:**
+- `functions/src/ai/actionItems.ts` - Fixed message query and resurrection logic
+- Enhanced logging throughout extraction pipeline
+
+**Documentation:** `ACTION_ITEMS_IMPROVEMENTS_PROMPT.md` with detailed next steps
+
+**Status**: ✅ **DEPLOYED & WORKING** - Extraction successful, quality improvements queued
 
 ### Phase 3.1 Semantic Search Deployed ✅
 **Major Performance & UX Win - 60-80% Faster Search**
