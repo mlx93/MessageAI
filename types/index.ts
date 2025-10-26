@@ -52,6 +52,15 @@ export interface Conversation {
     timestamp: Date;
     senderId: string;
   };
+  // NEW: Per-user lastMessage map - each user has their own view of lastMessage
+  lastMessagePerUser?: {
+    [userId: string]: {
+      messageId: string;
+      text: string;
+      timestamp: Date;
+      senderId: string;
+    };
+  };
   participantDetails: {
     [userId: string]: {
       displayName: string;

@@ -24,7 +24,8 @@
     "deploy-indexes": "ts-node scripts/deploy-firestore-indexes.ts",
     "create-indexes-file": "ts-node scripts/create-indexes-file.ts",
     "fix-index-names": "ts-node scripts/fix-index-field-names.ts",
-    "force-reembed": "ts-node scripts/force-reembed-all.ts"
+    "force-reembed": "ts-node scripts/force-reembed-all.ts",
+    "migrate:lastmessage": "ts-node scripts/migrate-lastmessage-peruser.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

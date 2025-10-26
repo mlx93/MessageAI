@@ -88,19 +88,23 @@ export default function ActionItemDetailScreen() {
         const messagesQuery = query(messagesRef, orderBy('timestamp', 'asc'));
         const messagesSnapshot = await getDocs(messagesQuery);
 
-        // Build a list of all messages sorted by timestamp
-        const allMessages = messagesSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            senderId: data.senderId,
-            text: data.text || '',
-            timestamp: data.timestamp?.toDate() || new Date(),
-          };
-        });
+        // Build a list of all messages sorted by timestamp (ascending)
+        const allMessages = messagesSnapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              senderId: data.senderId,
+              text: data.text || '',
+              timestamp: data.timestamp?.toDate() || new Date(),
+            };
+          })
+          .filter(msg => msg.text && msg.text.trim().length > 0); // Only non-empty messages
 
         // Find the source message index
-        const sourceMessageIndex = allMessages.findIndex(m => m.id === actionItemData.messageId);
+        const sourceMessageIndex = allMessages.findIndex(
+          m => m.id === actionItemData.messageId
+        );
         
         if (sourceMessageIndex >= 0) {
           // Get 3 messages before and 5 messages after for context
@@ -108,10 +112,18 @@ export default function ActionItemDetailScreen() {
           const endIndex = Math.min(allMessages.length, sourceMessageIndex + 6);
           const contextMessages = allMessages.slice(startIndex, endIndex);
 
+          console.log(
+            `📋 Action item detail: Found source message at index ${
+              sourceMessageIndex
+            } of ${allMessages.length} total messages. ` +
+            `Showing context: messages ${startIndex}-${endIndex - 1}`
+          );
+
           // Map to message snippets with sender names
           const snippets: MessageSnippet[] = contextMessages.map(message => {
             const senderProfile = participantDetails[message.senderId];
-            const senderName = senderProfile?.displayName || message.senderId.slice(0, 8);
+            const senderName = senderProfile?.displayName || 
+                               message.senderId.slice(0, 8);
 
             return {
               id: message.id,
@@ -124,6 +136,13 @@ export default function ActionItemDetailScreen() {
           });
 
           setMessageSnippets(snippets);
+        } else {
+          console.warn(
+            `⚠️ Source message ${actionItemData.messageId} not found in ` +
+            `conversation ${actionItemData.conversationId} (${
+              allMessages.length
+            } messages)`
+          );
         }
       }
     } catch (error) {

@@ -188,6 +188,7 @@ export const getCachedMessages = (conversationId: string): Promise<Message[]> =>
 /**
  * Get cached messages with pagination support
  * Returns the most recent messages first (for instant display)
+ * Optimized for faster initial load
  */
 export const getCachedMessagesPaginated = (
   conversationId: string, 

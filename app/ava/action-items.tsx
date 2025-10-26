@@ -26,6 +26,7 @@ const {width: SCREEN_WIDTH} = Dimensions.get('window');
 type ActionItemWithConversation = ActionItem & {
   id: string;
   conversationName?: string;
+  participants?: string[]; // First names only
 };
 
 export default function ActionItemsScreen() {
@@ -34,6 +35,7 @@ export default function ActionItemsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [completing, setCompleting] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingProgress, setAnalyzingProgress] = useState(0);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [bulkProcessing, setBulkProcessing] = useState(false);
@@ -96,6 +98,7 @@ export default function ActionItemsScreen() {
                 if (convDoc.exists()) {
                   const convData = convDoc.data();
                   let conversationName = 'Unknown Conversation';
+                  let participants: string[] = [];
                   
                   if (convData.isGroup) {
                     conversationName = convData.groupName || 'Group Chat';
@@ -109,7 +112,18 @@ export default function ActionItemsScreen() {
                     conversationName = names || 'Direct Message';
                   }
                   
-                  return { ...item, conversationName };
+                  // Extract first names from participantDetails for display
+                  if (convData.participantDetails) {
+                    participants = Object.values(convData.participantDetails)
+                      .map((details: any) => {
+                        const displayName = details.displayName || '';
+                        // Extract first name only
+                        return displayName.split(' ')[0];
+                      })
+                      .filter(Boolean);
+                  }
+                  
+                  return { ...item, conversationName, participants };
                 }
               } catch (error) {
                 console.error('Error fetching conversation name:', error);
@@ -127,7 +141,14 @@ export default function ActionItemsScreen() {
             if (aIsPersonal && !bIsPersonal) return -1;
             if (!aIsPersonal && bIsPersonal) return 1;
             
-            // Secondary sort: by creation date (newest first)
+            // Secondary sort within same category: by confidence (high to low)
+            const aConfidence = a.confidence || 0;
+            const bConfidence = b.confidence || 0;
+            if (Math.abs(aConfidence - bConfidence) > 0.05) {
+              return bConfidence - aConfidence;
+            }
+            
+            // Tertiary sort: by creation date (newest first)
             const aTime = a.createdAt?.toMillis?.() || 0;
             const bTime = b.createdAt?.toMillis?.() || 0;
             return bTime - aTime;
@@ -147,6 +168,13 @@ export default function ActionItemsScreen() {
 
     const unsubPromise = loadActionItems();
     return () => {
+      // Cleanup: close all swipeable refs and clear the map
+      swipeableRefs.forEach((ref) => {
+        ref?.close();
+      });
+      swipeableRefs.clear();
+      
+      // Unsubscribe from snapshot listener
       unsubPromise.then(unsub => unsub && unsub());
     };
   }, []);
@@ -172,6 +200,7 @@ export default function ActionItemsScreen() {
     console.log(`📊 Starting analysis with ${itemsBeforeAnalysis} existing items`);
 
     setAnalyzing(true);
+    setAnalyzingProgress(0);
     try {
       // Get all user's conversations (excluding deleted/hidden)
       const convsRef = collection(db, 'conversations');
@@ -193,8 +222,10 @@ export default function ActionItemsScreen() {
       let totalExtracted = 0;
       let totalErrors = 0;
       let skippedConversations = 0;
+      const totalConversations = convsSnapshot.size;
       
-      for (const convDoc of convsSnapshot.docs) {
+      for (let i = 0; i < convsSnapshot.docs.length; i++) {
+        const convDoc = convsSnapshot.docs[i];
         const convData = convDoc.data();
         
         // Skip deleted or hidden conversations
@@ -203,6 +234,7 @@ export default function ActionItemsScreen() {
             convData.deletedBy?.includes(userId)) {
           console.log(`⏭️ Skipping deleted/hidden conversation: ${convDoc.id}`);
           skippedConversations++;
+          setAnalyzingProgress((i + 1) / totalConversations);
           continue;
         }
         
@@ -214,19 +246,21 @@ export default function ActionItemsScreen() {
           if (result === null) {
             console.error('❌ extractActions returned null for', convDoc.id);
             totalErrors++;
-            continue;
+          } else if (result.count && result.count > 0) {
+            totalExtracted += result.count;
+            console.log(`✅ Extracted ${result.count} action items from ${convDoc.id}`);
           }
           
-          console.log(`✅ Extracted ${result.count} action items from ${convDoc.id}`);
-          totalExtracted++;
+          setAnalyzingProgress((i + 1) / totalConversations);
         } catch (error: any) {
           console.error('❌ Error extracting actions from', convDoc.id, error);
           console.error('Error details:', JSON.stringify(error, null, 2));
           totalErrors++;
+          setAnalyzingProgress((i + 1) / totalConversations);
         }
       }
 
-      console.log(`📊 Analysis complete: ${totalExtracted} successful, ${totalErrors} errors`);
+      console.log(`📊 Analysis complete: ${totalExtracted} items extracted, ${totalErrors} errors`);
 
       // Wait for Firestore to propagate
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -244,7 +278,7 @@ export default function ActionItemsScreen() {
       } else if (totalExtracted > 0) {
         Alert.alert(
           'Analysis Complete', 
-          `Analyzed ${totalExtracted} conversation${totalExtracted !== 1 ? 's' : ''}. ${totalErrors > 0 ? `${totalErrors} failed. ` : ''}Items may take a moment to appear. Pull down to refresh if needed.`
+          `Analyzed ${totalConversations - skippedConversations} conversation${totalConversations - skippedConversations !== 1 ? 's' : ''}. ${totalErrors > 0 ? `${totalErrors} failed. ` : ''}Items may take a moment to appear. Pull down to refresh if needed.`
         );
       } else {
         Alert.alert(
@@ -257,6 +291,7 @@ export default function ActionItemsScreen() {
       Alert.alert('Error', 'Failed to analyze conversations');
     } finally {
       setAnalyzing(false);
+      setAnalyzingProgress(0);
     }
   };
 
@@ -485,6 +520,11 @@ export default function ActionItemsScreen() {
                     📱 {item.conversationName}
                   </Text>
                 )}
+                {item.participants && item.participants.length > 0 && (
+                  <Text style={styles.participantsText} numberOfLines={1}>
+                    👥 {item.participants.join(', ')}
+                  </Text>
+                )}
               </View>
 
               {item.context && (
@@ -595,6 +635,23 @@ export default function ActionItemsScreen() {
           )}
         </View>
 
+        {/* Progress Bar */}
+        {analyzing && (
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <Animated.View
+                style={[
+                  styles.progressFill,
+                  {width: `${analyzingProgress * 100}%`},
+                ]}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              Analyzing conversations... {Math.round(analyzingProgress * 100)}%
+            </Text>
+          </View>
+        )}
+
         {/* Bulk Action Bar */}
         {selectMode && (
           <View style={styles.bulkActionBar}>
@@ -702,6 +759,29 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
+  },
+  progressContainer: {
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#E5E5E5',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: 2,
+  },
+  progressText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
   bulkActionBar: {
     flexDirection: 'row',
@@ -824,6 +904,11 @@ const styles = StyleSheet.create({
   conversationName: {
     fontSize: 11,
     color: '#666',
+  },
+  participantsText: {
+    fontSize: 10,
+    color: '#999',
+    marginTop: 2,
   },
   itemContext: {
     fontSize: 12,

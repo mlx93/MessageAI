@@ -712,7 +712,7 @@ export const onMessageCreate = onDocumentCreated(
   "conversations/{conversationId}/messages/{messageId}",
   async (event) => {
     const message = event.data?.data();
-    const {conversationId} = event.params;
+    const {conversationId, messageId} = event.params;
 
     if (!message) {
       console.error("No message data in onCreate trigger");
@@ -750,6 +750,7 @@ export const onMessageCreate = onDocumentCreated(
 
       // Build update object
       const updates: Record<string, unknown> = {
+        // Keep old field for backwards compatibility
         lastMessage: {
           text: message.text || "Photo",
           timestamp: message.timestamp,
@@ -758,6 +759,16 @@ export const onMessageCreate = onDocumentCreated(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         deletedBy: [], // Clear deletedBy so conversation reappears
       };
+
+      // NEW: Update lastMessagePerUser for EVERY participant
+      participants.forEach((userId: string) => {
+        updates[`lastMessagePerUser.${userId}`] = {
+          messageId: messageId,
+          text: message.text || "📷 Image",
+          senderId: senderId,
+          timestamp: message.timestamp,
+        };
+      });
 
       // Increment unread count for each recipient
       recipients.forEach((recipientId: string) => {
@@ -770,7 +781,7 @@ export const onMessageCreate = onDocumentCreated(
 
       console.log(
         `✅ Incremented unread counts for ${recipients.length} ` +
-        `recipients in ${conversationId}`
+        `recipients in ${conversationId}, updated lastMessagePerUser for all`
       );
     } catch (error) {
       console.error(
@@ -826,14 +837,15 @@ export const onMessageDelete = onDocumentUpdated(
         return;
       }
 
-      // For each user who deleted the message, recalculate their lastMessage
+      // Find users who just deleted this message
       const newDeletions = afterDeletedBy.filter((userId: string) =>
         !beforeDeletedBy.includes(userId)
       );
 
+      // For each user who deleted, recalculate THEIR lastMessage
       for (const userId of newDeletions) {
         console.log(
-          `Recalculating lastMessage for user ${userId} ` +
+          `Recalculating lastMessagePerUser for user ${userId} ` +
           `in conversation ${conversationId}`
         );
 
@@ -855,6 +867,7 @@ export const onMessageDelete = onDocumentUpdated(
 
           if (!messageDeletedBy.includes(userId)) {
             newLastMessage = {
+              messageId: messageDoc.id,
               text: messageData.text || "📷 Image",
               senderId: messageData.senderId,
               timestamp: messageData.timestamp,
@@ -863,22 +876,32 @@ export const onMessageDelete = onDocumentUpdated(
           }
         }
 
+        // Update THIS USER'S entry in lastMessagePerUser
         if (newLastMessage) {
-          // Update conversation with the new last message
           await convRef.update({
-            lastMessage: newLastMessage,
+            [`lastMessagePerUser.${userId}`]: newLastMessage,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
           console.log(
-            `✅ Updated lastMessage for ${conversationId} ` +
-            `after deletion by ${userId}: ${newLastMessage.text}`
+            `✅ Updated lastMessagePerUser for ${userId} ` +
+            `in ${conversationId}: ${newLastMessage.text}`
           );
         } else {
-          // No visible messages - conversation will be hidden
+          // No visible messages - clear this user's entry
+          await convRef.update({
+            [`lastMessagePerUser.${userId}`]: {
+              messageId: "",
+              text: "",
+              senderId: "",
+              timestamp: admin.firestore.Timestamp.now(),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
           console.log(
-            `📭 No visible messages for ${conversationId} ` +
-            `- conversation will be hidden for user ${userId}`
+            `📭 No visible messages for ${userId} ` +
+            `in conversation ${conversationId}`
           );
         }
       }

@@ -635,6 +635,52 @@ export const recalculateLastMessage = async (
 };
 
 /**
+ * Recalculate the last message for a specific user (per-user version)
+ * Returns structured object suitable for lastMessagePerUser map
+ * 
+ * @param conversationId - The conversation ID
+ * @param userId - The user ID to check deleted messages against
+ * @returns The most recent non-deleted message with messageId or null if no visible messages exist
+ */
+export const recalculateLastMessageForUser = async (
+  conversationId: string,
+  userId: string
+): Promise<{ messageId: string; text: string; senderId: string; timestamp: Timestamp } | null> => {
+  try {
+    // Query recent messages (last 50 to avoid performance issues)
+    const messagesQuery = query(
+      collection(db, `conversations/${conversationId}/messages`),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+    
+    const messagesSnapshot = await getDocs(messagesQuery);
+    
+    // Find the most recent message that is NOT deleted by this user
+    for (const messageDoc of messagesSnapshot.docs) {
+      const messageData = messageDoc.data();
+      const deletedBy = messageData.deletedBy || [];
+      
+      // If this message is not deleted by the user, it's the new lastMessage
+      if (!deletedBy.includes(userId)) {
+        return {
+          messageId: messageDoc.id,
+          text: messageData.text || '📷 Image',
+          senderId: messageData.senderId,
+          timestamp: messageData.timestamp,
+        };
+      }
+    }
+    
+    // No visible messages found
+    return null;
+  } catch (error) {
+    console.error('Failed to recalculate lastMessage for user:', error);
+    throw error;
+  }
+};
+
+/**
  * Update conversation's last message based on recalculation
  * This is called after message deletion to ensure the conversation preview is accurate
  * 

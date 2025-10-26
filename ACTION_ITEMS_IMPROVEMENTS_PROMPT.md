@@ -111,14 +111,74 @@ Set confidence to 70-80% if task is clear but assignee is ambiguous.
 Don't extract anything with <70% confidence.
 ```
 
-### 7. Batch Analysis Improvements (Low Priority)
-**Issue:** Analyzing all 21 conversations creates too many items
+### 7. Ava Integration - Natural Language Action Item Queries (High Priority)
+**Goal:** Allow users to ask Ava questions about their action items in natural language
 
-**Suggestions:**
-- Default: Analyze only last 7 days (add date filter UI)
-- Limit: Max 5 action items per conversation
-- Smart selection: Analyze only conversations with recent activity
-- Progress indicator: Show which conversation is being analyzed
+**User Experience:**
+- User asks: "What do I need to do today?"
+- User asks: "What's Hadi working on?"
+- User asks: "Show me overdue action items"
+- User asks: "What did Dan agree to do in the Redis conversation?"
+- Ava responds with natural language, citing specific action items
+
+**Query Detection Logic:**
+1. **Intent Classification** (GPT-4o-mini call):
+   - Detect if user query is about action items vs general chat
+   - Keywords: "action", "todo", "task", "working on", "need to do", "assigned to", "overdue"
+   - Question patterns: "what do I...", "what is [person]...", "show me..."
+   - Return: `{ isActionItemQuery: boolean, queryType: 'user' | 'assignee' | 'status' | 'conversation' }`
+
+2. **Context Retrieval**:
+   - Fetch relevant action items based on query type:
+     - `user`: Current user's assigned items
+     - `assignee`: Items assigned to mentioned person (resolve name to userId)
+     - `status`: Filter by pending/completed/overdue
+     - `conversation`: Items from specific conversation (use semantic search to find conversation)
+   - Include metadata: assignee name, conversation name, participants, deadline, confidence
+   - Limit to top 20 most relevant items
+
+3. **Smart Filtering**:
+   - Date-based: "today" = items with today's deadline, "this week" = next 7 days
+   - Person-based: Extract names from query, map to userIds, filter by assigneeId
+   - Priority-based: "important" or "urgent" = high confidence items (90%+)
+   - Overdue: Compare deadline with current date
+
+4. **LLM Response Generation** (GPT-4o-mini call):
+   - System prompt: "You are Ava, a helpful assistant. Answer questions about action items naturally."
+   - Context: JSON array of relevant action items with full details
+   - User query: Original question
+   - Response format: Natural language with inline references
+   - Example: "You have 3 action items today: 1) Prepare benchmarks (90% confidence, from Dan & Hadi conversation)..."
+
+5. **Response Formatting**:
+   - Include actionable suggestions: "Tap any item to mark complete"
+   - Show confidence indicators: "I'm confident this is assigned to you" vs "This might be unassigned"
+   - Offer drill-down: "Want to see all items from that conversation?"
+   - Handle empty results: "I couldn't find any action items matching that. Try 'show all my tasks'?"
+
+**Integration Points:**
+- Add to existing `avaSearchChat` function (currently handles semantic search queries)
+- Reuse intent classification pattern (already implemented for search vs general chat)
+- Action items query path runs BEFORE semantic search (faster, more relevant)
+- Falls back to general chat if not an action item query
+
+**Frontend Changes:**
+- No UI changes needed - works through existing Ava chat interface
+- Consider adding quick action buttons: "View item", "Mark complete", "See conversation"
+- Show action item cards inline in Ava chat (reuse existing action item card component)
+
+**Backend Function** (`avaActionItemsChat`):
+- Input: `{ query: string, userId: string }`
+- Steps: Intent classification → Retrieve items → Filter/sort → LLM generation
+- Output: `{ response: string, actionItems: ActionItem[], suggestedActions: string[] }`
+- Caching: Cache common queries ("my tasks", "overdue") for 5 minutes
+
+**Success Criteria:**
+- User can ask about their action items conversationally
+- Responses include specific, relevant items with context
+- Natural language feels helpful, not robotic
+- Reduces need to navigate to action items screen for quick checks
+
 
 ## Recommended Implementation Order
 1. **Fix undefined assignees** (15 min) - Quick win
@@ -126,7 +186,8 @@ Don't extract anything with <70% confidence.
 3. **Raise confidence threshold to 75%** (5 min) - Immediate quality improvement
 4. **User-focused sorting** (45 min) - Better UX
 5. **Improve AI prompt** (20 min) - Better extraction quality
-6. **Semantic validation** (2 hours) - Advanced quality filtering
+6. **Ava integration** (2 hours) - Natural language queries for action items
+7. **Semantic validation** (2 hours) - Advanced quality filtering
 
 ## Success Metrics
 - **Quality:** <10 action items from 2 conversations with 50 messages
@@ -134,4 +195,5 @@ Don't extract anything with <70% confidence.
 - **UX:** Current user's items clearly visible, team items secondary
 - **Clarity:** Every item shows conversation participants for context
 - **No errors:** Zero "undefined" assignees
+- **Ava Integration:** Users can query action items naturally, get relevant responses in <2 seconds
 

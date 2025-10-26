@@ -102,7 +102,7 @@ export const subscribeToMessagesPaginated = (
 
 /**
  * Load older messages before a specific timestamp
- * Used for upward pagination
+ * Used for upward pagination with timeout handling
  */
 export const loadOlderMessages = async (
   conversationId: string,
@@ -115,36 +115,50 @@ export const loadOlderMessages = async (
     limit(messageLimit)
   );
   
-  // Use getDocs for one-time query instead of onSnapshot
-  const snapshot = await getDocs(q);
+  // Add timeout handling to prevent blocking
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Query timeout')), 5000); // 5 second timeout
+  });
   
-  const messages = snapshot.docs
-    .filter(doc => {
-      const data = doc.data();
-      const timestamp = data.timestamp?.toDate() || new Date();
-      return timestamp < beforeTimestamp;
-    })
-    .slice(0, messageLimit)
-    .map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        conversationId,
-        text: data.text || '',
-        senderId: data.senderId,
-        timestamp: data.timestamp?.toDate() || new Date(),
-        status: data.status || 'sent',
-        type: data.type || 'text',
-        mediaURL: data.mediaURL,
-        localId: data.localId,
-        readBy: data.readBy || [],
-        deliveredTo: data.deliveredTo || [],
-        deletedBy: data.deletedBy || []
-      } as Message;
-    });
-  
-  // Reverse to get chronological order (oldest first)
-  return messages.reverse();
+  try {
+    // Race between query and timeout
+    const snapshot = await Promise.race([
+      getDocs(q),
+      timeoutPromise
+    ]);
+    
+    const messages = snapshot.docs
+      .filter(doc => {
+        const data = doc.data();
+        const timestamp = data.timestamp?.toDate() || new Date();
+        return timestamp < beforeTimestamp;
+      })
+      .slice(0, messageLimit)
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          conversationId,
+          text: data.text || '',
+          senderId: data.senderId,
+          timestamp: data.timestamp?.toDate() || new Date(),
+          status: data.status || 'sent',
+          type: data.type || 'text',
+          mediaURL: data.mediaURL,
+          localId: data.localId,
+          readBy: data.readBy || [],
+          deliveredTo: data.deliveredTo || [],
+          deletedBy: data.deletedBy || []
+        } as Message;
+      });
+    
+    // Reverse to get chronological order (oldest first)
+    return messages.reverse();
+  } catch (error) {
+    console.warn('loadOlderMessages failed:', error);
+    // Return empty array on timeout or error to prevent blocking
+    return [];
+  }
 };
 
 /**

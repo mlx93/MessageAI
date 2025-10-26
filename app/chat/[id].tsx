@@ -146,15 +146,15 @@ export default function ChatScreen() {
     );
   }, []);
 
-  // Phase 2: Load older messages for upward pagination
+  // OPTIMIZED: Load older messages for upward pagination with better performance
   const loadOlderMessages = useCallback(async () => {
     if (isLoadingOlderMessages || !hasMoreOlderMessages || !messages || messages.length === 0) {
       return;
     }
 
-    // Throttle loading to prevent spam
+    // Throttle loading to prevent spam (reduced from 2s to 1s for better UX)
     const now = Date.now();
-    if (now - lastLoadTime.current < 2000) { // 2 second throttle
+    if (now - lastLoadTime.current < 1000) { // 1 second throttle
       return;
     }
     lastLoadTime.current = now;
@@ -176,8 +176,13 @@ export default function ChatScreen() {
       }
       const beforeTimestamp = oldestMessage.timestamp;
       
-      // Try cache first
-      const cachedOlderMessages = await getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
+      // OPTIMIZED: Try cache first with timeout
+      const cachePromise = getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
+      const cacheTimeout = new Promise<Message[]>((resolve) => {
+        setTimeout(() => resolve([]), 1000); // 1 second cache timeout
+      });
+      
+      const cachedOlderMessages = await Promise.race([cachePromise, cacheTimeout]);
       
       if (cachedOlderMessages && cachedOlderMessages.length > 0) {
         loadedCount = cachedOlderMessages.length;
@@ -193,7 +198,7 @@ export default function ChatScreen() {
           setHasMoreOlderMessages(false);
         }
       } else {
-        // Fallback to Firestore - only log once per session
+        // OPTIMIZED: Fallback to Firestore with timeout (already handled in messageService)
         const firestoreOlderMessages = await loadOlderMessagesRemote(conversationId, beforeTimestamp, 30);
         
         if (firestoreOlderMessages && firestoreOlderMessages.length > 0) {
@@ -205,8 +210,8 @@ export default function ChatScreen() {
             return manageMessageMemory(dedupedMessages);
           });
           
-          // Cache the new messages
-          firestoreOlderMessages.forEach(msg => cacheMessage(msg));
+          // Cache the new messages in background
+          firestoreOlderMessages.forEach(msg => cacheMessageBatched(msg));
         }
         
         // Check if we have more messages to load
@@ -298,38 +303,18 @@ export default function ChatScreen() {
       }
     };
     
-    // Load conversation data and cached messages in parallel for speed
-    // but only render messages after conversation data is loaded (prevents avatar race condition)
-    let cachedMessagesData: any[] = [];
-    
-    const conversationDataPromise = loadConversationData();
-    const cachedMessagesPromise = getCachedMessagesPaginated(conversationId, 50).then(cachedMsgs => {
-      // Prioritize text messages (up to 20) for instant display
-      const textMessages = cachedMsgs.filter(m => m.type !== 'image').slice(-20);
-      
-      // If we don't have 20 text messages, include images to reach 20
-      if (textMessages.length < 20) {
-        const remainingCount = 20 - textMessages.length;
-        const imageMessages = cachedMsgs.filter(m => m.type === 'image').slice(-remainingCount);
-        cachedMessagesData = [...textMessages, ...imageMessages].sort((a, b) => 
-          a.timestamp.getTime() - b.timestamp.getTime()
-        );
-      } else {
-        cachedMessagesData = textMessages;
-      }
-      
-      return cachedMessagesData;
-    }).catch(error => {
-      console.error('Failed to load cached messages:', error);
-      return [];
-    });
-    
-    // Wait for conversation data, then immediately render cached messages
-    conversationDataPromise.then(() => {
-      // Now that isGroupChat and participantDetailsMap are set, render messages
-      if (cachedMessagesData.length > 0) {
+    // OPTIMIZED: Load conversation data and cached messages in parallel
+    // Maintain anti-flicker behavior by waiting for both before rendering
+    const loadInitialData = async () => {
+      try {
+        // Load both conversation data and cached messages in parallel
+        const [conversationData, cachedMessages] = await Promise.all([
+          loadConversationData(),
+          getCachedMessagesPaginated(conversationId, 30) // Optimized: load 30 instead of filtering 50 to 20
+        ]);
+        
         // Filter out deleted messages to prevent layout shifts
-        const visibleMessages = cachedMessagesData.filter(m => 
+        const visibleMessages = cachedMessages.filter(m => 
           !m.deletedBy || !m.deletedBy.includes(user!.uid)
         );
         
@@ -339,15 +324,22 @@ export default function ChatScreen() {
         console.log(`📱 Cache warming: Loaded ${dedupedMessages.length} recent messages instantly`);
         console.log(`📱 List mode will be: ${dedupedMessages.length > 7 ? 'Inverted (many messages)' : 'Normal (few messages)'}`);
         
+        // Set all state together to prevent flicker
         setMessages(dedupedMessages);
         prevMessageCount.current = dedupedMessages.length;
         hasInitializedRef.current = true;
-      } else {
-        console.log('📱 No cached messages, starting fresh');
+        setIsInitialLoad(false); // Ready to render
+        
+      } catch (error) {
+        console.error('Failed to load initial data:', error);
+        // Fallback: render empty state
         hasInitializedRef.current = true;
+        setIsInitialLoad(false);
       }
-      setIsInitialLoad(false); // Ready to render
-    });
+    };
+    
+    // Start parallel loading
+    loadInitialData();
 
     // Phase 4: Smart preloading - warm up cache for this conversation
     preloadService.warmupConversations([conversationId]).catch(error => {
@@ -1345,7 +1337,7 @@ export default function ChatScreen() {
               const messageIdToDelete = selectedMessage.id;
               setMessages(prev => prev.filter(m => m.id !== messageIdToDelete));
               
-              // Update Firestore
+              // Update Firestore message document
               await deleteMessage(conversationId, selectedMessage.id, user.uid);
               
               // Update SQLite cache with deletedBy field
@@ -1355,7 +1347,28 @@ export default function ChatScreen() {
               };
               await cacheMessageBatched(updatedMessage);
               
-              console.log(`🗑️ Message deleted: ${selectedMessage.id}`);
+              // NEW: Recalculate THIS USER'S lastMessage
+              const { recalculateLastMessageForUser } = await import('../../services/conversationService');
+              const newLastMessage = await recalculateLastMessageForUser(
+                conversationId,
+                user.uid
+              );
+              
+              // NEW: Update only this user's entry in lastMessagePerUser
+              const { doc, updateDoc, Timestamp } = await import('firebase/firestore');
+              const { db } = await import('../../services/firebase');
+              const convRef = doc(db, 'conversations', conversationId);
+              
+              await updateDoc(convRef, {
+                [`lastMessagePerUser.${user.uid}`]: newLastMessage || {
+                  messageId: '',
+                  text: '',
+                  senderId: '',
+                  timestamp: Timestamp.now(),
+                }
+              });
+              
+              console.log(`🗑️ Message deleted and lastMessagePerUser updated for user`);
             } catch (error: any) {
               // Check if message doesn't exist in Firestore (orphaned cache entry)
               const isNotFound = error.code === 'not-found' || 
@@ -1950,10 +1963,10 @@ export default function ChatScreen() {
             } : undefined}
             extraData={`${participantDetailsVersion}-${useInvertedList}`}
             onScroll={({ nativeEvent }) => {
-            // Phase 2: Detect when user scrolls near top to load older messages
+            // OPTIMIZED: Detect when user scrolls near top to load older messages
             const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
             scrollOffsetRef.current = contentOffset.y;
-            const isNearTop = contentOffset.y < 50; // 50px from top (less aggressive)
+            const isNearTop = contentOffset.y < 100; // 100px from top (more responsive)
             
             if (isNearTop && hasMoreOlderMessages && !isLoadingOlderMessages) {
               loadOlderMessages();
@@ -1999,11 +2012,11 @@ export default function ChatScreen() {
           }}
           ListHeaderComponent={() => (
             <>
-              {/* Loading indicator for older messages */}
+              {/* OPTIMIZED: Less intrusive loading indicator for older messages */}
               {isLoadingOlderMessages && (
                 <View style={styles.loadingOlderMessages}>
                   <ActivityIndicator size="small" color="#007AFF" />
-                  <Text style={styles.loadingOlderMessagesText}>Loading older messages...</Text>
+                  <Text style={styles.loadingOlderMessagesText}>Loading...</Text>
                 </View>
               )}
             </>
@@ -2306,7 +2319,7 @@ const styles = StyleSheet.create({
   messagesContent: {
     paddingTop: 16,
     paddingBottom: 16,
-    paddingLeft: 16,
+    paddingLeft: Platform.OS === 'android' ? 16 : 16, // Same padding - Android and iOS should match
     paddingRight: 0, // No right padding - timestamps flush with screen edge
   },
   messageRow: {
@@ -2327,7 +2340,7 @@ const styles = StyleSheet.create({
   },
   timestampRevealContainer: {
     position: 'absolute',
-    right: -80, // Reduced spacing - flush with edge when revealed
+    right: Platform.OS === 'android' ? -120 : -80, // Android needs more offset to hide timestamps
     top: 0,
     bottom: 0,
     width: 80,
@@ -2352,7 +2365,7 @@ const styles = StyleSheet.create({
   ownImageContainer: {
     alignSelf: 'flex-end',
     marginLeft: 'auto', // Push to far right
-    marginRight: 2, // Minimal margin - very close to edge
+    marginRight: Platform.OS === 'android' ? 0 : 2, // Android: flush to edge, iOS: minimal margin
   },
   otherImageContainer: {
     alignSelf: 'flex-start',
@@ -2361,7 +2374,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     alignSelf: 'flex-end',
     marginLeft: 'auto', // Push to far right
-    marginRight: 2, // Minimal margin - very close to edge
+    marginRight: Platform.OS === 'android' ? 0 : 2, // Android: flush to edge, iOS: minimal margin
   },
   otherMessage: {
     backgroundColor: '#E8E8E8',
@@ -2443,7 +2456,7 @@ const styles = StyleSheet.create({
   readReceiptOwn: {
     textAlign: 'right',
     alignSelf: 'flex-end', // Right-adjusted under blue bubbles
-    marginRight: 8, // Match bubble margin
+    marginRight: Platform.OS === 'android' ? 4 : 8, // Match bubble margin (Android bubbles at 0, iOS at 2)
   },
   inputContainer: {
     flexDirection: 'row',
