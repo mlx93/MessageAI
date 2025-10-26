@@ -99,6 +99,37 @@ export interface PriorityDetection {
   detectedAt: number;
 }
 
+export interface ActionItemResult {
+  id: string;
+  task: string;
+  assignee: string | null;
+  assigneeId: string | null;
+  deadline: string | null;
+  confidence: number;
+  conversationId: string;
+  conversationName?: string;
+}
+
+export interface DecisionResult {
+  id: string;
+  decision: string;
+  rationale: string;
+  decisionMaker: string | null;
+  madeAt: number;
+  confidence: number;
+  conversationId: string;
+  conversationName?: string;
+}
+
+export interface UnifiedSearchResponse {
+  answer: string;
+  intent: 'unified' | 'messages_only' | 'general';
+  messages?: SearchResult[];
+  actionItems?: ActionItemResult[];
+  decisions?: DecisionResult[];
+  hasResults: boolean;
+}
+
 class AIService {
   private functions = getFunctions(app);
   private db = getFirestore(app);
@@ -182,6 +213,25 @@ class AIService {
         };
       },
       'avaSearchChat',
+      {showAlert: false, retries: 1}
+    );
+  }
+
+  /**
+   * Unified search across messages, action items, and decisions
+   * Provides comprehensive context for complex queries
+   */
+  async avaUnifiedSearch(
+    userQuery: string,
+    conversationHistory?: Array<{role: 'user' | 'assistant'; content: string}>
+  ): Promise<UnifiedSearchResponse | null> {
+    return withAIErrorHandling(
+      async () => {
+        const search = httpsCallable(this.functions, 'avaUnifiedSearch');
+        const result = await search({userQuery, conversationHistory});
+        return result.data as UnifiedSearchResponse;
+      },
+      'avaUnifiedSearch',
       {showAlert: false, retries: 1}
     );
   }

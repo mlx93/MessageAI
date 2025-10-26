@@ -25,8 +25,9 @@ export class PreloadService {
   
   /**
    * Preload messages based on user behavior patterns
+   * Requires userId for filtering deleted messages
    */
-  async preloadMessages(config: PreloadConfig): Promise<PreloadResult> {
+  async preloadMessages(config: PreloadConfig, userId?: string): Promise<PreloadResult> {
     const { conversationId, currentMessages, scrollPosition, totalHeight } = config;
     
     // Check if we already have a preload in progress
@@ -35,7 +36,7 @@ export class PreloadService {
       return existingPromise;
     }
     
-    const preloadPromise = this._performPreload(config);
+    const preloadPromise = this._performPreload(config, userId);
     this.preloadPromises.set(conversationId, preloadPromise);
     
     try {
@@ -46,7 +47,7 @@ export class PreloadService {
     }
   }
   
-  private async _performPreload(config: PreloadConfig): Promise<PreloadResult> {
+  private async _performPreload(config: PreloadConfig, userId?: string): Promise<PreloadResult> {
     const { conversationId, currentMessages, scrollPosition, totalHeight } = config;
     
     // Validate input data
@@ -99,12 +100,12 @@ export class PreloadService {
         if (oldestMessage && oldestMessage.timestamp) {
           const beforeTimestamp = oldestMessage.timestamp;
           
-          // Try cache first
-          const cachedOlder = await getCachedMessagesBefore(conversationId, beforeTimestamp, 20);
+          // Try cache first - filter deleted messages if userId provided
+          const cachedOlder = await getCachedMessagesBefore(conversationId, beforeTimestamp, 20, userId);
           if (cachedOlder && cachedOlder.length > 0) {
             result.olderMessages = cachedOlder;
             result.cacheHit = true;
-            console.log(`🎯 Preload: Cache hit for older messages (${cachedOlder.length})`);
+            console.log(`🎯 Preload: Cache hit for older messages (${cachedOlder.length}${userId ? ', filtered' : ''})`);
           } else {
             // Preload from Firestore in background
             const firestoreOlder = await loadOlderMessages(conversationId, beforeTimestamp, 20);
@@ -156,14 +157,15 @@ export class PreloadService {
   
   /**
    * Warm up cache for conversations user is likely to visit
+   * Requires userId for filtering deleted messages
    */
-  async warmupConversations(conversationIds: string[]): Promise<void> {
+  async warmupConversations(conversationIds: string[], userId?: string): Promise<void> {
     const warmupPromises = conversationIds.map(async (id) => {
       try {
-        // Preload recent messages for each conversation
-        const messages = await getCachedMessagesPaginated(id, 15);
+        // Preload recent messages for each conversation - filter if userId provided
+        const messages = await getCachedMessagesPaginated(id, 15, userId);
         this.preloadCache.set(id, messages);
-        console.log(`🔥 Cache warmup: ${id} (${messages.length} messages)`);
+        console.log(`🔥 Cache warmup: ${id} (${messages.length} messages${userId ? ', filtered' : ''})`);
       } catch (error) {
         console.warn(`Cache warmup failed for ${id}:`, error);
       }

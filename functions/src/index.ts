@@ -46,6 +46,10 @@ export {
 } from "./ai/smartSearch";
 
 export {
+  avaUnifiedSearch,
+} from "./ai/avaUnifiedSearch";
+
+export {
   extractDecisions,
   deleteDecision,
   bulkDeleteDecisions,

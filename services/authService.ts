@@ -158,6 +158,15 @@ export const signOut = async (): Promise<void> => {
   // Sign out from Firebase Auth
   await firebaseSignOut(auth);
   
+  // Clear SQLite cache on sign out
+  try {
+    const { clearCache } = await import('./sqliteService');
+    await clearCache();
+    console.log('✅ SQLite cache cleared on sign out');
+  } catch (error) {
+    console.warn('Failed to clear SQLite cache during sign out:', error);
+  }
+  
   // Clear any cached data that might cause permission issues
   try {
     // Clear any active conversation references

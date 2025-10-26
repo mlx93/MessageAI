@@ -310,9 +310,11 @@ export const getCachedMessageCount = (
         [conversationId]
       ) as Array<{ count: number }>;
       
+      const totalCount = result[0]?.count || 0;
+      
       if (!userId) {
-        const count = result[0]?.count || 0;
-        resolve(count);
+        console.log(`📊 getCachedMessageCount: ${totalCount} total messages (no userId filter)`);
+        resolve(totalCount);
         return;
       }
       
@@ -324,13 +326,17 @@ export const getCachedMessageCount = (
       ) as Array<{ deletedBy: string | null }>;
       
       let nonDeletedCount = 0;
+      let deletedCount = 0;
       for (const row of allRows) {
         const deletedBy = row.deletedBy ? JSON.parse(row.deletedBy) : [];
         if (!deletedBy.includes(userId)) {
           nonDeletedCount++;
+        } else {
+          deletedCount++;
         }
       }
       
+      console.log(`📊 getCachedMessageCount: ${totalCount} total, ${nonDeletedCount} visible, ${deletedCount} deleted for user ${userId.slice(0,8)}`);
       resolve(nonDeletedCount);
     } catch (error) {
       console.warn('getCachedMessageCount failed:', error);
@@ -346,7 +352,8 @@ export const getCachedMessageCount = (
 export const getCachedMessagesBefore = (
   conversationId: string,
   beforeTimestamp: Date,
-  limit: number = 30
+  limit: number = 30,
+  userId?: string
 ): Promise<Message[]> => {
   return new Promise((resolve, reject) => {
     try {
@@ -355,7 +362,7 @@ export const getCachedMessagesBefore = (
         [conversationId, beforeTimestamp.getTime(), limit]
       );
       
-      const messages = result.map((row: any) => ({
+      const allMessages = result.map((row: any) => ({
         id: row.id,
         conversationId: row.conversationId,
         text: row.text,
@@ -372,6 +379,13 @@ export const getCachedMessagesBefore = (
         priorityConfidence: row.priorityConfidence || undefined,
         priorityReason: row.priorityReason || undefined
       })) as Message[];
+      
+      // Filter out messages deleted by user if userId provided
+      const messages = userId
+        ? allMessages.filter(m => !m.deletedBy || !m.deletedBy.includes(userId))
+        : allMessages;
+      
+      console.log(`📦 getCachedMessagesBefore: ${allMessages.length} total, ${messages.length} visible${userId ? ` (filtered for user ${userId.slice(0,8)})` : ''}`);
       
       // Reverse to get chronological order (oldest first)
       resolve(messages.reverse());

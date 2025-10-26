@@ -18,13 +18,13 @@ export interface PriorityResult {
 // Urgency patterns (HIGH confidence) - STRICT: Explicit keywords only
 const URGENT_PATTERNS = [
   /\b(URGENT|ASAP|CRITICAL|EMERGENCY|IMMEDIATE)\b/i,
-  /\b(high priority|top priority|highest priority)\b/i,
   /🚨|⚠️/, // Warning symbols only (removed fire emoji)
 ];
 
 // Important patterns (MEDIUM confidence) - STRICT: Explicit keywords only
 const IMPORTANT_PATTERNS = [
   /\b(important|priority)\b/i,
+  /\b(high priority|top priority|highest priority)\b/i,
   /\b(time.?sensitive|deadline|due date)\b/i,
 ];
 

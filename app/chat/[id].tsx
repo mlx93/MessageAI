@@ -27,6 +27,7 @@ import MessageActionSheet from '../../components/MessageActionSheet';
 import CachedImage from '../../components/CachedImage';
 import QueueVisibilityBanner from '../../components/QueueVisibilityBanner';
 import PriorityBadge from '../../components/ai/PriorityBadge';
+import AvaAnswerCard from '../../components/ai/AvaAnswerCard';
 // import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
 import ProactiveSuggestionCard from '../../components/ai/ProactiveSuggestionCard';
 import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
@@ -83,6 +84,11 @@ export default function ChatScreen() {
   const [summaryModalVisible, setSummaryModalVisible] = useState(false);
   const [proactiveSuggestions, setProactiveSuggestions] = useState<ProactiveSuggestion[]>([]);
   const [loadingSuggestion, setLoadingSuggestion] = useState<string | null>(null);
+  const [avaAnswerPreview, setAvaAnswerPreview] = useState<{
+    question: string;
+    answer: string;
+    loading: boolean;
+  } | null>(null);
   const lastLoadTime = useRef(0); // Throttle loading
   const maxMessagesInMemory = useRef(200); // Phase 3: Memory management
   const appStateSubscription = useRef<any>(null); // Phase 4: App state subscription
@@ -155,7 +161,7 @@ export default function ChatScreen() {
       const beforeTimestamp = oldestMessage.timestamp;
       
       // OPTIMIZED: Try cache first with timeout
-      const cachePromise = getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
+      const cachePromise = getCachedMessagesBefore(conversationId, beforeTimestamp, 30, user!.uid);
       const cacheTimeout = new Promise<Message[]>((resolve) => {
         setTimeout(() => resolve([]), 1000); // 1 second cache timeout
       });
@@ -253,29 +259,29 @@ export default function ChatScreen() {
   const useInvertedList = useMemo(() => {
     if (messages.length === 0) return false;
     
-    // If we know there are MORE messages than currently loaded (from cache count),
-    // use inverted mode even if current visible messages <= 7
-    // This prevents the jarring mode switch when Firestore loads the full set
-    if (totalMessageCount !== null && totalMessageCount > messages.length && totalMessageCount > 7) {
-      console.log(`📱 Using INVERTED mode for ${messages.length}/${totalMessageCount} messages (more available)`);
-      return true;
-    }
+    // Platform-specific threshold: Android needs higher threshold due to different rendering
+    const normalModeThreshold = Platform.OS === 'android' ? 10 : 7;
     
-    // Use normal mode for conversations with <= 7 messages
+    // IMPORTANT: Base decision ONLY on visible messages.length, not totalMessageCount
+    // Deleted messages in cache can cause totalMessageCount to be artificially high,
+    // leading to inverted mode when we should be in normal mode
+    
+    // Use normal mode for conversations with <= threshold messages
     // This ensures they start at the top of the screen
-    if (messages.length <= 7) {
-      console.log(`📱 Using NORMAL mode for ${messages.length} messages (starts at top)`);
+    // Android uses 10, iOS uses 7 due to different screen heights and rendering
+    if (messages.length <= normalModeThreshold) {
+      console.log(`📱 Using NORMAL mode for ${messages.length} messages (starts at top, threshold: ${normalModeThreshold})`);
       return false;
     }
     
     // Use inverted mode for longer conversations
-    // Estimate ~80px per message, typical screen height ~600px
+    // Estimate ~80px per message, typical screen height ~600px (iOS) / ~700px (Android)
     const estimatedContentHeight = messages.length * 80;
-    const screenHeight = 600;
+    const screenHeight = Platform.OS === 'android' ? 700 : 600;
     const shouldInvert = estimatedContentHeight > screenHeight;
-    console.log(`📱 Using ${shouldInvert ? 'INVERTED' : 'NORMAL'} mode for ${messages.length} messages (height: ${estimatedContentHeight})`);
+    console.log(`📱 Using ${shouldInvert ? 'INVERTED' : 'NORMAL'} mode for ${messages.length} messages (height: ${estimatedContentHeight}, screen: ${screenHeight})`);
     return shouldInvert;
-  }, [messages.length, totalMessageCount]);
+  }, [messages.length]);
 
   // Load conversation details and participants
   useEffect(() => {
@@ -348,14 +354,25 @@ export default function ChatScreen() {
         // Dedupe before setting state to prevent duplicate blue bubbles
         const dedupedMessages = dedupeMessages(cachedMessagesWithPriority);
         
-        // Store total count to help with list mode determination
+        // Store total count for debugging (no longer used for list mode)
         setTotalMessageCount(totalCount);
         
-        console.log(`📦 Cache: Loaded ${dedupedMessages.length}/${totalCount} recent messages`);
-        console.log(`📱 List mode will be: ${totalCount > 7 ? 'Inverted (many messages available)' : dedupedMessages.length > 7 ? 'Inverted (many messages)' : 'Normal (few messages)'}`);
+        console.log(`📦 Cache: Loaded ${dedupedMessages.length} recent messages (${totalCount} total in cache)`);
+        console.log(`📱 List mode will be: ${dedupedMessages.length > (Platform.OS === 'android' ? 10 : 7) ? 'Inverted' : 'Normal'} based on ${dedupedMessages.length} visible messages`);
         
         // Set all state together to prevent flicker
-        setMessages(dedupedMessages);
+        // BUT: Only set if Firestore hasn't already provided newer data
+        // This prevents race condition where cache overwrites Firestore's filtered data
+        setMessages(prevMessages => {
+          // If Firestore has already updated with messages, don't overwrite unless cache has more
+          if (prevMessages.length > 0 && prevMessages.length >= dedupedMessages.length) {
+            console.log(`📤 Skipping initial cache load: Firestore already provided ${prevMessages.length} messages (cache has ${dedupedMessages.length})`);
+            return prevMessages;
+          }
+          
+          console.log(`📤 setMessages called: Setting ${dedupedMessages.length} messages from initial load`);
+          return dedupedMessages;
+        });
         prevMessageCount.current = dedupedMessages.length;
         hasInitializedRef.current = true;
         setIsInitialLoad(false); // Ready to render
@@ -372,7 +389,7 @@ export default function ChatScreen() {
     loadInitialData();
 
     // Phase 4: Smart preloading - warm up cache for this conversation
-    preloadService.warmupConversations([conversationId]).catch(error => {
+    preloadService.warmupConversations([conversationId], user!.uid).catch(error => {
       console.warn('Cache warmup failed:', error);
     });
 
@@ -406,11 +423,26 @@ export default function ChatScreen() {
     });
 
     // Subscribe to real-time messages with pagination
+    let firestoreCallCount = 0;
     const unsubscribeMessages = subscribeToMessagesPaginated(conversationId, 30, (msgs) => {
+      firestoreCallCount++;
+      console.log(`🔥 Firestore listener callback #${firestoreCallCount}: Received ${msgs.length} messages`);
+      
       // Filter out messages deleted by current user
+      const deletedByUser = msgs.filter(m => m.deletedBy && m.deletedBy.includes(user!.uid));
+      if (deletedByUser.length > 0) {
+        console.log(`🚫 Firestore returned ${deletedByUser.length} deleted messages:`, deletedByUser.map(m => ({
+          id: m.id,
+          text: m.text?.substring(0, 30),
+          deletedBy: m.deletedBy
+        })));
+      }
+      
       const visibleMessages = msgs.filter(m => 
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
       );
+      
+      console.log(`📨 Firestore listener: ${msgs.length} total → ${visibleMessages.length} visible (${deletedByUser.length} filtered out)`);
       
       // Apply client-side priority detection to ALL incoming messages for instant badges
       const messagesWithClientPriority = visibleMessages.map(msg => {
@@ -491,7 +523,27 @@ export default function ChatScreen() {
         
         // Quick check: if lengths differ, definitely update
         if (prevMessages.length !== incomingFiltered.length) {
-          // Merge with deduplication to prevent duplicate blue bubbles
+          console.log(`📊 Message count changed: ${prevMessages.length} → ${incomingFiltered.length}`);
+          
+          // If incoming has FEWER messages, Firestore might have propagated deletions
+          // Use incoming as source of truth (don't merge old deleted messages back in)
+          if (incomingFiltered.length < prevMessages.length) {
+            console.log(`📉 Fewer messages incoming - using Firestore as source of truth (deletions propagated)`);
+            // Cache only NEW messages
+            const existingIds = new Set([
+              ...prevMessages.map(m => m.id),
+              ...prevMessages.map(m => m.localId).filter(Boolean)
+            ]);
+            incomingFiltered
+              .filter(m => !existingIds.has(m.id) && !existingIds.has(m.localId))
+              .forEach(m => cacheMessageBatched(m));
+            
+            console.log(`📤 setMessages called: Using Firestore as source (${incomingFiltered.length} messages, deletions propagated)`);
+            return manageMessageMemory(incomingFiltered);
+          }
+          
+          // If incoming has MORE messages, merge (new messages arrived)
+          console.log(`📈 More messages incoming - merging with existing`);
           const merged = dedupeMessages([...prevMessages, ...incomingFiltered]);
           
           // Cache only NEW messages (not already in state)
@@ -503,6 +555,7 @@ export default function ChatScreen() {
             .filter(m => !existingIds.has(m.id) && !existingIds.has(m.localId))
             .forEach(m => cacheMessageBatched(m));
           
+          console.log(`📤 setMessages called: Merged to ${merged.length} messages`);
           return manageMessageMemory(merged);
         }
         
@@ -556,9 +609,10 @@ export default function ChatScreen() {
         // Only update if something changed, and dedupe to prevent duplicates
         const finalMessages = hasChanges ? manageMessageMemory(dedupeMessages(updatedMessages)) : prevMessages;
         
-        // Log mode change if it happens
-        if (hasInitializedRef.current && prevMessages.length <= 7 && finalMessages.length > 7) {
-          console.log('📱 List mode will switch to inverted - messages exceed threshold');
+        // Log mode change if it happens (platform-specific threshold)
+        const threshold = Platform.OS === 'android' ? 10 : 7;
+        if (hasInitializedRef.current && prevMessages.length <= threshold && finalMessages.length > threshold) {
+          console.log(`📱 List mode will switch to inverted - messages exceed threshold (${threshold})`);
         }
         
         return finalMessages;
@@ -1203,14 +1257,117 @@ export default function ChatScreen() {
     setLoadingSuggestion(suggestionId);
     try {
       await aiService.acceptSuggestion(suggestionId);
-      // Optionally handle specific actions
-      if (action) {
-        console.log('Executing action:', action);
+      
+      // Handle specific actions
+      if (action === 'search_context') {
+        // Extract the question from recent messages
+        const recentMessages = messages.slice(-10);
+        const questionMessage = recentMessages.find(m => 
+          m.text.toLowerCase().includes('what did') ||
+          m.text.toLowerCase().includes('can someone remind') ||
+          m.text.toLowerCase().includes('where did') ||
+          m.text.toLowerCase().includes('when did') ||
+          m.text.toLowerCase().includes('who said')
+        );
+        
+        const query = questionMessage?.text || 'What did we discuss recently?';
+        
+        // Show loading state
+        setAvaAnswerPreview({
+          question: query,
+          answer: '',
+          loading: true,
+        });
+        
+        // Dismiss the proactive suggestion
+        setProactiveSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+        setLoadingSuggestion(null);
+        
+        // Call Ava's unified search (more comprehensive than basic search)
+        try {
+          console.log('🔍 Calling Ava unified search with query:', query);
+          
+          // Build conversation history from recent messages for context
+          const chatHistory = messages
+            .slice(-5)
+            .map(m => ({
+              role: m.senderId === user?.uid ? 'user' as const : 'assistant' as const,
+              content: m.text
+            }));
+          
+          const result = await aiService.avaUnifiedSearch(query, chatHistory);
+          
+          if (!result || !result.hasResults || !result.answer) {
+            console.warn('⚠️ Ava unified search returned no results, falling back to navigation');
+            // Fallback: navigate to Ava chat instead
+            router.push({
+              pathname: '/ava/chat',
+              params: { 
+                query,
+                conversationId
+              }
+            });
+            setAvaAnswerPreview(null);
+            return;
+          }
+          
+          console.log('✅ Ava unified search successful, answer length:', result.answer.length);
+          
+          // Extract first 300 characters for preview
+          const fullAnswer = result.answer;
+          const preview = fullAnswer.length > 300 
+            ? fullAnswer.substring(0, 300) + '...' 
+            : fullAnswer;
+          
+          setAvaAnswerPreview({
+            question: query,
+            answer: preview,
+            loading: false,
+          });
+        } catch (error) {
+          console.error('❌ Error getting Ava answer:', error);
+          // On error, fall back to navigating to Ava chat
+          console.log('↪️ Falling back to Ava chat navigation');
+          router.push({
+            pathname: '/ava/chat',
+            params: { 
+              query,
+              conversationId
+            }
+          });
+          setAvaAnswerPreview(null);
+        }
+      } else if (action?.startsWith('schedule_meeting_')) {
+        // Handle meeting time selection
+        const timeSlot = action.replace('schedule_meeting_', '');
+        Alert.alert(
+          'Meeting Time Selected',
+          `You selected: ${timeSlot}\n\nWould you like to send this to the group?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Send', 
+              onPress: () => {
+                // Auto-fill the input with meeting suggestion
+                setInputText(`How about we meet ${timeSlot}?`);
+              }
+            }
+          ]
+        );
+        setLoadingSuggestion(null);
+      } else if (action === 'view_action_items') {
+        // Navigate to action items
+        router.push({
+          pathname: '/ava/action-items',
+          params: { conversationId }
+        });
+        setLoadingSuggestion(null);
+      } else {
+        setLoadingSuggestion(null);
       }
     } catch (error) {
       console.error('Error accepting suggestion:', error);
       Alert.alert('Error', 'Failed to accept suggestion');
-    } finally {
       setLoadingSuggestion(null);
     }
   };
@@ -2067,6 +2224,17 @@ export default function ChatScreen() {
         />
       ))}
 
+      {/* Ava Inline Answer Preview */}
+      {avaAnswerPreview && (
+        <AvaAnswerCard
+          question={avaAnswerPreview.question}
+          answer={avaAnswerPreview.answer}
+          loading={avaAnswerPreview.loading}
+          conversationId={conversationId}
+          onDismiss={() => setAvaAnswerPreview(null)}
+        />
+      )}
+
       {/* Action Items Banner - Hidden to save space */}
       {/* <ActionItemsBanner
         conversationId={conversationId}
@@ -2144,7 +2312,7 @@ export default function ChatScreen() {
                   currentMessages: validMessages,
                   scrollPosition: contentOffset.y,
                   totalHeight: contentSize.height
-                }).catch(error => {
+                }, user!.uid).catch(error => {
                   console.warn('Preload failed:', error);
                 });
               }

@@ -1,6 +1,97 @@
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {logger} from "firebase-functions/v2";
+import {getOpenAIClient, openaiKey} from "../utils/openai";
+
+/**
+ * Generate intelligent meeting time suggestions based on conversation context
+ * @param {Array} recentMessages - Recent messages from the conversation
+ * @return {Promise<string[]>} Array of suggested meeting times
+ */
+async function generateMeetingSuggestions(
+  recentMessages: Array<{text: string; timestamp: unknown}>
+): Promise<string[]> {
+  try {
+    const openai = getOpenAIClient();
+
+    // Build conversation context
+    const conversationText = recentMessages
+      .slice(-10) // Last 10 messages for context
+      .map((m) => m.text)
+      .join("\n");
+
+    const systemPrompt = `You are a meeting scheduling assistant. \
+Analyze the conversation and extract or suggest 3 meeting times.
+
+Rules:
+1. PRIORITIZE times mentioned in the conversation (e.g., "2 PM Sunday")
+2. If specific times are mentioned, use those
+3. If no specific times, suggest reasonable times based on context
+4. Format each suggestion as: "DayOfWeek Time" (e.g., "Sun 2:00 PM")
+5. Suggest times in the next 7 days
+6. Return ONLY 3 suggestions, one per line, no numbering
+
+Example output:
+Sun 2:00 PM
+Sun 3:00 PM
+Mon 10:00 AM`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {role: "system", content: systemPrompt},
+        {role: "user", content: `Conversation:\n${conversationText}`},
+      ],
+      temperature: 0.3,
+      max_tokens: 100,
+    });
+
+    const suggestionsText =
+      response.choices[0].message.content?.trim() || "";
+    const suggestions = suggestionsText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 3);
+
+    // Fallback if AI doesn't return enough suggestions
+    if (suggestions.length < 3) {
+      logger.warn(
+        "AI returned fewer than 3 suggestions, using fallback"
+      );
+      return getFallbackMeetingSuggestions();
+    }
+
+    logger.info(`Generated meeting suggestions: ${suggestions.join(", ")}`);
+    return suggestions;
+  } catch (error) {
+    logger.error("Error generating meeting suggestions with AI:", error);
+    return getFallbackMeetingSuggestions();
+  }
+}
+
+/**
+ * Fallback meeting suggestions when AI fails
+ * @return {string[]} Array of default meeting times
+ */
+function getFallbackMeetingSuggestions(): string[] {
+  const now = new Date();
+  return [
+    new Date(now.getTime() + 24 * 60 * 60 * 1000).toLocaleString("en-US", {
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+    new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toLocaleString(
+      "en-US",
+      {weekday: "short", hour: "numeric", minute: "2-digit"}
+    ),
+    new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toLocaleString(
+      "en-US",
+      {weekday: "short", hour: "numeric", minute: "2-digit"}
+    ),
+  ];
+}
 
 /**
  * Proactive Trigger Detection
@@ -8,12 +99,13 @@ import {logger} from "firebase-functions/v2";
  * Automatically detects triggers in new messages and calls the proactive agent
  * when certain conditions are met (e.g., meeting scheduling discussions).
  *
- * Rate Limiting: Max 4 suggestions per conversation per 24 hours
+ * Rate Limiting: Max 100 suggestions per conversation per 24 hours
  */
 export const checkProactiveTriggers = onDocumentCreated({
   document: "conversations/{conversationId}/messages/{messageId}",
   memory: "512MiB",
   timeoutSeconds: 30,
+  secrets: [openaiKey],
 }, async (event) => {
   const message = event.data?.data();
   const {conversationId, messageId} = event.params;
@@ -38,7 +130,7 @@ export const checkProactiveTriggers = onDocumentCreated({
       )
       .get();
 
-    if (recentSuggestions.size >= 4) {
+    if (recentSuggestions.size >= 100) {
       logger.debug(
         `Rate limit reached for conversation ${conversationId} ` +
         `(${recentSuggestions.size} suggestions in 24h)`
@@ -58,6 +150,7 @@ export const checkProactiveTriggers = onDocumentCreated({
       return {
         sender: data.senderId as string,
         text: data.text as string,
+        timestamp: data.timestamp,
       };
     });
 
@@ -89,27 +182,19 @@ export const checkProactiveTriggers = onDocumentCreated({
       schedulingKeywords.some((kw) => m.text.toLowerCase().includes(kw))
     );
 
-    if (hasSchedulingDiscussion && convo.participants.length >= 3) {
+    if (hasSchedulingDiscussion && convo.participants.length >= 2) {
       logger.info(
         "Proactive trigger detected: Meeting scheduling in " +
         `conversation ${conversationId}`
       );
 
-      // Generate time suggestions (tomorrow, 3 days, 4 days out)
-      const now = new Date();
-      const suggestions = [
-        new Date(now.getTime() + 24*60*60*1000).toLocaleString(
-          "en-US", {weekday: "short", hour: "numeric", minute: "2-digit"}
-        ),
-        new Date(now.getTime() + 3*24*60*60*1000).toLocaleString(
-          "en-US", {weekday: "short", hour: "numeric", minute: "2-digit"}
-        ),
-        new Date(now.getTime() + 4*24*60*60*1000).toLocaleString(
-          "en-US", {weekday: "short", hour: "numeric", minute: "2-digit"}
-        ),
-      ];
+      // Use AI to extract proposed meeting times from conversation
+      const suggestions = await generateMeetingSuggestions(recentMessages);
 
-      const suggestionMessage =
+      const suggestionMessage = convo.participants.length === 2 ?
+        "I noticed you're trying to schedule a meeting. " +
+        "Here are some time suggestions:\n" +
+        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") :
         `I noticed ${convo.participants.length} people are ` +
         "trying to schedule a meeting. Here are some time suggestions:\n" +
         suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n");

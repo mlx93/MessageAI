@@ -39,8 +39,9 @@ interface ConversationOption {
 
 export default function ChatWithAvaScreen() {
   const params = useLocalSearchParams();
-  const initialQuery = params.initialQuery as string;
+  const initialQuery = (params.initialQuery || params.query) as string;
   const sessionId = params.sessionId as string;
+  const contextConversationId = params.conversationId as string;
 
   // Only show welcome message for new sessions (no sessionId)
   const [messages, setMessages] = useState<Message[]>(
@@ -405,9 +406,88 @@ export default function ChatWithAvaScreen() {
       return "Please log in to use AI features.";
     }
 
-    // Try intelligent routing with avaSearchChat first
+    // Try unified search first for comprehensive queries
     try {
-      console.log('Ava: Trying intelligent routing with avaSearchChat');
+      console.log('Ava: Trying unified search for comprehensive context');
+      const chatHistory = messages
+        .slice(-5) // Last 5 messages for context
+        .map(m => ({role: m.role, content: m.content}));
+      
+      const unifiedResponse = await aiService.avaUnifiedSearch(query, chatHistory);
+      
+      if (unifiedResponse && unifiedResponse.hasResults) {
+        console.log(`Ava: Got unified response (intent: ${unifiedResponse.intent})`);
+        
+        // Format comprehensive answer with all sources
+        let formattedResponse = unifiedResponse.answer;
+        
+        // Add structured results if available
+        const hasSources = (unifiedResponse.messages && unifiedResponse.messages.length > 0) ||
+                          (unifiedResponse.actionItems && unifiedResponse.actionItems.length > 0) ||
+                          (unifiedResponse.decisions && unifiedResponse.decisions.length > 0);
+        
+        if (hasSources) {
+          formattedResponse += '\n\n**Sources:**';
+          
+          // Show decisions first (most authoritative)
+          if (unifiedResponse.decisions && unifiedResponse.decisions.length > 0) {
+            formattedResponse += '\n\n📌 **Decisions:**';
+            unifiedResponse.decisions.slice(0, 3).forEach((d, i) => {
+              const date = new Date(d.madeAt).toLocaleDateString();
+              formattedResponse += `\n${i + 1}. "${d.decision}" by ${d.decisionMaker || 'Team'} (${date})`;
+              if (d.conversationName) {
+                formattedResponse += ` - in ${d.conversationName}`;
+              }
+            });
+          }
+          
+          // Show action items (what's being done)
+          if (unifiedResponse.actionItems && unifiedResponse.actionItems.length > 0) {
+            formattedResponse += '\n\n✅ **Action Items:**';
+            unifiedResponse.actionItems.slice(0, 3).forEach((item, i) => {
+              formattedResponse += `\n${i + 1}. ${item.task}`;
+              if (item.assignee) {
+                formattedResponse += ` - ${item.assignee}`;
+              }
+              if (item.deadline) {
+                try {
+                  const deadlineDate = new Date(item.deadline);
+                  if (!isNaN(deadlineDate.getTime())) {
+                    const deadline = deadlineDate.toLocaleDateString();
+                    formattedResponse += ` (Due: ${deadline})`;
+                  }
+                } catch (e) {
+                  // Skip deadline if parsing fails
+                  console.log('Ava: Failed to parse deadline:', item.deadline);
+                }
+              }
+            });
+          }
+          
+          // Show relevant messages (discussion context)
+          if (unifiedResponse.messages && unifiedResponse.messages.length > 0) {
+            formattedResponse += '\n\n📧 **Messages:**';
+            unifiedResponse.messages.slice(0, 3).forEach((msg, i) => {
+              formattedResponse += `\n${i + 1}. "${msg.text.slice(0, 80)}${msg.text.length > 80 ? '...' : ''}" - ${msg.sender}`;
+              if (msg.conversationName) {
+                formattedResponse += ` in ${msg.conversationName}`;
+              }
+            });
+          }
+        }
+        
+        return formattedResponse;
+      }
+      
+      console.log('Ava: Unified search returned no results, falling back to message-only search');
+    } catch (error) {
+      console.error('Ava: avaUnifiedSearch error:', error);
+      // Fall through to existing logic on error
+    }
+
+    // Fallback: Try intelligent routing with avaSearchChat (message-only)
+    try {
+      console.log('Ava: Trying message-only search with avaSearchChat');
       const chatHistory = messages
         .slice(-5) // Last 5 messages for context
         .map(m => ({role: m.role, content: m.content}));
