@@ -284,6 +284,21 @@ async function fetchRelevantMessages(
             .doc(conversationId).get();
           const convData = convDoc.exists ? convDoc.data() : null;
 
+          // Filter out messages from hidden/deleted conversations
+          if (convData) {
+            const isDeleted = convData.deleted === true ||
+                            (convData.deletedBy &&
+                             Array.isArray(convData.deletedBy) &&
+                             convData.deletedBy.includes(userId));
+            const isHidden = convData.hiddenBy &&
+                           Array.isArray(convData.hiddenBy) &&
+                           convData.hiddenBy.includes(userId);
+
+            if (isDeleted || isHidden) {
+              return null; // Skip this message
+            }
+          }
+
           const participantDetails = convData?.participantDetails || {};
           const senderId = data.senderId || data.sender;
           const senderName = participantDetails[senderId]?.displayName ||

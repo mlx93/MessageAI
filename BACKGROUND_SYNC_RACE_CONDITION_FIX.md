@@ -276,3 +276,4 @@ Test with:
 3. Background app - should see "skipping restart" on return
 4. No rapid start/stop cycles
 
+

@@ -50,3 +50,4 @@ async function listMessages(conversationId: string) {
 const conversationId = process.argv[2] || 'Glr9E7WqcIDrkDMqm8jx_SxP1hf1Hd8N8Mpe5jmsm';
 listMessages(conversationId).then(() => process.exit(0));
 
+

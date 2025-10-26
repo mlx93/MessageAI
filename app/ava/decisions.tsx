@@ -579,16 +579,9 @@ export default function DecisionsScreen() {
         />
       ) : (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>🎯</Text>
-          <Text style={styles.emptyText}>No decisions yet</Text>
-          <Text style={styles.emptySubtext}>
-            Team decisions will appear here as Ava detects them
-          </Text>
-          <TouchableOpacity
-            style={styles.analyzeNowButton}
-            onPress={handleAnalyze}>
-            <Text style={styles.analyzeNowText}>Analyze Conversations</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptyIcon}>📌</Text>
+          <Text style={styles.emptyText}>No tracked decisions</Text>
+          <Text style={styles.emptySubtext}>at the moment</Text>
         </View>
       )}
     </SafeAreaView>

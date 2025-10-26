@@ -322,3 +322,4 @@ When testing, check console for these logs:
 
 **Test now:** Restart app and send/receive urgent messages. Badges should appear instantly and stay visible!
 
+

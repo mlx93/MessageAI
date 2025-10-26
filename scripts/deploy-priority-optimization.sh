@@ -46,3 +46,4 @@ echo ""
 echo "💰 Cost Impact: +\$15/month for always-warm function"
 echo ""
 
+

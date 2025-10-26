@@ -166,62 +166,8 @@ export const checkProactiveTriggers = onDocumentCreated({
       return;
     }
 
-    // TRIGGER 1: Meeting Scheduling (3+ participants discussing meeting)
-    const schedulingKeywords = [
-      "meeting",
-      "schedule",
-      "meet",
-      "call",
-      "sync",
-      "when can",
-      "available",
-      "calendar",
-    ];
-
-    const hasSchedulingDiscussion = recentMessages.some((m) =>
-      schedulingKeywords.some((kw) => m.text.toLowerCase().includes(kw))
-    );
-
-    if (hasSchedulingDiscussion && convo.participants.length >= 2) {
-      logger.info(
-        "Proactive trigger detected: Meeting scheduling in " +
-        `conversation ${conversationId}`
-      );
-
-      // Use AI to extract proposed meeting times from conversation
-      const suggestions = await generateMeetingSuggestions(recentMessages);
-
-      const suggestionMessage = convo.participants.length === 2 ?
-        "I noticed you're trying to schedule a meeting. " +
-        "Here are some time suggestions:\n" +
-        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") :
-        `I noticed ${convo.participants.length} people are ` +
-        "trying to schedule a meeting. Here are some time suggestions:\n" +
-        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n");
-
-      await db.collection("proactive_suggestions").add({
-        conversationId,
-        userId: convo.participants[0], // First participant
-        message: suggestionMessage,
-        type: "meeting",
-        priority: "medium",
-        confidence: 0.85,
-        actions: suggestions.map((s) => ({
-          label: s,
-          action: `schedule_meeting_${s}`,
-        })),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        status: "pending",
-        triggerMessageId: messageId,
-      });
-
-      logger.info(
-        `Created meeting suggestion for conversation ${conversationId}`
-      );
-      return; // Only one suggestion per trigger
-    }
-
-    // TRIGGER 2: Question Detection (someone needs context)
+    // TRIGGER 1: Question Detection (someone needs context)
+    // CHECK FIRST! Questions should trigger Ava, not meetings
     const questionKeywords = [
       "what did we decide",
       "what was",
@@ -262,6 +208,56 @@ export const checkProactiveTriggers = onDocumentCreated({
         `Created context gap suggestion for conversation ${conversationId}`
       );
       return;
+    }
+
+    // TRIGGER 2: Meeting Scheduling
+    // ONLY if NEW message says "schedule" or "meet"
+    // Conservative: explicit scheduling words in CURRENT message only
+    const meetingKeywords = ["schedule", "meet"];
+    const currentMessageText = message.text.toLowerCase();
+
+    const isSchedulingMessage = meetingKeywords.some((kw) =>
+      currentMessageText.includes(kw)
+    );
+
+    if (isSchedulingMessage && convo.participants.length >= 2) {
+      logger.info(
+        "Proactive trigger detected: Meeting scheduling in " +
+        `conversation ${conversationId} ` +
+        "(current message contains scheduling keyword)"
+      );
+
+      // Use AI to extract proposed meeting times from conversation
+      const suggestions = await generateMeetingSuggestions(recentMessages);
+
+      const suggestionMessage = convo.participants.length === 2 ?
+        "I noticed you're trying to schedule a meeting. " +
+        "Here are some time suggestions:\n" +
+        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") :
+        `I noticed ${convo.participants.length} people are ` +
+        "trying to schedule a meeting. Here are some time suggestions:\n" +
+        suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n");
+
+      await db.collection("proactive_suggestions").add({
+        conversationId,
+        userId: convo.participants[0], // First participant
+        message: suggestionMessage,
+        type: "meeting",
+        priority: "medium",
+        confidence: 0.85,
+        actions: suggestions.map((s) => ({
+          label: s,
+          action: `schedule_meeting_${s}`,
+        })),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "pending",
+        triggerMessageId: messageId,
+      });
+
+      logger.info(
+        `Created meeting suggestion for conversation ${conversationId}`
+      );
+      return; // Only one suggestion per trigger
     }
 
     // TRIGGER 3: Check for overdue action items

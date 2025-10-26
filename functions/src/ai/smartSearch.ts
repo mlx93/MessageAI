@@ -235,6 +235,24 @@ unique conversations`);
             const data = messageDoc.data();
             if (!data) return null;
 
+            // Get conversation data from our pre-fetched map
+            const convData = conversationMap.get(conversationId);
+
+            // Filter out messages from hidden/deleted conversations
+            if (convData) {
+              const isDeleted = convData.deleted === true ||
+                              (convData.deletedBy &&
+                               Array.isArray(convData.deletedBy) &&
+                               convData.deletedBy.includes(userId));
+              const isHidden = convData.hiddenBy &&
+                             Array.isArray(convData.hiddenBy) &&
+                             convData.hiddenBy.includes(userId);
+
+              if (isDeleted || isHidden) {
+                return null; // Skip this message
+              }
+            }
+
             // Note: Deleted messages already filtered by Pinecone
             // (deletedBy array checked in Pinecone query filter)
 
@@ -255,10 +273,8 @@ unique conversations`);
               }
             }
 
-            // Get conversation data for this message
-            const convData = conversationMap.get(conversationId);
-
             // Get sender name from participantDetails
+            // (convData already fetched above for filtering)
             const participantDetails = convData?.participantDetails || {};
             const senderId = data.senderId || data.sender;
             const senderName = participantDetails[senderId]?.displayName ||
@@ -431,6 +447,7 @@ async function fetchQAContext(
 fetching answers...`
   );
 
+  const qaStartTime = Date.now();
   const answerMessages: SearchResult[] = [];
   const seenMessageIds = new Set(results.map((r) => r.messageId));
 
@@ -439,10 +456,13 @@ fetching answers...`
     try {
       const conversationId = questionResult.conversationId;
 
-      // Fetch all messages from this conversation, ordered by timestamp
+      // ⚡ OPTIMIZATION: Instead of fetching ALL messages, use a targeted query
+      // Fetch messages AFTER the question timestamp (limit to next 3 messages)
       const messagesSnapshot = await db
         .collection(`conversations/${conversationId}/messages`)
         .orderBy("timestamp", "asc")
+        .startAfter(questionResult.timestamp)
+        .limit(3) // Only fetch next 2-3 messages (the answers)
         .get();
 
       interface MessageDoc {
@@ -458,25 +478,10 @@ fetching answers...`
         } | number;
       }
 
-      const allMessages = messagesSnapshot.docs.map((doc) => ({
+      const answerCandidates = messagesSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as MessageDoc[];
-
-      // Find the question in the message list
-      const questionIndex = allMessages
-        .findIndex((m) => m.id === questionResult.messageId);
-      if (questionIndex === -1) continue;
-
-      // Get the next 1-2 messages (the answers)
-      const answerStartIndex = questionIndex + 1;
-      const answerEndIndex = Math.min(
-        allMessages.length,
-        questionIndex + 3
-      ); // Max 2 answer messages
-
-      const answerCandidates = allMessages
-        .slice(answerStartIndex, answerEndIndex);
 
       const convData = conversationMap.get(conversationId);
       const participantDetails = convData?.participantDetails || {};
@@ -536,7 +541,8 @@ ${questionResult.messageId}:`,
   }
 
   console.log(
-    `[Q&A Context] Returning ${answerMessages.length} answer messages`
+    `[Q&A Context] Returning ${answerMessages.length} answer messages \
+in ${Date.now() - qaStartTime}ms`
   );
   return answerMessages;
 }
@@ -582,6 +588,8 @@ async function fetchContextMessages(
 high-scoring results (max ${MAX_CONTEXT_MESSAGES} context messages)`
   );
 
+  const contextStartTime = Date.now();
+
   // Helper function to check if context text is relevant to query
   const isContextRelevant = (contextText: string, searchQuery: string):
     boolean => {
@@ -619,10 +627,21 @@ high-scoring results (max ${MAX_CONTEXT_MESSAGES} context messages)`
       const topResult = convResults
         .sort((a, b) => b.score - a.score)[0];
 
-      // Fetch all messages from this conversation, ordered by timestamp
-      const messagesSnapshot = await db
+      // ⚡ OPTIMIZATION: Instead of fetching ALL messages, fetch targeted range
+      // Fetch messages BEFORE the result (limit to 2 messages)
+      const beforeSnapshot = await db
+        .collection(`conversations/${conversationId}/messages`)
+        .orderBy("timestamp", "desc") // Descending for "before" query
+        .startAfter(topResult.timestamp)
+        .limit(CONTEXT_BEFORE)
+        .get();
+
+      // Fetch messages AFTER the result (limit to 3 messages)
+      const afterSnapshot = await db
         .collection(`conversations/${conversationId}/messages`)
         .orderBy("timestamp", "asc")
+        .startAfter(topResult.timestamp)
+        .limit(CONTEXT_AFTER)
         .get();
 
       // Define message type for better type safety
@@ -639,27 +658,19 @@ high-scoring results (max ${MAX_CONTEXT_MESSAGES} context messages)`
         } | number;
       }
 
-      const allMessages = messagesSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as MessageDoc[];
+      // Combine before (reverse order) and after messages
+      const beforeMessages = beforeSnapshot.docs
+        .map((doc) => ({id: doc.id, ...doc.data()}))
+        .reverse(); // Reverse to chronological order
+      const afterMessages = afterSnapshot.docs
+        .map((doc) => ({id: doc.id, ...doc.data()}));
+      const surroundingMessages = [
+        ...beforeMessages,
+        ...afterMessages,
+      ] as MessageDoc[];
 
       const convData = conversationMap.get(conversationId);
       const participantDetails = convData?.participantDetails || {};
-
-      // Find surrounding messages for the top result
-      const resultIndex = allMessages
-        .findIndex((m) => m.id === topResult.messageId);
-      if (resultIndex === -1) continue;
-
-      // Get surrounding messages
-      const startIndex = Math.max(0, resultIndex - CONTEXT_BEFORE);
-      const endIndex = Math.min(
-        allMessages.length,
-        resultIndex + CONTEXT_AFTER + 1
-      );
-      const surroundingMessages = allMessages
-        .slice(startIndex, endIndex);
 
       // Convert to SearchResult format with relevance validation
       const candidateContextMessages: SearchResult[] = [];
@@ -739,7 +750,8 @@ ${conversationId}:`,
   }
 
   console.log(
-    `[Context] Returning ${contextMessages.length} relevant context messages`
+    `[Context] Returning ${contextMessages.length} relevant context messages \
+in ${Date.now() - contextStartTime}ms`
   );
   return contextMessages.slice(0, MAX_CONTEXT_MESSAGES);
 }

@@ -211,3 +211,4 @@ console.log(`Cached messages: ${messages.length}`); // Should be 0 after clearin
 - ⏳ SQLite cache will clear automatically on next sign-out
 - 💡 Or manually clear by signing out/in or using `clearCache()`
 
+
