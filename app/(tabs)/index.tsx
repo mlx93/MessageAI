@@ -14,6 +14,7 @@ import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import ConversationTypingIndicator from '../../components/ConversationTypingIndicator';
 import * as Haptics from 'expo-haptics';
+import { clearCache } from '../../services/sqliteService';
 
 export default function ConversationsScreen() {
   const navigation = useNavigation();
@@ -217,6 +218,30 @@ export default function ConversationsScreen() {
         },
       },
     ]);
+  };
+  
+  const handleClearCache = () => {
+    Alert.alert(
+      'Clear Cache',
+      'This will remove all cached messages and conversations. They will reload from the server.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Cache',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearCache();
+              Alert.alert('Success', 'Cache cleared! Conversations will reload.');
+              setLoading(true);
+              handleRefresh();
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to clear cache');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleOpenProfile = useCallback(() => {
@@ -784,15 +809,27 @@ export default function ConversationsScreen() {
                   <Text style={styles.appleSaveChangesButtonText}>Save Changes</Text>
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity 
-                  style={styles.appleSignOutButton}
-                  onPress={() => {
-                    setShowProfileMenu(false);
-                    handleSignOut();
-                  }}
-                >
-                  <Text style={styles.appleSignOutButtonText}>Sign Out</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity 
+                    style={[styles.appleSignOutButton, { marginBottom: 12, backgroundColor: '#FF9500' }]}
+                    onPress={() => {
+                      setShowProfileMenu(false);
+                      handleClearCache();
+                    }}
+                  >
+                    <Text style={styles.appleSignOutButtonText}>🧹 Clear Cache</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.appleSignOutButton}
+                    onPress={() => {
+                      setShowProfileMenu(false);
+                      handleSignOut();
+                    }}
+                  >
+                    <Text style={styles.appleSignOutButtonText}>Sign Out</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </ScrollView>

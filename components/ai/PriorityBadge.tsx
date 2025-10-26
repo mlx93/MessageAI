@@ -35,7 +35,7 @@ export default function PriorityBadge({priority, confidence}: PriorityBadgeProps
     <View style={[styles.container, {borderColor: badge.color}]}>
       <Text style={styles.icon}>{badge.icon}</Text>
       <Text style={[styles.label, {color: badge.color}]}>{badge.label}</Text>
-      {confidence && confidence < 0.8 && (
+      {confidence && confidence < 0.5 && (
         <Text style={styles.confidence}>?</Text>
       )}
     </View>

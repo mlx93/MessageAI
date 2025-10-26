@@ -89,10 +89,32 @@ export const initDB = (): Promise<void> => {
 
 /**
  * Cache a message to SQLite
+ * CRITICAL: Never downgrades deletedBy - preserves user's deletion state
  */
 export const cacheMessage = (message: Message): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
+      // CRITICAL FIX: Check if message already exists with deletedBy data
+      // Never overwrite a deletion with an older version from Firestore
+      const existing = db.getFirstSync(
+        'SELECT deletedBy FROM messages WHERE id = ?',
+        [message.id]
+      ) as { deletedBy: string } | undefined;
+      
+      let finalDeletedBy = message.deletedBy || [];
+      
+      if (existing && existing.deletedBy) {
+        try {
+          const existingDeletedBy = JSON.parse(existing.deletedBy) as string[];
+          // Merge deletedBy arrays - keep all deletions (union)
+          const mergedSet = new Set([...existingDeletedBy, ...finalDeletedBy]);
+          finalDeletedBy = Array.from(mergedSet);
+        } catch (e) {
+          // If parsing fails, use incoming deletedBy
+          console.warn('Failed to parse existing deletedBy, using incoming:', e);
+        }
+      }
+      
       db.runSync(
         'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
@@ -107,7 +129,7 @@ export const cacheMessage = (message: Message): Promise<void> => {
           message.mediaURL || null,
           JSON.stringify(message.readBy),
           JSON.stringify(message.deliveredTo),
-          JSON.stringify(message.deletedBy || []),
+          JSON.stringify(finalDeletedBy),
           message.priority || 'normal',
           message.priorityConfidence || null,
           message.priorityReason || null
@@ -143,30 +165,11 @@ export const cacheMessageBatched = (message: Message) => {
       const batch = Array.from(writeBuffer.values());
       writeBuffer.clear();
       
-      // Write all at once (console logs removed to prevent re-renders)
+      // CRITICAL: Use cacheMessage() for each message to ensure merge logic is applied
+      // This prevents Firestore listener from overwriting deletions with stale data
       try {
-        batch.forEach(msg => {
-          db.runSync(
-            'INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-              msg.id,
-              msg.conversationId,
-              msg.text,
-              msg.senderId,
-              msg.timestamp.getTime(),
-              msg.status,
-              msg.type,
-              msg.localId,
-              msg.mediaURL || null,
-              JSON.stringify(msg.readBy),
-              JSON.stringify(msg.deliveredTo),
-              JSON.stringify(msg.deletedBy || []),
-              msg.priority || 'normal',
-              msg.priorityConfidence || null,
-              msg.priorityReason || null
-            ]
-          );
-        });
+        // Use Promise.all to batch the writes while maintaining merge logic
+        await Promise.all(batch.map(msg => cacheMessage(msg)));
       } catch (error) {
         console.error('Batched SQLite write failed:', error);
       }
@@ -176,14 +179,16 @@ export const cacheMessageBatched = (message: Message) => {
 
 /**
  * Flush cache buffer immediately (e.g., on app close)
+ * CRITICAL: Awaits all writes to ensure persistence before navigation/exit
  */
 export const flushCacheBuffer = async () => {
   if (writeTimer) clearTimeout(writeTimer);
   if (writeBuffer.size > 0) {
     const batch = Array.from(writeBuffer.values());
     writeBuffer.clear();
-    // Silent flush (no console log)
-    batch.forEach(msg => cacheMessage(msg));
+    // CRITICAL: Await all writes to ensure completion
+    // This ensures deletedBy updates persist before navigation
+    await Promise.all(batch.map(msg => cacheMessage(msg)));
   }
 };
 
@@ -227,19 +232,28 @@ export const getCachedMessages = (conversationId: string): Promise<Message[]> =>
  * Get cached messages with pagination support
  * Returns the most recent messages first (for instant display)
  * Optimized for faster initial load
+ * 
+ * @param conversationId - The conversation ID to fetch messages for
+ * @param limit - Maximum number of messages to return
+ * @param userId - Optional user ID to filter out deleted messages for this user
  */
 export const getCachedMessagesPaginated = (
   conversationId: string, 
-  limit: number = 30
+  limit: number = 30,
+  userId?: string
 ): Promise<Message[]> => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     try {
+      // Fetch MORE messages than limit to account for deleted ones
+      // This ensures we get enough non-deleted messages for proper list mode determination
+      const fetchLimit = userId ? limit * 3 : limit;
+      
       const result = db.getAllSync(
         'SELECT * FROM messages WHERE conversationId = ? ORDER BY timestamp DESC LIMIT ?',
-        [conversationId, limit]
+        [conversationId, fetchLimit]
       );
       
-      const messages = result.map((row: any) => ({
+      const allMessages = result.map((row: any) => ({
         id: row.id,
         conversationId: row.conversationId,
         text: row.text,
@@ -257,12 +271,70 @@ export const getCachedMessagesPaginated = (
         priorityReason: row.priorityReason || undefined
       })) as Message[];
       
+      // Filter out messages deleted by this user (if userId provided)
+      const messages = userId 
+        ? allMessages.filter(msg => !msg.deletedBy || !msg.deletedBy.includes(userId))
+        : allMessages;
+      
+      // Take only the requested limit after filtering
+      const limitedMessages = messages.slice(0, limit);
+      
+      // Log diagnostic info to help understand cache state
+      if (userId && allMessages.length !== messages.length) {
+        const deletedCount = allMessages.length - messages.length;
+        console.log(`📦 Cache: Found ${allMessages.length} total messages, ${deletedCount} deleted, returning ${limitedMessages.length} visible`);
+      }
+      
       // Reverse to get chronological order (oldest first)
-      resolve(messages.reverse());
+      resolve(limitedMessages.reverse());
     } catch (error) {
       console.warn('getCachedMessagesPaginated failed:', error);
       // Return empty array instead of rejecting to prevent crashes
       resolve([]);
+    }
+  });
+};
+
+/**
+ * Get the total count of non-deleted messages in a conversation
+ * Used to determine if there are older messages available
+ */
+export const getCachedMessageCount = (
+  conversationId: string,
+  userId?: string
+): Promise<number> => {
+  return new Promise((resolve) => {
+    try {
+      const result = db.getAllSync(
+        'SELECT COUNT(*) as count FROM messages WHERE conversationId = ?',
+        [conversationId]
+      ) as Array<{ count: number }>;
+      
+      if (!userId) {
+        const count = result[0]?.count || 0;
+        resolve(count);
+        return;
+      }
+      
+      // If userId provided, we need to count non-deleted messages
+      // SQLite doesn't have good JSON filtering, so fetch all and filter
+      const allRows = db.getAllSync(
+        'SELECT deletedBy FROM messages WHERE conversationId = ?',
+        [conversationId]
+      ) as Array<{ deletedBy: string | null }>;
+      
+      let nonDeletedCount = 0;
+      for (const row of allRows) {
+        const deletedBy = row.deletedBy ? JSON.parse(row.deletedBy) : [];
+        if (!deletedBy.includes(userId)) {
+          nonDeletedCount++;
+        }
+      }
+      
+      resolve(nonDeletedCount);
+    } catch (error) {
+      console.warn('getCachedMessageCount failed:', error);
+      resolve(0);
     }
   });
 };

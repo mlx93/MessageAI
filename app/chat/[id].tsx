@@ -8,7 +8,7 @@ import { useAuth } from '../../store/AuthContext';
 import { formatPhoneNumber } from '../../utils/phoneFormat';
 import { subscribeToMessages, subscribeToMessagesPaginated, loadOlderMessages as loadOlderMessagesRemote, sendMessage, sendMessageWithTimeout, sendImageMessage, markMessagesAsRead, markMessageAsDelivered, deleteMessage } from '../../services/messageService';
 import { updateConversationLastMessage, updateConversationLastMessageBatched, addParticipantToConversation, resetUnreadCount, splitConversation } from '../../services/conversationService';
-import { cacheMessage, cacheMessageBatched, getCachedMessages, getCachedMessagesPaginated, getCachedMessagesBefore, flushCacheBuffer } from '../../services/sqliteService';
+import { cacheMessage, cacheMessageBatched, getCachedMessages, getCachedMessagesPaginated, getCachedMessagesBefore, getCachedMessageCount, flushCacheBuffer } from '../../services/sqliteService';
 import { preloadService } from '../../services/preloadService';
 import { backgroundSyncService } from '../../services/backgroundSyncService';
 import { queueMessage, removeFromQueue } from '../../services/offlineQueue';
@@ -33,6 +33,7 @@ import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import aiService, { ProactiveSuggestion } from '../../services/aiService';
+import { detectPriorityClientSide } from '../../utils/priorityDetector';
 
 interface Participant {
   uid: string;
@@ -95,26 +96,6 @@ export default function ChatScreen() {
   const pendingPrependAdjustmentRef = useRef<{ prevContentHeight: number; prevScrollOffset: number } | null>(null);
   const contentHeightRef = useRef(0);
   const hasInitializedRef = useRef(false);
-  
-  // Calculate list mode based on current messages - synchronous determination
-  const useInvertedList = useMemo(() => {
-    if (messages.length === 0) return false;
-    
-    // Use normal mode for conversations with <= 7 messages
-    // This ensures they start at the top of the screen
-    if (messages.length <= 7) {
-      console.log(`📱 Using NORMAL mode for ${messages.length} messages (starts at top)`);
-      return false;
-    }
-    
-    // Use inverted mode for longer conversations
-    // Estimate ~80px per message, typical screen height ~600px
-    const estimatedContentHeight = messages.length * 80;
-    const screenHeight = 600;
-    const shouldInvert = estimatedContentHeight > screenHeight;
-    console.log(`📱 Using ${shouldInvert ? 'INVERTED' : 'NORMAL'} mode for ${messages.length} messages (height: ${estimatedContentHeight})`);
-    return shouldInvert;
-  }, [messages.length]);
 
   // Deduplicate messages by localId/id to prevent duplicate blue bubbles
   const dedupeMessages = useCallback((messages: Message[]): Message[] => {
@@ -266,6 +247,35 @@ export default function ChatScreen() {
   const [participantDetailsMap, setParticipantDetailsMap] = useState<Record<string, any>>({});
   const [participantDetailsVersion, setParticipantDetailsVersion] = useState(0);
   const [isGroupChat, setIsGroupChat] = useState(false);
+  const [totalMessageCount, setTotalMessageCount] = useState<number | null>(null); // Track total available messages
+
+  // Calculate list mode based on current messages - synchronous determination
+  const useInvertedList = useMemo(() => {
+    if (messages.length === 0) return false;
+    
+    // If we know there are MORE messages than currently loaded (from cache count),
+    // use inverted mode even if current visible messages <= 7
+    // This prevents the jarring mode switch when Firestore loads the full set
+    if (totalMessageCount !== null && totalMessageCount > messages.length && totalMessageCount > 7) {
+      console.log(`📱 Using INVERTED mode for ${messages.length}/${totalMessageCount} messages (more available)`);
+      return true;
+    }
+    
+    // Use normal mode for conversations with <= 7 messages
+    // This ensures they start at the top of the screen
+    if (messages.length <= 7) {
+      console.log(`📱 Using NORMAL mode for ${messages.length} messages (starts at top)`);
+      return false;
+    }
+    
+    // Use inverted mode for longer conversations
+    // Estimate ~80px per message, typical screen height ~600px
+    const estimatedContentHeight = messages.length * 80;
+    const screenHeight = 600;
+    const shouldInvert = estimatedContentHeight > screenHeight;
+    console.log(`📱 Using ${shouldInvert ? 'INVERTED' : 'NORMAL'} mode for ${messages.length} messages (height: ${estimatedContentHeight})`);
+    return shouldInvert;
+  }, [messages.length, totalMessageCount]);
 
   // Load conversation details and participants
   useEffect(() => {
@@ -304,22 +314,45 @@ export default function ChatScreen() {
     // Maintain anti-flicker behavior by waiting for both before rendering
     const loadInitialData = async () => {
       try {
-        // Load both conversation data and cached messages in parallel
-        const [conversationData, cachedMessages] = await Promise.all([
+        // Load conversation data, cached messages, AND total message count in parallel
+        // Pass userId to getCachedMessagesPaginated to filter deleted messages efficiently
+        const [conversationData, cachedMessages, totalCount] = await Promise.all([
           loadConversationData(),
-          getCachedMessagesPaginated(conversationId, 30) // Optimized: load 30 instead of filtering 50 to 20
+          getCachedMessagesPaginated(conversationId, 30, user!.uid), // Filter deleted messages at SQL level
+          getCachedMessageCount(conversationId, user!.uid) // Get total non-deleted message count
         ]);
         
-        // Filter out deleted messages to prevent layout shifts
-        const visibleMessages = cachedMessages.filter(m => 
-          !m.deletedBy || !m.deletedBy.includes(user!.uid)
-        );
+        // Apply client-side priority detection to cached messages for instant badges on launch
+        const cachedMessagesWithPriority = cachedMessages.map(msg => {
+          // If message already has AI-detected priority, keep it
+          if (msg.priority && msg.priority !== 'normal' && msg.priorityConfidence && msg.priorityConfidence > 0.5) {
+            return msg;
+          }
+          
+          // Apply client-side detection for instant badge display
+          if (msg.text) {
+            const clientPriority = detectPriorityClientSide(msg.text);
+            if (clientPriority.priority !== 'normal' || !msg.priority) {
+              return {
+                ...msg,
+                priority: clientPriority.priority,
+                priorityConfidence: clientPriority.confidence,
+                priorityReason: clientPriority.reason
+              };
+            }
+          }
+          
+          return msg;
+        });
         
         // Dedupe before setting state to prevent duplicate blue bubbles
-        const dedupedMessages = dedupeMessages(visibleMessages);
+        const dedupedMessages = dedupeMessages(cachedMessagesWithPriority);
         
-        console.log(`📱 Cache warming: Loaded ${dedupedMessages.length} recent messages instantly`);
-        console.log(`📱 List mode will be: ${dedupedMessages.length > 7 ? 'Inverted (many messages)' : 'Normal (few messages)'}`);
+        // Store total count to help with list mode determination
+        setTotalMessageCount(totalCount);
+        
+        console.log(`📦 Cache: Loaded ${dedupedMessages.length}/${totalCount} recent messages`);
+        console.log(`📱 List mode will be: ${totalCount > 7 ? 'Inverted (many messages available)' : dedupedMessages.length > 7 ? 'Inverted (many messages)' : 'Normal (few messages)'}`);
         
         // Set all state together to prevent flicker
         setMessages(dedupedMessages);
@@ -379,8 +412,32 @@ export default function ChatScreen() {
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
       );
       
+      // Apply client-side priority detection to ALL incoming messages for instant badges
+      const messagesWithClientPriority = visibleMessages.map(msg => {
+        // If message already has AI-detected priority, keep it
+        if (msg.priority && msg.priority !== 'normal' && msg.priorityConfidence && msg.priorityConfidence > 0.5) {
+          return msg;
+        }
+        
+        // Otherwise, apply client-side detection for instant feedback
+        if (msg.text) {
+          const clientPriority = detectPriorityClientSide(msg.text);
+          // Only override if client detects something (not if it returns 'normal' with low confidence)
+          if (clientPriority.priority !== 'normal' || !msg.priority) {
+            return {
+              ...msg,
+              priority: clientPriority.priority,
+              priorityConfidence: clientPriority.confidence,
+              priorityReason: clientPriority.reason
+            };
+          }
+        }
+        
+        return msg;
+      });
+      
       // DEBUG: Check if priority data is coming through
-      const withPriority = visibleMessages.filter(m => m.priority && m.priority !== 'normal');
+      const withPriority = messagesWithClientPriority.filter(m => m.priority && m.priority !== 'normal');
       if (withPriority.length > 0) {
         console.log('🔴 Messages with priority:', withPriority.map(m => ({
           id: m.id,
@@ -391,8 +448,17 @@ export default function ChatScreen() {
       }
       
       // Check if this is a NEW message (not just an update)
-      const isNewMessage = visibleMessages.length > prevMessageCount.current;
-      prevMessageCount.current = visibleMessages.length;
+      const isNewMessage = messagesWithClientPriority.length > prevMessageCount.current;
+      prevMessageCount.current = messagesWithClientPriority.length;
+      
+      // Auto-scroll to bottom for new messages (receiver side)
+      if (isNewMessage) {
+        setTimeout(() => {
+          if (flatListRef.current && useInvertedList) {
+            flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+          }
+        }, 100);
+      }
       
       // Smart update: Only update state if messages actually changed
       // This prevents flicker when real-time updates come in
@@ -401,26 +467,48 @@ export default function ChatScreen() {
       // Add a small delay to prevent flicker during transitions
       setTimeout(() => {
         setMessages(prevMessages => {
+        // 🔒 FIX #2: Track optimistically deleted messages to prevent reappearance
+        const optimisticallyDeletedIds = new Set<string>();
+        
+        prevMessages.forEach(prevMsg => {
+          const stillExists = messagesWithClientPriority.some(m => 
+            m.id === prevMsg.id || 
+            (m.localId && m.localId === prevMsg.id) ||
+            (prevMsg.localId && prevMsg.localId === m.id)
+          );
+          
+          if (!stillExists) {
+            optimisticallyDeletedIds.add(prevMsg.id);
+            if (prevMsg.localId) optimisticallyDeletedIds.add(prevMsg.localId);
+          }
+        });
+        
+        // Filter incoming messages: don't re-add optimistically deleted ones
+        const incomingFiltered = messagesWithClientPriority.filter(msg => 
+          !optimisticallyDeletedIds.has(msg.id) && 
+          (!msg.localId || !optimisticallyDeletedIds.has(msg.localId))
+        );
+        
         // Quick check: if lengths differ, definitely update
-        if (prevMessages.length !== visibleMessages.length) {
+        if (prevMessages.length !== incomingFiltered.length) {
           // Merge with deduplication to prevent duplicate blue bubbles
-          const merged = dedupeMessages([...prevMessages, ...visibleMessages]);
+          const merged = dedupeMessages([...prevMessages, ...incomingFiltered]);
           
           // Cache only NEW messages (not already in state)
           const existingIds = new Set([
             ...prevMessages.map(m => m.id),
             ...prevMessages.map(m => m.localId).filter(Boolean)
           ]);
-          visibleMessages
+          incomingFiltered
             .filter(m => !existingIds.has(m.id) && !existingIds.has(m.localId))
             .forEach(m => cacheMessageBatched(m));
           
           return manageMessageMemory(merged);
         }
         
-        // Check if any message actually changed (status, readBy, deliveredTo, deletedBy)
+        // Check if any message actually changed (status, readBy, deliveredTo, deletedBy, priority)
         let hasChanges = false;
-        const updatedMessages = visibleMessages.map(newMsg => {
+        const updatedMessages = incomingFiltered.map(newMsg => {
           // Find existing message by id or localId
           const oldMsg = prevMessages.find(m => 
             m.id === newMsg.id || 
@@ -434,13 +522,22 @@ export default function ChatScreen() {
             return newMsg;
           }
           
-          // Check if important fields changed
+          // Check if important fields changed (including priority fields for badge updates)
+          const readByChanged = oldMsg.readBy.length !== newMsg.readBy.length || 
+            !oldMsg.readBy.every(uid => newMsg.readBy.includes(uid));
+          const deliveredToChanged = oldMsg.deliveredTo.length !== newMsg.deliveredTo.length ||
+            !oldMsg.deliveredTo.every(uid => newMsg.deliveredTo.includes(uid));
+          
           if (oldMsg.status !== newMsg.status ||
-              oldMsg.readBy.length !== newMsg.readBy.length ||
-              oldMsg.deliveredTo.length !== newMsg.deliveredTo.length ||
-              (oldMsg.deletedBy || []).length !== (newMsg.deletedBy || []).length) {
+              readByChanged ||
+              deliveredToChanged ||
+              (oldMsg.deletedBy || []).length !== (newMsg.deletedBy || []).length ||
+              oldMsg.priority !== newMsg.priority ||
+              oldMsg.priorityConfidence !== newMsg.priorityConfidence ||
+              oldMsg.priorityReason !== newMsg.priorityReason) {
             hasChanges = true;
             cacheMessageBatched(newMsg); // Cache changed message
+            console.log(`📝 Message updated: ${newMsg.id} - status: ${oldMsg.status} → ${newMsg.status}, readBy: ${oldMsg.readBy.length} → ${newMsg.readBy.length}, priority: ${oldMsg.priority} → ${newMsg.priority}`);
             return newMsg;
           }
           
@@ -448,8 +545,8 @@ export default function ChatScreen() {
           return oldMsg;
         });
         
-        // Check if any messages were deleted (present in prevMessages but not in visibleMessages)
-        const visibleIds = new Set(visibleMessages.map(m => m.id));
+        // Check if any messages were deleted (present in prevMessages but not in incomingFiltered)
+        const visibleIds = new Set(incomingFiltered.map(m => m.id));
         const deletedCount = prevMessages.filter(m => !visibleIds.has(m.id)).length;
         if (deletedCount > 0) {
           hasChanges = true;
@@ -469,11 +566,11 @@ export default function ChatScreen() {
       }, 50); // Small delay to prevent flicker
       
       // Mark messages as delivered
-      visibleMessages.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
+      messagesWithClientPriority.filter(m => m.senderId !== user!.uid && !m.deliveredTo.includes(user!.uid))
         .forEach(m => markMessageAsDelivered(conversationId, m.id, user!.uid));
       
       // Mark all unread messages as read (no flag - being in chat = messages are read)
-      const unreadMessages = visibleMessages.filter(m => 
+      const unreadMessages = messagesWithClientPriority.filter(m => 
         m.senderId !== user!.uid &&           // Not from me
         !m.readBy.includes(user!.uid)         // I haven't read it yet
       );
@@ -746,28 +843,32 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!conversationId) return;
 
-    const unsubscribe = aiService
-      .getProactiveSuggestions(conversationId)
-      .onSnapshot(
-        (snapshot) => {
-          const suggestions = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          })) as ProactiveSuggestion[];
-          setProactiveSuggestions(suggestions);
-        },
-        (error: any) => {
-          // Gracefully handle index building errors
-          if (error.code === 'failed-precondition' && error.message?.includes('index is currently building')) {
-            console.log('⏳ AI indexes are building, suggestions will be available soon');
-            // Silently fail - don't show error to user
-            return;
+    try {
+      const unsubscribe = aiService
+        .getProactiveSuggestions(conversationId)
+        .onSnapshot((snapshot: any) => {
+          try {
+            const suggestions = snapshot.docs.map((doc: any) => ({
+              id: doc.id,
+              ...doc.data(),
+            })) as ProactiveSuggestion[];
+            setProactiveSuggestions(suggestions);
+          } catch (error: any) {
+            // Gracefully handle errors
+            console.warn('⚠️ Failed to parse AI suggestions:', error.message || error);
           }
-          console.warn('⚠️ Failed to load AI suggestions:', error.message || error);
-        }
-      );
+        });
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    } catch (error: any) {
+      // Gracefully handle index building errors
+      if (error.code === 'failed-precondition' && error.message?.includes('index is currently building')) {
+        console.log('⏳ AI indexes are building, suggestions will be available soon');
+        // Silently fail - don't show error to user
+        return;
+      }
+      console.warn('⚠️ Failed to load AI suggestions:', error.message || error);
+    }
   }, [conversationId]);
 
   // Search for users when in add mode
@@ -817,6 +918,10 @@ export default function ChatScreen() {
     setPendingSend(true);
 
     const localId = uuidv4();
+    
+    // Client-side priority detection for instant feedback
+    const clientPriority = detectPriorityClientSide(trimmedInput);
+    
     const tempMessage: Message = {
       id: localId,
       conversationId,
@@ -827,7 +932,11 @@ export default function ChatScreen() {
       type: 'text',
       localId,
       readBy: [user.uid],
-      deliveredTo: []
+      deliveredTo: [],
+      // Add client-detected priority for instant badge display
+      priority: clientPriority.priority,
+      priorityConfidence: clientPriority.confidence,
+      priorityReason: clientPriority.reason
     };
 
     try {
@@ -845,6 +954,13 @@ export default function ChatScreen() {
       setMessages(prev => [...prev, tempMessage]);
       setInputText('');
       trackKeyboardDismissal();
+      
+      // Auto-scroll to bottom for sender's new message
+      setTimeout(() => {
+        if (flatListRef.current && useInvertedList) {
+          flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+        }
+      }, 100);
 
       // 3. Cache immediately
       await cacheMessage(tempMessage);
@@ -1344,15 +1460,18 @@ export default function ChatScreen() {
               const messageIdToDelete = selectedMessage.id;
               setMessages(prev => prev.filter(m => m.id !== messageIdToDelete));
               
-              // Update Firestore message document
-              await deleteMessage(conversationId, selectedMessage.id, user.uid);
-              
-              // Update SQLite cache with deletedBy field
+              // CRITICAL: Cache BEFORE Firestore to ensure immediate persistence
+              // This guarantees the cache has the deletion before any listener can fire
               const updatedMessage = {
                 ...selectedMessage,
                 deletedBy: [...(selectedMessage.deletedBy || []), user.uid]
               };
-              await cacheMessageBatched(updatedMessage);
+              await cacheMessage(updatedMessage);
+              console.log(`✅ Cache updated: Message ${selectedMessage.id} deleted for user ${user.uid}`);
+              
+              // Update Firestore message document (this may trigger listeners)
+              await deleteMessage(conversationId, selectedMessage.id, user.uid);
+              console.log(`✅ Firestore updated: Message ${selectedMessage.id} deleted for user ${user.uid}`);
               
               // NEW: Recalculate THIS USER'S lastMessage
               const { recalculateLastMessageForUser } = await import('../../services/conversationService');
@@ -1385,12 +1504,14 @@ export default function ChatScreen() {
                 // Message doesn't exist in Firestore - treat as successful local deletion
                 console.warn(`🗑️ Message ${selectedMessage.id} not found in Firestore, removed locally`);
                 
-                // Update SQLite cache to mark as deleted (prevents reappearance)
+                // CRITICAL: Cache the deletion even if Firestore fails
+                // This ensures the message stays deleted locally
                 const updatedMessage = {
                   ...selectedMessage,
                   deletedBy: [...(selectedMessage.deletedBy || []), user.uid]
                 };
-                await cacheMessageBatched(updatedMessage);
+                await cacheMessage(updatedMessage);
+                console.log(`✅ Cache updated (orphaned): Message ${selectedMessage.id} deleted for user ${user.uid}`);
                 
                 // Message already removed from UI optimistically - success!
                 return;
@@ -1600,6 +1721,16 @@ export default function ChatScreen() {
           // Blue bubbles: All move together with container gesture
           <Animated.View style={[styles.ownMessageWrapper, blueBubblesAnimatedStyle]}>
               <View style={styles.messageContainer}>
+                {/* Priority badge ABOVE message for own messages - right-aligned with padding */}
+                {message.priority && message.priority !== 'normal' && (
+                  <View style={{ marginBottom: 4, alignSelf: 'flex-end', marginRight: 8 }}>
+                    <PriorityBadge 
+                      priority={message.priority} 
+                      confidence={message.priorityConfidence}
+                    />
+                  </View>
+                )}
+                
                 {isImageMessage ? (
                   <View style={[styles.imageMessageContainer, styles.ownImageContainer]}>
                     <CachedImage
@@ -1628,16 +1759,6 @@ export default function ChatScreen() {
                       {message.text}
                     </Text>
                   </Pressable>
-                )}
-                
-                {/* Priority badge for own messages */}
-                {message.priority && message.priority !== 'normal' && (
-                  <View style={{ marginTop: 4, alignSelf: 'flex-end' }}>
-                    <PriorityBadge 
-                      priority={message.priority} 
-                      confidence={message.priorityConfidence}
-                    />
-                  </View>
                 )}
                 
                 {/* Read receipt below bubble - always visible */}
@@ -1733,20 +1854,22 @@ export default function ChatScreen() {
             )}
             
             <View style={styles.messageContainer}>
-              {/* Sender name - only for group chats and first message in group */}
+              {/* Sender name and priority badge for group chats */}
               {isGroupChat && isFirstInGroup && senderInfo && (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                   <Text style={styles.senderName}>{senderInfo.displayName}</Text>
                   {message.priority && message.priority !== 'normal' && (
-                    <PriorityBadge 
-                      priority={message.priority} 
-                      confidence={message.priorityConfidence}
-                    />
+                    <View style={{ marginLeft: 8 }}>
+                      <PriorityBadge 
+                        priority={message.priority} 
+                        confidence={message.priorityConfidence}
+                      />
+                    </View>
                   )}
                 </View>
               )}
               
-              {/* Priority badge for direct messages */}
+              {/* Priority badge ABOVE message for direct chats */}
               {!isGroupChat && message.priority && message.priority !== 'normal' && (
                 <View style={{ marginBottom: 4 }}>
                   <PriorityBadge 

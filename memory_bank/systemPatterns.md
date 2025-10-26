@@ -48,7 +48,99 @@ const messages = snapshot.docs
 
 ## Offline‑first
 - Queue‑first send: write to local queue before optimistic UI; try remote send; show queued chip; manual retry supported.
-- SQLite cache for instant list/message loads; batched writes (~200ms) and flushed on background/unmount.
+- SQLite cache for instant list/message loads; batched writes (~500ms) and flushed on background/unmount.
+
+### 🔥 CRITICAL: Cache Write Strategy (Updated Oct 26, 2025 - v2)
+**Two-tier cache write system with merge-safe persistence**
+
+#### Batched Writes (Default) - For Performance
+```typescript
+// Use for: receipts, status updates, bulk operations
+cacheMessageBatched(message); // 500ms batching delay
+```
+- Reduces SQLite write overhead by ~70%
+- Deduplicates messages with same ID (Map-based buffer)
+- Automatically flushes on timeout (500ms), background, or unmount
+
+#### Synchronous Writes (Critical Operations) - For Reliability
+```typescript
+// Use for: deletions, important metadata, user-initiated changes
+await cacheMessage(message); // Immediate write (<50ms) with merge logic
+```
+- Guarantees immediate SQLite persistence
+- **Merge-safe:** Never downgrades deletedBy field (union merge)
+- Checks existing cache before writing to preserve user's deletion state
+- Essential for operations where data loss is unacceptable
+
+#### Merge Logic - NEVER Downgrade Deletions (Added Oct 26, 2025)
+```typescript
+// ✅ CRITICAL - cacheMessage() now merges deletedBy arrays
+export const cacheMessage = (message: Message): Promise<void> => {
+  // Check if message already exists with deletedBy data
+  const existing = db.getFirstSync(
+    'SELECT deletedBy FROM messages WHERE id = ?',
+    [message.id]
+  );
+  
+  let finalDeletedBy = message.deletedBy || [];
+  
+  if (existing && existing.deletedBy) {
+    const existingDeletedBy = JSON.parse(existing.deletedBy);
+    // Merge deletedBy arrays - keep all deletions (union)
+    const mergedSet = new Set([...existingDeletedBy, ...finalDeletedBy]);
+    finalDeletedBy = Array.from(mergedSet);
+  }
+  
+  // Write with merged deletedBy
+  db.runSync('INSERT OR REPLACE INTO messages VALUES (...)', [..., JSON.stringify(finalDeletedBy), ...]);
+};
+```
+
+**Why Merge Logic Is Critical:**
+- **Firestore listener** caches incoming messages (lines 504, 521, 539 in chat screen)
+- If Firestore hasn't synced yet, listener receives **old data without deletedBy**
+- Without merge, cache would be **overwritten** with stale state
+- With merge, **deletions are preserved** even when Firestore sends old data
+- Protects against offline scenarios, slow networks, and race conditions
+
+#### Flush Behavior - MUST AWAIT (Fixed Oct 26, 2025)
+```typescript
+// ✅ CORRECT - Awaits all writes to completion
+export const flushCacheBuffer = async () => {
+  if (writeTimer) clearTimeout(writeTimer);
+  if (writeBuffer.size > 0) {
+    const batch = Array.from(writeBuffer.values());
+    writeBuffer.clear();
+    await Promise.all(batch.map(msg => cacheMessage(msg)));
+  }
+};
+
+// In cleanup/unmount handlers:
+await flushCacheBuffer(); // CRITICAL: Must await for guaranteed persistence
+```
+
+**Previous Bug (Fixed Oct 26, 2025):**
+- `batch.forEach(msg => cacheMessage(msg))` - Fire-and-forget ❌
+- No merge logic - cache blindly overwritten with Firestore data ❌
+- Caused race condition where:
+  1. User deletes message → Cache updated
+  2. User navigates away → Firestore hasn't synced
+  3. User returns → Listener caches old Firestore data
+  4. Deleted message **REAPPEARS** 🐛
+
+**Fix Applied (Oct 26, 2025):**
+1. `flushCacheBuffer()` now awaits all writes with `Promise.all()`
+2. `cacheMessage()` now merges deletedBy arrays (never downgrades)
+3. Deletions use synchronous `cacheMessage()` instead of `cacheMessageBatched()`
+4. Guarantees persistence even with offline/slow sync scenarios
+
+**DO NOT REGRESS:**
+- ❌ Never use `forEach()` for cache writes (use `Promise.all()`)
+- ❌ Never use `cacheMessageBatched()` for deletions
+- ❌ Never skip awaiting `flushCacheBuffer()` in cleanup handlers
+- ❌ Never blindly overwrite cache without checking existing state
+- ✅ Always use synchronous writes for user-initiated critical operations
+- ✅ Always merge critical fields (deletedBy, readBy, deliveredTo) when caching
 
 ## Messaging flow
 - Optimistic UI with `localId` → Firestore write → remove from queue on success → mark delivered/read via batched updates.
@@ -165,6 +257,19 @@ const loadOlderMessages = async () => {
 ## AI Architecture (Production Ready)
 - **Service Layer**: `aiService.ts` with error handling wrapper; `aiErrorHandler.ts` for graceful offline degradation.
 - **RAG Pipeline**: Pinecone vector search with OpenAI embeddings; migration scripts for existing messages.
+- **Priority Detection (Hybrid - Oct 26)**:
+  - **Client-Side**: Instant regex keyword detection (<100ms) in `utils/priorityDetector.ts`
+    - Conservative patterns: "urgent", "important", "high priority" only
+    - Applied at: send (optimistic), receive (Firestore listener), cache (initial load)
+    - Confidence: 0.70-0.75 (acceptable for instant display)
+  - **Server-Side**: AI refinement with Cloud Function optimization
+    - `minInstances: 1` eliminates cold starts
+    - `region: "us-central1"` matches Firestore location
+    - In-memory cache (5-minute TTL)
+    - Conservative AI prompt requiring explicit keywords
+    - Processing: 2-5 seconds (background, minimal UI change)
+  - **Preservation Logic**: Keep client-detected priority until AI refinement arrives (prevents flicker)
+  - **Badge Positioning**: Blue bubbles (above, right), Gray group (inline with name), Gray direct (above, left)
 - **Semantic Search (Phase 3)**: 
   - Conditional keyword search (runs only when <3 semantic results)
   - Exact match scoring (100% for keyword matches)
@@ -182,9 +287,10 @@ const loadOlderMessages = async () => {
   - Accurate feedback with item count tracking
   - Enhanced logging for debugging display issues
   - Duplicate detection using actual message IDs (not array indexes)
+  - **UI**: Banner hidden from chat screen to save space (still accessible via Ava tab)
 - **Proactive Triggers**: Enhanced triggers in Cloud Functions (deadline conflicts, decision conflicts, overdue actions, context gaps).
 - **Cache Optimization**: Enhanced cache with longer TTLs (60min summaries, 30min search, 120min decisions), request batching, smart invalidation.
-- **Chat Integration**: Summarize button (✨), priority badges (🔴🟡), action items banner, proactive suggestion cards, thread summary modal.
+- **Chat Integration**: Summarize button (✨), priority badges (🔴🟡), proactive suggestion cards, thread summary modal.
 - **Current Status**: All AI features deployed and production ready
 
 ## AI Data Flow (Production Ready)
@@ -192,6 +298,11 @@ const loadOlderMessages = async () => {
 - **Offline Detection**: NetInfo check before AI calls; graceful degradation with user-friendly messages.
 - **Error Recovery**: Exponential backoff for retries; rate limit handling; timeout management.
 - **Cache Strategy**: Aggressive caching reduces API costs by 40%+; automatic cleanup of expired entries.
+- **Priority Detection Flow**: 
+  - Client-side keyword detection (instant) → 
+  - Optimistic UI update (<100ms) → 
+  - Cloud Function AI refinement (2-5s) → 
+  - Background update (preserves client priority if AI hasn't returned yet)
 - **Search Flow**: Conditional keyword search → Semantic Pinecone query → Q&A context detection → Result filtering (40%+)
 - **Decision Flow**: Extract decisions → Generate embeddings → Compare with existing (75% threshold) → Merge or create new
 - **Action Items Flow**: Fetch messages (no deleted filter!) → Filter by deletedBy in code → Extract → Resolve assignees → Check duplicates → Pull-to-refresh UI
