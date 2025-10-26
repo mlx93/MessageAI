@@ -10,7 +10,7 @@
 - Send text and images with reliable delivery, receipts, presence, typing.
 - Work offline with graceful queueing and instant cached history.
 - Notify users on iOS (Android in dev/prod builds).
-- **AI Assistant (Ava)**: Summarize conversations, extract action items, proactive suggestions, priority message badges, RAG-powered message search.
+- **AI Assistant (Ava)**: Summarize conversations, extract action items, proactive suggestions, priority message badges, RAG-powered message search, **unified context synthesis across all AI features**.
 
 ## How it should feel
 - iMessage‑style: clean blue/gray bubbles, centered timestamps, subtle animations/haptics.
@@ -33,6 +33,7 @@
 6) **AI Summarize**: Tap ✨ button → Select date range → Get intelligent summary
 7) **AI Search**: Search messages → Get RAG-powered results with context
 8) **AI Suggestions**: Receive proactive cards → Accept/dismiss recommendations
+9) **AI Unified Context**: Ask comprehensive questions → Get synthesized answers from messages, action items, and decisions
 
 ## Out of scope (for now)
 - Reactions, voice/video, E2E encryption, advanced settings; keep the app focused and fast.

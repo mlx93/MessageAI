@@ -393,8 +393,8 @@ export default function ChatScreen() {
       console.warn('Cache warmup failed:', error);
     });
 
-    // Phase 4: Start background sync for this conversation
-    backgroundSyncService.startSync(conversationId, 30000); // 30 second interval
+    // Phase 4: Start background sync for this conversation - PASS USERID
+    backgroundSyncService.startSync(conversationId, 30000, user!.uid);
 
     // Phase 4: Monitor app state for background sync
     const handleAppStateChange = (nextAppState: string) => {

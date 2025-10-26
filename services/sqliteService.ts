@@ -94,6 +94,8 @@ export const initDB = (): Promise<void> => {
 export const cacheMessage = (message: Message): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
+      console.log(`💾 cacheMessage START: ${message.id}, deletedBy: ${JSON.stringify(message.deletedBy || [])}`);
+      
       // CRITICAL FIX: Check if message already exists with deletedBy data
       // Never overwrite a deletion with an older version from Firestore
       const existing = db.getFirstSync(
@@ -106,9 +108,11 @@ export const cacheMessage = (message: Message): Promise<void> => {
       if (existing && existing.deletedBy) {
         try {
           const existingDeletedBy = JSON.parse(existing.deletedBy) as string[];
+          console.log(`💾 Found existing deletedBy: ${JSON.stringify(existingDeletedBy)}`);
           // Merge deletedBy arrays - keep all deletions (union)
           const mergedSet = new Set([...existingDeletedBy, ...finalDeletedBy]);
           finalDeletedBy = Array.from(mergedSet);
+          console.log(`💾 Merged to: ${JSON.stringify(finalDeletedBy)}`);
         } catch (e) {
           // If parsing fails, use incoming deletedBy
           console.warn('Failed to parse existing deletedBy, using incoming:', e);
@@ -135,8 +139,11 @@ export const cacheMessage = (message: Message): Promise<void> => {
           message.priorityReason || null
         ]
       );
+      
+      console.log(`✅ cacheMessage COMPLETE: ${message.id}, final deletedBy: ${JSON.stringify(finalDeletedBy)}`);
       resolve();
     } catch (error) {
+      console.error(`❌ cacheMessage FAILED for ${message.id}:`, error);
       reject(error);
     }
   });
@@ -271,22 +278,27 @@ export const getCachedMessagesPaginated = (
         priorityReason: row.priorityReason || undefined
       })) as Message[];
       
-      // Filter out messages deleted by this user (if userId provided)
-      const messages = userId 
-        ? allMessages.filter(msg => !msg.deletedBy || !msg.deletedBy.includes(userId))
+      // Filter messages deleted by user if userId provided
+      const visibleMessages = userId
+        ? allMessages.filter(m => !m.deletedBy || !m.deletedBy.includes(userId))
         : allMessages;
       
-      // Take only the requested limit after filtering
-      const limitedMessages = messages.slice(0, limit);
+      // Trim to requested limit after filtering
+      const trimmedMessages = visibleMessages.slice(0, limit);
       
-      // Log diagnostic info to help understand cache state
-      if (userId && allMessages.length !== messages.length) {
-        const deletedCount = allMessages.length - messages.length;
-        console.log(`📦 Cache: Found ${allMessages.length} total messages, ${deletedCount} deleted, returning ${limitedMessages.length} visible`);
+      console.log(`📦 Cache: Found ${allMessages.length} total messages, ${allMessages.length - visibleMessages.length} deleted, returning ${trimmedMessages.length} visible`);
+      
+      // Log deleted message IDs for debugging
+      const deletedMessages = allMessages.filter(m => m.deletedBy && m.deletedBy.includes(userId || ''));
+      if (deletedMessages.length > 0) {
+        console.log(`🗑️ Deleted messages in cache:`, deletedMessages.map(m => ({
+          id: m.id,
+          text: m.text?.substring(0, 30),
+          deletedBy: m.deletedBy
+        })));
       }
       
-      // Reverse to get chronological order (oldest first)
-      resolve(limitedMessages.reverse());
+      resolve(trimmedMessages);
     } catch (error) {
       console.warn('getCachedMessagesPaginated failed:', error);
       // Return empty array instead of rejecting to prevent crashes

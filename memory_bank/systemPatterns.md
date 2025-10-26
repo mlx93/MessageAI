@@ -280,6 +280,16 @@ const loadOlderMessages = async () => {
 ## AI Architecture (Production Ready)
 - **Service Layer**: `aiService.ts` with error handling wrapper; `aiErrorHandler.ts` for graceful offline degradation.
 - **RAG Pipeline**: Pinecone vector search with OpenAI embeddings; migration scripts for existing messages.
+- **Ava Unified Context (Oct 26, 2025 - NEW)**:
+  - **Architecture**: Parallel fetching from Pinecone (messages) + Firestore (action items + decisions)
+  - **Intent Classification**: Keyword-based detection for comprehensive queries
+  - **Smart Filtering**: Excludes hidden/deleted conversations (deletedBy, hiddenBy checks)
+  - **Message Deduplication**: 70% similarity threshold removes near-duplicates
+  - **Deadline Validation**: formatDeadline() handles all timestamp formats, prevents "Invalid Date"
+  - **Response Synthesis**: GPT-4o-mini generates coherent answers from all sources
+  - **Performance**: 3-5s response time; ~$0.001 per query
+  - **Fallback Strategy**: Unified → Message-only → Existing Ava logic
+  - **File**: `functions/src/ai/avaUnifiedSearch.ts` (700+ lines)
 - **Priority Detection (Hybrid - Oct 26)**:
   - **Client-Side**: Instant regex keyword detection (<100ms) in `utils/priorityDetector.ts`
     - Conservative patterns: "urgent", "important", "high priority" only

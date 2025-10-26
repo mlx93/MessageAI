@@ -374,8 +374,13 @@ function deduplicateMessages(messages: MessageResult[]): MessageResult[] {
       const similarity =
         commonWords.length / Math.max(words1.length, words2.length);
 
-      // If >70% similar, consider it a duplicate
-      if (similarity > 0.7) {
+      // Stricter threshold: 60% similar (was 70%)
+      // Also check if shorter text is 80%+ contained in longer
+      const containmentRatio = Math.min(words1.length, words2.length) /
+                              Math.max(words1.length, words2.length);
+      const isHighContainment = containmentRatio > 0.6 && similarity > 0.8;
+
+      if (similarity > 0.6 || isHighContainment) {
         isDuplicate = true;
         break;
       }

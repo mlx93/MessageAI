@@ -5,6 +5,7 @@ import { Message } from '../types';
 
 interface BackgroundSyncConfig {
   conversationId: string;
+  userId?: string; // NEW: Store userId for filtering
   lastSyncTime: Date;
   syncInterval: number; // milliseconds
 }
@@ -26,13 +27,24 @@ export class BackgroundSyncService {
   
   /**
    * Start background sync for a conversation
+   * userId is required to filter deleted messages
    */
-  startSync(conversationId: string, syncInterval: number = 30000): void {
-    // Clear existing sync if any
-    this.stopSync(conversationId);
+  startSync(conversationId: string, syncInterval: number = 30000, userId?: string): void {
+    // Prevent rapid start/stop cycles - check if already running
+    if (this.syncConfigs.has(conversationId)) {
+      const existingConfig = this.syncConfigs.get(conversationId)!;
+      // If same interval and userId, don't restart
+      if (existingConfig.syncInterval === syncInterval && existingConfig.userId === userId) {
+        console.log(`⏭️ Background sync already running for ${conversationId} - skipping restart`);
+        return;
+      }
+      // Different config - stop old one first
+      this.stopSync(conversationId);
+    }
     
     const config: BackgroundSyncConfig = {
       conversationId,
+      userId, // Store userId for filtering
       lastSyncTime: new Date(),
       syncInterval
     };
@@ -41,12 +53,12 @@ export class BackgroundSyncService {
     
     // Start periodic sync
     const timeout = setTimeout(() => {
-      this.performSync(conversationId);
+      this.performSync(conversationId, userId);
     }, syncInterval);
     
     this.syncTimeouts.set(conversationId, timeout);
     
-    console.log(`🔄 Background sync started for ${conversationId} (${syncInterval}ms interval)`);
+    console.log(`🔄 Background sync started for ${conversationId} (${syncInterval}ms interval${userId ? ', filtered' : ''})`);
   }
   
   /**
@@ -65,8 +77,9 @@ export class BackgroundSyncService {
   
   /**
    * Perform sync for a conversation
+   * Requires userId to filter deleted messages
    */
-  async performSync(conversationId: string): Promise<SyncResult> {
+  async performSync(conversationId: string, userId?: string): Promise<SyncResult> {
     const config = this.syncConfigs.get(conversationId);
     if (!config) {
       throw new Error(`No sync config found for ${conversationId}`);
@@ -75,8 +88,8 @@ export class BackgroundSyncService {
     try {
       console.log(`🔄 Performing background sync for ${conversationId}`);
       
-      // Get cached messages to compare
-      const cachedMessages = await getCachedMessagesPaginated(conversationId, 50);
+      // Get cached messages to compare - FILTER BY USERID
+      const cachedMessages = await getCachedMessagesPaginated(conversationId, 50, userId);
       const lastCachedTime = cachedMessages.length > 0 
         ? cachedMessages[cachedMessages.length - 1].timestamp 
         : config.lastSyncTime;
@@ -87,13 +100,18 @@ export class BackgroundSyncService {
       
       return new Promise((resolve, reject) => {
         const unsubscribe = subscribeToMessagesPaginated(conversationId, 50, (messages) => {
+          // FILTER OUT DELETED MESSAGES
+          const visibleMessages = userId
+            ? messages.filter(m => !m.deletedBy || !m.deletedBy.includes(userId))
+            : messages;
+          
           // Find new messages
-          const newSinceLastSync = messages.filter(msg => 
+          const newSinceLastSync = visibleMessages.filter(msg => 
             msg.timestamp > lastCachedTime
           );
           
           // Find updated messages (status changes, read receipts, etc.)
-          const updatedSinceLastSync = messages.filter(msg => {
+          const updatedSinceLastSync = visibleMessages.filter(msg => {
             const cachedMsg = cachedMessages.find(cached => cached.id === msg.id);
             return cachedMsg && (
               cachedMsg.status !== msg.status ||
@@ -105,13 +123,15 @@ export class BackgroundSyncService {
           newMessages.push(...newSinceLastSync);
           updatedMessages.push(...updatedSinceLastSync);
           
-          // Cache new messages
+          // Cache new messages - these are already filtered
           newSinceLastSync.forEach(msg => cacheMessage(msg));
           
           // Update sync time
           config.lastSyncTime = new Date();
           
           unsubscribe();
+          
+          console.log(`✅ Background sync complete: ${newSinceLastSync.length} new, ${updatedSinceLastSync.length} updated`);
           
           resolve({
             newMessages,
@@ -134,7 +154,7 @@ export class BackgroundSyncService {
       // Schedule next sync
       if (this.syncConfigs.has(conversationId)) {
         const timeout = setTimeout(() => {
-          this.performSync(conversationId);
+          this.performSync(conversationId, userId);
         }, config.syncInterval);
         
         this.syncTimeouts.set(conversationId, timeout);
@@ -167,7 +187,7 @@ export class BackgroundSyncService {
     // Reduce sync frequency when in background
     this.syncConfigs.forEach((config, conversationId) => {
       this.stopSync(conversationId);
-      this.startSync(conversationId, 60000); // 1 minute interval in background
+      this.startSync(conversationId, 60000, config.userId); // Pass userId
     });
   }
   
@@ -175,8 +195,8 @@ export class BackgroundSyncService {
    * Perform immediate sync when app comes to foreground
    */
   private async performImmediateSync(): Promise<void> {
-    const syncPromises = Array.from(this.syncConfigs.keys()).map(conversationId => 
-      this.performSync(conversationId).catch(error => {
+    const syncPromises = Array.from(this.syncConfigs.entries()).map(([conversationId, config]) => 
+      this.performSync(conversationId, config.userId).catch(error => {
         console.warn(`Immediate sync failed for ${conversationId}:`, error);
       })
     );
@@ -186,7 +206,7 @@ export class BackgroundSyncService {
     // Reset to normal sync frequency
     this.syncConfigs.forEach((config, conversationId) => {
       this.stopSync(conversationId);
-      this.startSync(conversationId, 30000); // 30 second interval in foreground
+      this.startSync(conversationId, 30000, config.userId); // Pass userId
     });
   }
   
