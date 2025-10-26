@@ -1,9 +1,10 @@
 # Active Context
 
 **Date:** Oct 26, 2025  
-**State:** MVP complete + AI enhancements operational. Action items FIXED and working! Chat performance OPTIMIZED!
+**State:** MVP complete + AI enhancements operational. Action items FIXED and working! Chat performance OPTIMIZED! Per-user lastMessage DEPLOYED!
 
 ## Current focus
+- **🎉 Per-User lastMessage DEPLOYED (Oct 26 - Latest)**: Fixes orphaned conversation bug with per-user message deletion visibility!
 - **🚀 Chat Performance OPTIMIZED (Oct 26 - Late Evening)**: 50-80% faster loading with flicker-safe parallel loading!
 - **🎉 Action Items CRITICAL FIX (Oct 26 - Evening)**: Extraction now working - 21 items created!
 - **Phase 3.1 Semantic Search Complete**: 60-80% faster search with Q&A context detection and exact match scoring
@@ -377,5 +378,72 @@ All four optimization phases implemented (C→A→B→D):
 - Preserve chat render stability patterns (no reanimated entering on images; stable callbacks; placeholders then enable images).
 - Maintain offline queue‑first and timeout‑protected sends.
 - **AI Error Handling**: All AI methods wrapped with error handling; graceful offline degradation.
+
+## Recent Deployments (Oct 26, 2025 - Latest)
+
+### 🎉 Per-User lastMessage Implementation - MAJOR FIX! ✅
+**Fixes "orphaned conversation" bug where deleting messages would show wrong conversation previews**
+
+**The Problem:**
+- Global `lastMessage` field shared by ALL participants
+- When User A deleted the last message, the global field updated
+- User B would see wrong preview or conversation would disappear
+- Each user needs their own view based on their personal deletions
+
+**The Solution - Per-User lastMessage Map:**
+1. **Cloud Functions Updates** (`functions/src/index.ts`):
+   - `onMessageCreate`: Writes `lastMessagePerUser.{userId}` for EACH participant
+   - `onMessageDelete`: Updates only the deleting user's entry (not global)
+   - Keeps old `lastMessage` field for backwards compatibility
+
+2. **Frontend Display** (`app/(tabs)/index.tsx`):
+   - Reads from `lastMessagePerUser[userId]` first
+   - Falls back to old `lastMessage` for unmigrated conversations
+   - Simple filter: conversation.deletedBy check + lastMessage check
+
+3. **Frontend Deletion** (`app/chat/[id].tsx`):
+   - Calls `recalculateLastMessageForUser` to find next visible message
+   - Updates only `lastMessagePerUser[userId]` (not global)
+   - Other users' entries unchanged
+
+4. **Migration Script** (`scripts/migrate-lastmessage-peruser.ts`):
+   - Populates `lastMessagePerUser` for all existing conversations
+   - Safe to run multiple times (idempotent)
+   - Creates entries for all participants with current global lastMessage
+
+**Critical Conversation Hiding Bug Fixed:**
+- **Problem**: New messages in group chat hid conversation from some users
+- **Root Cause**: Frontend was querying Firestore for individual messages instead of trusting conversation-level data
+- **Fix**: Changed filter to use `conversation.deletedBy` and `lastMessagePerUser[userId]` only
+- **Result**: Conversations show immediately after new messages for ALL users
+
+**Key Features:**
+- ✅ Per-user message deletion visibility (User A deleting doesn't affect User B's preview)
+- ✅ Real-time updates work correctly (instant updates via Firestore listeners)
+- ✅ Backwards compatible (old `lastMessage` field kept, fallback for unmigrated)
+- ✅ Optimistic updates preserved (instant UI updates)
+- ✅ Cloud Functions handle sync (ensures consistency across devices)
+- ✅ No performance impact (same O(1) lookup, no additional queries)
+
+**Deployment Status:**
+- ✅ Cloud Functions deployed
+- ✅ Frontend deployed
+- ✅ Migration completed (1 conversation skipped - already had structure)
+
+**Files Modified:**
+- `types/index.ts` - Added lastMessagePerUser to Conversation type
+- `functions/src/index.ts` - Updated Cloud Functions (onMessageCreate, onMessageDelete)
+- `app/(tabs)/index.tsx` - Updated display and filtering logic
+- `app/chat/[id].tsx` - Updated deletion handler
+- `services/conversationService.ts` - Added recalculateLastMessageForUser helper
+- `scripts/migrate-lastmessage-peruser.ts` - Created migration script (NEW)
+
+**Documentation:**
+- `LASTMESSAGE_PERUSER_IMPLEMENTATION_COMPLETE.md` - Full implementation details
+- `LASTMESSAGE_FUNCTIONS_AUDIT.md` - Function safety audit
+- `LASTMESSAGE_DEPLOYMENT_GUIDE.md` - Deployment instructions
+- `CONVERSATION_HIDING_BUG_FIX.md` - Bug fix explanation
+
+**Status**: ✅ **DEPLOYED & PRODUCTION READY** - Fixes orphaned conversation bug completely!
 
 

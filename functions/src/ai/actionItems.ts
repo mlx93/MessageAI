@@ -200,8 +200,15 @@ Messages:
 ${messagesForPrompt}
 
 For each action item:
-- task: Clear description of what needs to be done. The task MUST use words 
-  that actually appear in the messages - do NOT infer or hallucinate tasks.
+- task: Clear description of what needs to be done.
+  * CRITICAL: Write as an IMPERATIVE COMMAND, not first-person statement
+  * BAD: "I'll handle the MongoDB setup" ❌
+  * GOOD: "Handle the MongoDB setup" ✅
+  * BAD: "I can update the docs" ❌
+  * GOOD: "Update the docs" ✅
+  * Remove "I", "I'll", "I will", "I can", "Let me" from the start
+  * The task MUST use words that actually appear in the messages
+  * Do NOT infer or hallucinate tasks
 - assignee: Person assigned - CRITICAL RULES BELOW
 - deadline: Any mentioned deadline (or null)
 - context: Brief context from conversation (focus on WHAT, not WHO)
@@ -210,16 +217,21 @@ For each action item:
 - confidence: 0-1 score of how confident this is a real action item
 
 CRITICAL TASK EXTRACTION RULES (Anti-Hallucination):
+- ONLY extract action items EXPLICITLY stated in the EXACT message
+- DO NOT infer tasks from context or previous messages  
+- DO NOT extract tasks mentioned in other messages
 - The task description MUST contain words/phrases from the actual messages
 - If you cannot find a specific action using words from the messages,
   DO NOT extract it
 - When in doubt, return an empty array rather than guessing or inferring
 - Casual conversations with no specific tasks should return NO items
-- Examples:
-  * Message: "You did an awesome job!" → NO TASK (praise, not action)
-  * Message: "Thanks for the great work today!" → NO TASK
-    (gratitude, not assignment)
-  * Message: "See you tomorrow!" → NO TASK (casual conversation)
+- Examples of messages that should return NO tasks:
+  * "You did an awesome job!" → NO TASK (praise, not action)
+  * "Thanks for the great work today!" → NO TASK (gratitude, not assignment)
+  * "Will do" → NO TASK (no specific action mentioned)
+  * "Will do. Thanks for the quick turnaround" → NO TASK (acknowledgment only)
+  * "Sounds good!" → NO TASK (agreement, no commitment)
+  * "See you tomorrow!" → NO TASK (casual conversation)
 
 Confidence scoring rules:
 - Set confidence to 0.95+ ONLY if both assignment AND task are crystal clear
@@ -231,15 +243,16 @@ Confidence scoring rules:
 
 ASSIGNEE EXTRACTION RULES (CRITICAL - READ CAREFULLY):
 
-1. FIRST-PERSON COMMITMENTS - Extract the speaker's EXACT NAME:
+1. FIRST-PERSON COMMITMENTS - Return "SENDER" as assignee:
    * When message is "[5] John Smith: I can handle the MongoDB setup"
-     → assignee = "John Smith" (NOT "I" or "me")
+     → task = "Handle the MongoDB setup", assignee = "SENDER"
    * When message is "[2] Sarah Lee: I'll take care of the deployment"
-     → assignee = "Sarah Lee"
+     → task = "Take care of the deployment", assignee = "SENDER"
    * When message is "[8] Dan G: Let me do the testing"
-     → assignee = "Dan G"
+     → task = "Do the testing", assignee = "SENDER"
    * Pattern: ANY form of "I/I'll/I can/I will/Let me [do task]"
-     → Extract the sender name from [index] Name: format
+     → assignee = "SENDER" (we'll resolve this to the actual sender)
+     → Remove the pronoun from the task description
 
 2. DIRECT NAME ASSIGNMENTS - Extract the person mentioned:
    * When message is "[3] Hadi R: Dan, you take the frontend work"
@@ -254,7 +267,7 @@ ASSIGNEE EXTRACTION RULES (CRITICAL - READ CAREFULLY):
 3. SECOND-PERSON IN 2-PERSON CHATS:
    * If ONLY 2 different senders appear in ALL messages
    * And message is "[4] Alice: Can you finish the report?"
-     → assignee = the OTHER person's name (Bob, if Bob is the only other sender)
+     → assignee = "SENDER" (the non-speaker)
    * Pattern: Count unique senders. If exactly 2, "you" = the non-speaker
 
 4. FALLBACK:
@@ -262,8 +275,9 @@ ASSIGNEE EXTRACTION RULES (CRITICAL - READ CAREFULLY):
    * NEVER use pronouns ("I", "me", "you") as the final assignee value
    * NEVER use generic terms ("someone", "anyone")
    
-IMPORTANT: The assignee field should ALWAYS contain an actual person's name
-or null. Parse the message format carefully: [index] SenderName: message
+IMPORTANT: 
+- For first-person commitments, ALWAYS return "SENDER" as assignee
+- Write tasks as imperative commands WITHOUT first-person pronouns
 
 Context field rules (CRITICAL):
 - Focus on WHAT needs to be done, NOT WHO said it
@@ -396,7 +410,9 @@ Context field rules (CRITICAL):
       let isDuplicateInBatch = false;
 
       // Compare against items already added to batchDedupedItems
-      for (const existingNewItem of batchDedupedItems) {
+      for (let j = 0; j < batchDedupedItems.length; j++) {
+        const existingNewItem = batchDedupedItems[j];
+
         // Safety check: ensure both embeddings exist
         if (!currentItem.embedding || !existingNewItem.embedding) {
           console.warn(
@@ -427,22 +443,26 @@ Context field rules (CRITICAL):
             console.log(
               "[Batch Dedup] Replacing with higher confidence version"
             );
-            const indexToReplace = batchDedupedItems.indexOf(existingNewItem);
-            if (indexToReplace !== -1 &&
-                indexToReplace < batchDedupedItems.length) {
-              batchDedupedItems[indexToReplace] = currentItem;
-            }
+            batchDedupedItems[j] = currentItem;
+
+            // Mark the OLD item as skipped
+            batchDuplicatesSkipped.push({
+              task: existingNewItem.task,
+              similarTo: currentItem.task,
+              similarity,
+            });
           } else {
             console.log(
               "[Batch Dedup] Keeping existing higher confidence version"
             );
-          }
 
-          batchDuplicatesSkipped.push({
-            task: currentItem.task,
-            similarTo: existingNewItem.task,
-            similarity,
-          });
+            // Mark the NEW item as skipped
+            batchDuplicatesSkipped.push({
+              task: currentItem.task,
+              similarTo: existingNewItem.task,
+              similarity,
+            });
+          }
 
           break; // Stop checking other items in batch
         }
@@ -638,7 +658,39 @@ Context field rules (CRITICAL):
       let assigneeId = null;
       let finalAssignee = item.assignee;
 
-      if (item.assignee) {
+      // Handle special "SENDER" token for first-person commitments
+      if (item.assignee &&
+          (item.assignee.toUpperCase() === "SENDER" ||
+           item.assignee.toLowerCase() === "sender")) {
+        // Get the message sender for this action item
+        const messageIndex = parseInt(item.messageId);
+        if (!isNaN(messageIndex) &&
+            messageIndex >= 0 &&
+            messageIndex < messages.length) {
+          const sourceSenderId = messages[messageIndex].sender as string;
+          const senderDetails = participantDetails[sourceSenderId];
+
+          if (senderDetails && senderDetails.displayName) {
+            finalAssignee = senderDetails.displayName;
+            assigneeId = sourceSenderId;
+            console.log(
+              `🔧 Resolved SENDER token → "${finalAssignee}" (${assigneeId})`
+            );
+          } else {
+            console.warn(
+              `⚠️ Could not resolve SENDER - sender ${
+                sourceSenderId
+              } not in participantDetails`
+            );
+            finalAssignee = null;
+          }
+        } else {
+          console.warn(
+            "⚠️ Could not resolve SENDER - invalid message index"
+          );
+          finalAssignee = null;
+        }
+      } else if (item.assignee) {
         // Check exact match first (case-insensitive)
         assigneeId = nameToUserId[item.assignee.toLowerCase()] || null;
 
