@@ -27,7 +27,7 @@ import MessageActionSheet from '../../components/MessageActionSheet';
 import CachedImage from '../../components/CachedImage';
 import QueueVisibilityBanner from '../../components/QueueVisibilityBanner';
 import PriorityBadge from '../../components/ai/PriorityBadge';
-import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
+// import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
 import ProactiveSuggestionCard from '../../components/ai/ProactiveSuggestionCard';
 import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
 import * as Clipboard from 'expo-clipboard';
@@ -1944,11 +1944,11 @@ export default function ChatScreen() {
         />
       ))}
 
-      {/* Action Items Banner */}
-      <ActionItemsBanner
+      {/* Action Items Banner - Hidden to save space */}
+      {/* <ActionItemsBanner
         conversationId={conversationId}
         onViewAll={handleViewAllActionItems}
-      />
+      /> */}
 
       <View style={styles.messagesWrapper}>
         {isInitialLoad ? (
