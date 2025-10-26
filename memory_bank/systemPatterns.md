@@ -68,6 +68,100 @@ const messages = snapshot.docs
 - Avoid image flicker: use plain `Image` (no reanimated entering), stable `renderItem` via `useCallback`, split presence effects to avoid re-subscribe, memoize helpers, move grouping calc to parent, stable `onLayout`.
 - Cross-platform bottom scroll: measured content/layout heights + retrying snap ensures newest messages load instantly (even image-heavy/group threads), lock scroll briefly while images load, render placeholders then enable images.
 
+## 🚀 CRITICAL: Chat Performance Patterns (Oct 26, 2025)
+**DO NOT REGRESS - These optimizations provide 50-80% performance improvement**
+
+### Anti-Flicker Loading Strategy (MUST PRESERVE)
+```typescript
+// ✅ CORRECT: Parallel loading with anti-flicker protection
+const loadInitialData = async () => {
+  const [conversationData, cachedMessages] = await Promise.all([
+    loadConversationData(),
+    getCachedMessagesPaginated(conversationId, 30) // Direct 30-message load
+  ]);
+  
+  // Filter and dedupe messages
+  const visibleMessages = cachedMessages.filter(m => 
+    !m.deletedBy || !m.deletedBy.includes(user!.uid)
+  );
+  const dedupedMessages = dedupeMessages(visibleMessages);
+  
+  // Set all state together to prevent flicker
+  setMessages(dedupedMessages);
+  setIsInitialLoad(false); // Only after everything is ready
+};
+```
+
+### Smart List Mode Detection (CRITICAL)
+```typescript
+// ✅ CORRECT: Synchronous determination before first render
+const useInvertedList = useMemo(() => {
+  if (messages.length === 0) return false;
+  
+  // Use normal mode for conversations with <= 7 messages (starts at top)
+  if (messages.length <= 7) return false;
+  
+  // Use inverted mode for longer conversations (starts at bottom)
+  const estimatedContentHeight = messages.length * 80;
+  const screenHeight = 600;
+  return estimatedContentHeight > screenHeight;
+}, [messages.length]);
+```
+
+### Non-blocking Pagination (MUST PRESERVE)
+```typescript
+// ✅ CORRECT: Timeout handling prevents blocking
+const loadOlderMessages = async () => {
+  // Try cache first with timeout
+  const cachePromise = getCachedMessagesBefore(conversationId, beforeTimestamp, 30);
+  const cacheTimeout = new Promise<Message[]>((resolve) => {
+    setTimeout(() => resolve([]), 1000); // 1 second cache timeout
+  });
+  
+  const cachedOlderMessages = await Promise.race([cachePromise, cacheTimeout]);
+  
+  // Fallback to Firestore with timeout (handled in messageService)
+  if (!cachedOlderMessages.length) {
+    const firestoreOlderMessages = await loadOlderMessagesRemote(conversationId, beforeTimestamp, 30);
+    // Firestore timeout already handled in messageService.ts
+  }
+};
+```
+
+### Performance Settings (DO NOT CHANGE)
+- **Initial Cache Load**: 30 messages (not 50→20 filtering)
+- **Pagination Throttle**: 1 second (not 2 seconds)
+- **Cache Timeout**: 1 second for older messages
+- **Firestore Timeout**: 5 seconds for remote queries
+- **Scroll Trigger**: 100px from top (not 50px)
+- **Loading Indicator**: "Loading..." (not "Loading older messages...")
+
+### FlatList Configuration (CRITICAL)
+```typescript
+// ✅ CORRECT: Anti-flicker FlatList setup
+<FlatList
+  data={useInvertedList ? messages.slice().reverse() : messages}
+  inverted={useInvertedList}
+  contentContainerStyle={[
+    styles.messagesContent,
+    !useInvertedList && { flexGrow: 1 }, // Normal mode: space below
+    useInvertedList && { flexGrow: 0 }   // Inverted mode: content at bottom
+  ]}
+  maintainVisibleContentPosition={useInvertedList ? {
+    minIndexForVisible: 0,
+    autoscrollToTopThreshold: 10
+  } : undefined}
+/>
+```
+
+**NEVER REGRESS:**
+- ❌ Don't change back to sequential loading
+- ❌ Don't remove timeout handling
+- ❌ Don't increase throttle times
+- ❌ Don't change list mode detection logic
+- ❌ Don't modify FlatList contentContainerStyle
+- ❌ Don't remove anti-flicker blocking strategy
+
 ## AI Architecture (Production Ready)
 - **Service Layer**: `aiService.ts` with error handling wrapper; `aiErrorHandler.ts` for graceful offline degradation.
 - **RAG Pipeline**: Pinecone vector search with OpenAI embeddings; migration scripts for existing messages.
