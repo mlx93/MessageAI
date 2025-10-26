@@ -50,8 +50,8 @@ const messages = snapshot.docs
 - Queue‑first send: write to local queue before optimistic UI; try remote send; show queued chip; manual retry supported.
 - SQLite cache for instant list/message loads; batched writes (~500ms) and flushed on background/unmount.
 
-### 🔥 CRITICAL: Cache Write Strategy (Updated Oct 26, 2025 - v2)
-**Two-tier cache write system with merge-safe persistence**
+### 🔥 CRITICAL: Cache Write Strategy (Updated Oct 26, 2025 - FINAL)
+**Cache-first strategy with merge-safe persistence for 100% reliability**
 
 #### Batched Writes (Default) - For Performance
 ```typescript
@@ -134,13 +134,36 @@ await flushCacheBuffer(); // CRITICAL: Must await for guaranteed persistence
 3. Deletions use synchronous `cacheMessage()` instead of `cacheMessageBatched()`
 4. Guarantees persistence even with offline/slow sync scenarios
 
+**CRITICAL PATTERN: Cache-First for User Operations (Oct 26, 2025)**
+```typescript
+// ✅ CORRECT - Cache-first pattern
+async function deleteMessage(id: string, userId: string) {
+  // 1. Update local cache FIRST
+  await cacheMessage({ id, deletedBy: [userId] });
+  
+  // 2. Then update remote (may trigger listeners)
+  await updateFirestore({ id, deletedBy: [userId] });
+}
+
+// ❌ WRONG - Remote-first (vulnerable to race conditions)
+async function deleteMessage(id: string, userId: string) {
+  // 1. Update remote first (triggers listeners)
+  await updateFirestore({ id, deletedBy: [userId] });
+  
+  // 2. Then cache (listeners might overwrite between steps)
+  await cacheMessage({ id, deletedBy: [userId] });
+}
+```
+
 **DO NOT REGRESS:**
 - ❌ Never use `forEach()` for cache writes (use `Promise.all()`)
-- ❌ Never use `cacheMessageBatched()` for deletions
+- ❌ Never use `cacheMessageBatched()` for deletions (use `cacheMessage()`)
 - ❌ Never skip awaiting `flushCacheBuffer()` in cleanup handlers
 - ❌ Never blindly overwrite cache without checking existing state
+- ❌ **Never update Firestore before cache for critical user operations**
 - ✅ Always use synchronous writes for user-initiated critical operations
 - ✅ Always merge critical fields (deletedBy, readBy, deliveredTo) when caching
+- ✅ **Always establish local truth (cache) BEFORE remote sync (Firestore)**
 
 ## Messaging flow
 - Optimistic UI with `localId` → Firestore write → remove from queue on success → mark delivered/read via batched updates.
