@@ -93,11 +93,9 @@ export const extractActions = onCall({
     }
 
     // Query messages from conversation subcollection
-    // Exclude deleted messages
+    // Messages use deletedBy array, not a deleted boolean field
     let query = db
       .collection(`conversations/${conversationId}/messages`)
-      .where("deleted", "!=", true)
-      .orderBy("deleted")
       .orderBy("timestamp", "desc");
 
     if (dateRange?.start) {

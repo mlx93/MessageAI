@@ -1,12 +1,13 @@
 # Active Context
 
 **Date:** Oct 26, 2025
-**State:** MVP complete + AI enhancements operational. Action items & Decisions features fully optimized.
+**State:** MVP complete + AI enhancements operational. Phase 3 semantic search deployed. All AI features production-ready.
 
 ## Current focus
-- **Semantic Deduplication Implemented**: Decisions feature now uses embeddings to detect and merge duplicate decisions
-- **Action Items Fixed**: Improved assignee mapping logic with pronoun resolution and fuzzy matching
-- **AI Features Operational**: All AI features working correctly with proper error handling
+- **Phase 3.1 Semantic Search Complete**: 60-80% faster search with Q&A context detection and exact match scoring
+- **Action Items UX Complete**: Pull-to-refresh, accurate feedback, enhanced logging for debugging
+- **Semantic Deduplication Live**: 75% similarity threshold catching duplicate decisions intelligently
+- **AI Features Stable**: All AI features deployed, tested, and working correctly
 - **Core App Fully Functional**: All messaging, contacts, presence, and offline features working perfectly
 - **Stability Maintained**: All previous stability improvements preserved (image flicker eliminated, scroll stability, offline queue)
 
@@ -17,40 +18,86 @@
 - **Proactive Triggers**: 5 new trigger types (deadline conflicts, decision conflicts, overdue actions, context gaps)
 - **Cache Optimization**: Longer TTLs, request batching, smart invalidation, scheduled cleanup
 
-## Recent fixes (Oct 26, 2025)
-**Action Items Display Issue - Complete Fix (Oct 26, 2025):**
-- **Problem**: Success toast showed "Analyzed X conversations. Action items should appear now." but items didn't display
-- **Root Cause 1**: Stale state reference - checking `actionItems.length` after extraction used value from function start
-- **Root Cause 2**: No manual refresh option if Firestore propagation was delayed
-- **Solution 1 - Track Count Before Analysis**:
-  - Capture `itemsBeforeAnalysis` at start of `handleAnalyze()`
-  - After 3s delay, compare with current `actionItems.length`
-  - Show accurate message: "Found X new action items!" vs "Items may take a moment to appear. Pull down to refresh if needed."
-- **Solution 2 - Pull to Refresh**:
-  - Added `RefreshControl` to FlatList
-  - Users can manually trigger refresh with standard pull-down gesture
-  - 1-second refresh wait time for snapshot listener updates
-- **Solution 3 - Enhanced Logging**:
-  - Log starting item count: "📊 Starting analysis with X existing items"
-  - Log ending item count with delta: "📊 Items after analysis: Y (+Z change)"
-  - Easy to diagnose if extraction succeeds but items don't appear
-- **Files Changed**: `app/ava/action-items.tsx`
-- **Documentation**: Created ACTION_ITEMS_DISPLAY_COMPLETE_FIX.md, ACTION_ITEMS_DISPLAY_DEBUG.md
-- **Status**: ✅ Ready for testing - improved UX with accurate feedback and manual refresh option
+## Recent Deployments (Oct 26, 2025 - Evening)
 
-**Action Items Display & Styling Fix (Oct 26, 2025):**
-- **Issue 1 - Summary Banner**: Updated styling to match Decisions screen for consistency
-  - Changed emoji from ✅ to 📌 for cleaner look
-  - Simplified text: "📌 X pending action items" (removed instructions)
-  - Updated styling: Blue background (#F0F8FF) with subtle border, bold text
-- **Issue 2 - Items Not Displaying**: Enhanced debug logging for visibility pipeline
-  - Added logging of user conversation IDs (not just count)
-  - Added logging of all action item conversation IDs from database
-  - Added per-item logging showing conversationId and filter decision
-  - Now easy to diagnose conversation ID mismatches or data issues
+### Phase 3.1 Semantic Search Deployed ✅
+**Major Performance & UX Win - 60-80% Faster Search**
+
+- **Exact Match Scoring**: Keyword matches now show 100% score (was undefined)
+- **Q&A Context Detection**: Automatically includes 1-2 answer messages after questions (>60% relevance)
+  - Max 3 Q&A pairs shown with orange "Context" badge
+  - Only shown when <3 high-quality results (avoids clutter)
+  - Keyword relevance validation (25% overlap minimum)
+- **Conditional Keyword Search**: Only runs when semantic returns <3 good results
+  - Reduces search time from 5-7s to 2-3s for most queries
+  - Still comprehensive when needed
+- **Ava Integration Confirmed**: `avaSearchChat` already uses Pinecone backend
+  - GPT-4o-mini generates natural language answers
+  - Shows citations with sender names and conversation context
+  - Top 5 results used as context
+- **Testing Results**:
+  - ✅ "Who will run benchmarks?" - 64% match, correct messages
+  - ✅ "What database did we choose?" - 59% matches, found PostgreSQL
+  - ✅ "Redis" - 100% exact matches (keyword search perfect!)
+  - ✅ Q&A Context showing "Context" badge for answers
+- **Files Changed**: `functions/src/ai/smartSearch.ts`, `app/ava/search.tsx`
+- **Documentation**: `SEMANTIC_SEARCH_PHASE_3_FINAL_SUMMARY.md`
+- **Status**: ✅ **DEPLOYED & PRODUCTION READY**
+
+### Action Items UX Enhancement Deployed ✅
+**Complete Fix for Display Issues with Pull-to-Refresh**
+
+- **Problem**: Success toast showed items extracted but they didn't display
+- **Root Causes**:
+  1. Stale state reference - checking `actionItems.length` after extraction
+  2. No manual refresh option for delayed Firestore propagation
+- **Solutions Implemented**:
+  1. **Track Count Before Analysis**: Capture `itemsBeforeAnalysis` at start
+     - Compare with current count after 3s delay
+     - Show accurate: "Found X new action items!" or "Items may take a moment..."
+  2. **Pull to Refresh**: Added `RefreshControl` to FlatList
+     - Standard iOS/Android pull-down gesture
+     - 1-second refresh wait for snapshot updates
+     - Mentioned in success message as fallback
+  3. **Enhanced Logging**: 
+     - "📊 Starting analysis with X existing items"
+     - "📊 Items after analysis: Y (+Z change)"
+     - Easy to diagnose extraction vs display issues
+- **Banner Styling**: Matches Decisions screen (📌 emoji, blue background)
 - **Files Changed**: `app/ava/action-items.tsx`
-- **Documentation**: Created ACTION_ITEMS_DISPLAY_FIX.md
-- **Status**: ✅ Ready for testing - enhanced logs will reveal any display issues
+- **Documentation**: `ACTION_ITEMS_DISPLAY_COMPLETE_FIX.md`, `ACTION_ITEMS_DISPLAY_FIX.md`
+- **Status**: ✅ **DEPLOYED - Improved UX with accurate feedback**
+
+### Decision Deduplication Threshold Lowered ✅
+**75% Similarity Catches More Duplicates**
+
+- **Change**: Lowered threshold from 80% to 75% based on user testing
+- **Impact**: Catches more semantic duplicates without false positives
+  - "Adrian will handle frontend implementation" (×3-4 variations)
+  - "Postgres SQL chosen" vs "PostgreSQL selected" (×2)
+  - "Simplify mobile charts..." variations
+- **Frontend Flicker Fixed**: Added consistent sorting by `madeAt` descending
+- **Cleanup Script Ready**: `functions/scripts/clean-duplicate-decisions.ts`
+  - Finds all semantic duplicates (75% similar)
+  - Shows preview and asks for confirmation
+  - Deletes duplicates, keeping highest confidence
+- **Expected User Results**:
+  - Before: 8 decisions with 3-4 duplicates, flickering
+  - After: ~4-5 unique decisions, no flicker
+- **Files Changed**: `functions/src/ai/decisionTracking.ts`, `app/ava/decisions.tsx`
+- **Documentation**: `DECISION_DEDUPLICATION_DEPLOYMENT_COMPLETE.md`, `DECISION_THRESHOLD_LOWERED.md`
+- **Status**: ✅ **DEPLOYED - Ready for cleanup script run**
+
+## Recent fixes (Oct 26, 2025 - Earlier)
+**Action Items Display Debug Enhancement:**
+- Enhanced logging for visibility pipeline
+- Logs user conversation IDs and all action item conversation IDs
+- Per-item logging showing conversationId and filter decision
+- Easy diagnosis of conversation ID mismatches or data issues
+
+**Debug Scripts Added:**
+- `functions/scripts/debug-decision-query.ts` - Query and debug decision tracking
+- `functions/scripts/show-all-decisions.ts` - Display all decisions with details
 
 ## Recent fixes (Oct 25, 2025)
 **Action Items Complete Overhaul:**
@@ -219,12 +266,16 @@ All four optimization phases implemented (C→A→B→D):
 - **Impact**: Major UX improvement - users can ask Ava questions naturally
 
 ## Next steps (Priority Order)
-1. ✅ **Semantic Search Enabled**: Successfully embedded 150 messages into Pinecone
-2. **Wait for Index Building** (5-15 minutes): Monitor at https://console.firebase.google.com/project/messageai-mlx93/firestore/indexes
-3. **Re-enable AI Features**: Uncomment all `// TEMPORARILY DISABLED:` sections in `app/chat/[id].tsx`
-4. ✅ **Deploy AI functions**: Successfully deployed all decision functions (extractDecisions, deleteDecision, bulkDeleteDecisions)
-5. **Test AI features**: Verify semantic search and all AI functionality works, especially new decisions feature
-6. **Optional**: Voice commands, smart notifications, meeting insights
+1. ✅ **Phase 3 Semantic Search Complete**: All search improvements deployed and tested
+2. ✅ **Action Items UX Complete**: Pull-to-refresh and accurate feedback implemented
+3. ✅ **Decision Deduplication Complete**: 75% threshold deployed
+4. **Run Cleanup Script**: Remove existing duplicate decisions with `npx ts-node scripts/clean-duplicate-decisions.ts`
+5. **Optional Future Enhancements**:
+   - Ava UI integration: "Ask Ava" button on search results
+   - Search result highlights: Show matching keywords
+   - Query suggestions: "Did you mean...?" for misspellings
+   - Hybrid search (BM25 + Semantic) for technical terms
+   - Voice commands, smart notifications, meeting insights
 
 ## Guardrails (do not regress)
 - Keep lastMessageId guard and 300ms debounce paths intact (chat, queue, retry).

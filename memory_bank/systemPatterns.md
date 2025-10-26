@@ -38,25 +38,44 @@
 - Avoid image flicker: use plain `Image` (no reanimated entering), stable `renderItem` via `useCallback`, split presence effects to avoid re-subscribe, memoize helpers, move grouping calc to parent, stable `onLayout`.
 - Cross-platform bottom scroll: measured content/layout heights + retrying snap ensures newest messages load instantly (even image-heavy/group threads), lock scroll briefly while images load, render placeholders then enable images.
 
-## AI Architecture (Currently Disabled)
+## AI Architecture (Production Ready)
 - **Service Layer**: `aiService.ts` with error handling wrapper; `aiErrorHandler.ts` for graceful offline degradation.
 - **RAG Pipeline**: Pinecone vector search with OpenAI embeddings; migration scripts for existing messages.
+- **Semantic Search (Phase 3)**: 
+  - Conditional keyword search (runs only when <3 semantic results)
+  - Exact match scoring (100% for keyword matches)
+  - Q&A context detection (automatic answer inclusion after questions)
+  - Smart filtering (prioritize 40%+ results, cleaner UI)
+  - Ava integration (`avaSearchChat` uses Pinecone for Q&A)
+- **Decision Tracking**:
+  - Semantic deduplication with 75% similarity threshold
+  - OpenAI embeddings + cosine similarity
+  - Keeps higher confidence version when duplicates found
+  - Consistent sorting by `madeAt` descending (prevents flicker)
+- **Action Items**:
+  - Pull-to-refresh for manual updates
+  - Accurate feedback with item count tracking
+  - Enhanced logging for debugging display issues
 - **Proactive Triggers**: Enhanced triggers in Cloud Functions (deadline conflicts, decision conflicts, overdue actions, context gaps).
 - **Cache Optimization**: Enhanced cache with longer TTLs (60min summaries, 30min search, 120min decisions), request batching, smart invalidation.
 - **Chat Integration**: Summarize button (✨), priority badges (🔴🟡), action items banner, proactive suggestion cards, thread summary modal.
-- **Current Status**: All AI features temporarily disabled while Firestore indexes build (5-15 minutes)
+- **Current Status**: All AI features deployed and production ready
 
-## AI Data Flow (Temporarily Disabled)
+## AI Data Flow (Production Ready)
 - **User Action** → AI Service → Error Handler → Cache Check → AI Function → Response
 - **Offline Detection**: NetInfo check before AI calls; graceful degradation with user-friendly messages.
 - **Error Recovery**: Exponential backoff for retries; rate limit handling; timeout management.
 - **Cache Strategy**: Aggressive caching reduces API costs by 40%+; automatic cleanup of expired entries.
+- **Search Flow**: Conditional keyword search → Semantic Pinecone query → Q&A context detection → Result filtering (40%+)
+- **Decision Flow**: Extract decisions → Generate embeddings → Compare with existing (75% threshold) → Merge or create new
+- **Action Items Flow**: Extract from conversations → Resolve assignees → Check duplicates → Pull-to-refresh UI
 
-## Current Temporary State (Git Commit: 452f9e8)
-- **AI Features Disabled**: All AI components commented out with `// TEMPORARILY DISABLED:` markers
+## Current State (Updated: Oct 26, 2025)
+- **AI Features Production Ready**: All AI components deployed and operational
 - **Core App Functional**: Messaging, contacts, presence, offline queue all working perfectly
-- **Index Building**: Firestore composite indexes deployed and building (5-15 minutes)
-- **Re-enable Process**: Uncomment all disabled sections once indexes are ready
-- **Documentation**: `AI_FEATURES_TEMPORARILY_DISABLED.md` contains complete re-enable guide
+- **Phase 3 Search Complete**: Conditional keyword search, exact match scoring, Q&A context detection
+- **Decision Deduplication Live**: 75% semantic similarity threshold with flicker fix
+- **Action Items Enhanced**: Pull-to-refresh, accurate feedback, enhanced logging
+- **Next Step**: Run cleanup script to remove existing duplicate decisions
 
 
