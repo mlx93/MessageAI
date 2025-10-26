@@ -26,15 +26,13 @@ import ImageViewer from '../../components/ImageViewer';
 import MessageActionSheet from '../../components/MessageActionSheet';
 import CachedImage from '../../components/CachedImage';
 import QueueVisibilityBanner from '../../components/QueueVisibilityBanner';
-// TEMPORARILY DISABLED: AI components while indexes build
-// import PriorityBadge from '../../components/ai/PriorityBadge';
-// import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
-// import ProactiveSuggestionCard from '../../components/ai/ProactiveSuggestionCard';
-// import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
+import PriorityBadge from '../../components/ai/PriorityBadge';
+import ActionItemsBanner from '../../components/ai/ActionItemsBanner';
+import ProactiveSuggestionCard from '../../components/ai/ProactiveSuggestionCard';
+import ThreadSummaryModal from '../../components/ai/ThreadSummaryModal';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-// TEMPORARILY DISABLED: AI service while indexes build
-// import aiService, { ProactiveSuggestion } from '../../services/aiService';
+import aiService, { ProactiveSuggestion } from '../../services/aiService';
 
 interface Participant {
   uid: string;
@@ -81,10 +79,9 @@ export default function ChatScreen() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
   const [pendingSend, setPendingSend] = useState(false);
-  // TEMPORARILY DISABLED: AI-related state while indexes build
-  // const [summaryModalVisible, setSummaryModalVisible] = useState(false);
-  // const [proactiveSuggestions, setProactiveSuggestions] = useState<ProactiveSuggestion[]>([]);
-  // const [loadingSuggestion, setLoadingSuggestion] = useState<string | null>(null);
+  const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+  const [proactiveSuggestions, setProactiveSuggestions] = useState<ProactiveSuggestion[]>([]);
+  const [loadingSuggestion, setLoadingSuggestion] = useState<string | null>(null);
   const lastLoadTime = useRef(0); // Throttle loading
   const maxMessagesInMemory = useRef(200); // Phase 3: Memory management
   const appStateSubscription = useRef<any>(null); // Phase 4: App state subscription
@@ -382,6 +379,17 @@ export default function ChatScreen() {
         !m.deletedBy || !m.deletedBy.includes(user!.uid)
       );
       
+      // DEBUG: Check if priority data is coming through
+      const withPriority = visibleMessages.filter(m => m.priority && m.priority !== 'normal');
+      if (withPriority.length > 0) {
+        console.log('🔴 Messages with priority:', withPriority.map(m => ({
+          id: m.id,
+          text: m.text?.substring(0, 50),
+          priority: m.priority,
+          confidence: m.priorityConfidence
+        })));
+      }
+      
       // Check if this is a NEW message (not just an update)
       const isNewMessage = visibleMessages.length > prevMessageCount.current;
       prevMessageCount.current = visibleMessages.length;
@@ -588,8 +596,8 @@ export default function ChatScreen() {
           },
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {/* TEMPORARILY DISABLED: Summarize Button while indexes build */}
-              {/* {!isAddMode && (
+              {/* Summarize Button */}
+              {!isAddMode && (
                 <TouchableOpacity
                   onPress={() => setSummaryModalVisible(true)}
                   style={{
@@ -602,7 +610,7 @@ export default function ChatScreen() {
                 >
                   <Ionicons name="sparkles-outline" size={22} color="#007AFF" />
                 </TouchableOpacity>
-              )} */}
+              )}
               {/* Add/Confirm/Cancel Button */}
               <TouchableOpacity
                 onPress={buttonAction}
@@ -734,34 +742,33 @@ export default function ChatScreen() {
     };
   }, [conversationId, user]);
 
-  // TEMPORARILY DISABLED: Subscribe to proactive AI suggestions
-  // TODO: Re-enable after Firestore indexes finish building (5-15 minutes)
-  // useEffect(() => {
-  //   if (!conversationId) return;
+  // Subscribe to proactive AI suggestions
+  useEffect(() => {
+    if (!conversationId) return;
 
-  //   const unsubscribe = aiService
-  //     .getProactiveSuggestions(conversationId)
-  //     .onSnapshot(
-  //       (snapshot) => {
-  //         const suggestions = snapshot.docs.map((doc) => ({
-  //           id: doc.id,
-  //           ...doc.data(),
-  //         })) as ProactiveSuggestion[];
-  //         setProactiveSuggestions(suggestions);
-  //       },
-  //       (error: any) => {
-  //         // Gracefully handle index building errors
-  //         if (error.code === 'failed-precondition' && error.message?.includes('index is currently building')) {
-  //           console.log('⏳ AI indexes are building, suggestions will be available soon');
-  //           // Silently fail - don't show error to user
-  //           return;
-  //         }
-  //         console.warn('⚠️ Failed to load AI suggestions:', error.message || error);
-  //       }
-  //     );
+    const unsubscribe = aiService
+      .getProactiveSuggestions(conversationId)
+      .onSnapshot(
+        (snapshot) => {
+          const suggestions = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          })) as ProactiveSuggestion[];
+          setProactiveSuggestions(suggestions);
+        },
+        (error: any) => {
+          // Gracefully handle index building errors
+          if (error.code === 'failed-precondition' && error.message?.includes('index is currently building')) {
+            console.log('⏳ AI indexes are building, suggestions will be available soon');
+            // Silently fail - don't show error to user
+            return;
+          }
+          console.warn('⚠️ Failed to load AI suggestions:', error.message || error);
+        }
+      );
 
-  //   return () => unsubscribe();
-  // }, [conversationId]);
+    return () => unsubscribe();
+  }, [conversationId]);
 
   // Search for users when in add mode
   useEffect(() => {
@@ -1068,40 +1075,40 @@ export default function ChatScreen() {
     }
   };
 
-  // TEMPORARILY DISABLED: AI Feature Handlers while indexes build
-  // const handleViewAllActionItems = () => {
-  //   router.push({
-  //     pathname: '/ava/action-items',
-  //     params: { conversationId }
-  //   });
-  // };
+  // AI Feature Handlers
+  const handleViewAllActionItems = () => {
+    router.push({
+      pathname: '/ava/action-items',
+      params: { conversationId }
+    });
+  };
 
-  // const handleAcceptSuggestion = async (suggestionId: string, action?: string) => {
-  //   setLoadingSuggestion(suggestionId);
-  //   try {
-  //     await aiService.acceptSuggestion(suggestionId);
-  //     // Optionally handle specific actions
-  //     if (action) {
-  //       console.log('Executing action:', action);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error accepting suggestion:', error);
-  //     Alert.alert('Error', 'Failed to accept suggestion');
-  //   } finally {
-  //     setLoadingSuggestion(null);
-  //   }
-  // };
+  const handleAcceptSuggestion = async (suggestionId: string, action?: string) => {
+    setLoadingSuggestion(suggestionId);
+    try {
+      await aiService.acceptSuggestion(suggestionId);
+      // Optionally handle specific actions
+      if (action) {
+        console.log('Executing action:', action);
+      }
+    } catch (error) {
+      console.error('Error accepting suggestion:', error);
+      Alert.alert('Error', 'Failed to accept suggestion');
+    } finally {
+      setLoadingSuggestion(null);
+    }
+  };
 
-  // const handleDismissSuggestion = async (suggestionId: string) => {
-  //   setLoadingSuggestion(suggestionId);
-  //   try {
-  //     await aiService.dismissSuggestion(suggestionId);
-  //   } catch (error) {
-  //     console.error('Error dismissing suggestion:', error);
-  //   } finally {
-  //     setLoadingSuggestion(null);
-  //   }
-  // };
+  const handleDismissSuggestion = async (suggestionId: string) => {
+    setLoadingSuggestion(suggestionId);
+    try {
+      await aiService.dismissSuggestion(suggestionId);
+    } catch (error) {
+      console.error('Error dismissing suggestion:', error);
+    } finally {
+      setLoadingSuggestion(null);
+    }
+  };
 
   const handleAddParticipant = () => {
     setIsAddMode(true);
@@ -1540,6 +1547,15 @@ export default function ChatScreen() {
     isFirstInGroup: boolean;
     shouldRenderImages: boolean;
   }) => {
+    // DEBUG: Log priority data in render
+    if (message.priority && message.priority !== 'normal') {
+      console.log('🎯 Rendering message with priority:', {
+        id: message.id,
+        priority: message.priority,
+        confidence: message.priorityConfidence,
+        text: message.text?.substring(0, 30)
+      });
+    }
     const isOwnMessage = message.senderId === user!.uid;
     const hasImageContent = message.type === 'image' && message.mediaURL;
     const isImageMessage = hasImageContent && shouldRenderImages;
@@ -1612,6 +1628,16 @@ export default function ChatScreen() {
                       {message.text}
                     </Text>
                   </Pressable>
+                )}
+                
+                {/* Priority badge for own messages */}
+                {message.priority && message.priority !== 'normal' && (
+                  <View style={{ marginTop: 4, alignSelf: 'flex-end' }}>
+                    <PriorityBadge 
+                      priority={message.priority} 
+                      confidence={message.priorityConfidence}
+                    />
+                  </View>
                 )}
                 
                 {/* Read receipt below bubble - always visible */}
@@ -1711,25 +1737,24 @@ export default function ChatScreen() {
               {isGroupChat && isFirstInGroup && senderInfo && (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={styles.senderName}>{senderInfo.displayName}</Text>
-                  {/* TEMPORARILY DISABLED: Priority badge while indexes build */}
-                  {/* {message.priority && message.priority !== 'normal' && (
+                  {message.priority && message.priority !== 'normal' && (
                     <PriorityBadge 
                       priority={message.priority} 
                       confidence={message.priorityConfidence}
                     />
-                  )} */}
+                  )}
                 </View>
               )}
               
-              {/* TEMPORARILY DISABLED: Priority badge for direct messages while indexes build */}
-              {/* {!isGroupChat && message.priority && message.priority !== 'normal' && (
+              {/* Priority badge for direct messages */}
+              {!isGroupChat && message.priority && message.priority !== 'normal' && (
                 <View style={{ marginBottom: 4 }}>
                   <PriorityBadge 
                     priority={message.priority} 
                     confidence={message.priorityConfidence}
                   />
                 </View>
-              )} */}
+              )}
               
               {isImageMessage ? (
                 <View style={[styles.imageMessageContainer, styles.otherImageContainer]}>
@@ -1784,6 +1809,8 @@ export default function ChatScreen() {
       prev.readBy.length === next.readBy.length &&
       prev.deliveredTo.length === next.deliveredTo.length &&
       prev.mediaURL === next.mediaURL &&
+      prev.priority === next.priority &&
+      prev.priorityConfidence === next.priorityConfidence &&
       prevProps.index === nextProps.index &&
       prevProps.isLastInGroup === nextProps.isLastInGroup &&
       prevProps.isFirstInGroup === nextProps.isFirstInGroup &&
@@ -1906,8 +1933,8 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* TEMPORARILY DISABLED: Proactive AI Suggestions while indexes build */}
-      {/* {proactiveSuggestions.map((suggestion) => (
+      {/* Proactive AI Suggestions */}
+      {proactiveSuggestions.map((suggestion) => (
         <ProactiveSuggestionCard
           key={suggestion.id}
           suggestion={suggestion}
@@ -1915,13 +1942,13 @@ export default function ChatScreen() {
           onDismiss={handleDismissSuggestion}
           loading={loadingSuggestion === suggestion.id}
         />
-      ))} */}
+      ))}
 
-      {/* TEMPORARILY DISABLED: Action Items Banner while indexes build */}
-      {/* <ActionItemsBanner
+      {/* Action Items Banner */}
+      <ActionItemsBanner
         conversationId={conversationId}
         onViewAll={handleViewAllActionItems}
-      /> */}
+      />
 
       <View style={styles.messagesWrapper}>
         {isInitialLoad ? (
@@ -1961,7 +1988,7 @@ export default function ChatScreen() {
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 10
             } : undefined}
-            extraData={`${participantDetailsVersion}-${useInvertedList}`}
+            extraData={`${participantDetailsVersion}-${useInvertedList}-${messages[0]?.priority || ''}`}
             onScroll={({ nativeEvent }) => {
             // OPTIMIZED: Detect when user scrolls near top to load older messages
             const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
@@ -2019,12 +2046,48 @@ export default function ChatScreen() {
                   <Text style={styles.loadingOlderMessagesText}>Loading...</Text>
                 </View>
               )}
+              
+              {/* Typing Indicator - appears at BOTTOM for inverted lists (most conversations) */}
+              {useInvertedList && typingUsers.length > 0 && (
+                <View style={styles.messageRow}>
+                  <View style={styles.otherMessageWrapper}>
+                    {/* Avatar - show first typing user's initials */}
+                    {(() => {
+                      const firstTyper = typingUsers[0];
+                      const typerDetails = participantDetailsMap[firstTyper.userId];
+                      const initials = typerDetails?.initials || firstTyper.displayName?.substring(0, 2).toUpperCase() || '??';
+                      
+                      return (
+                        <View style={styles.senderAvatar}>
+                          <Text style={styles.senderAvatarText}>{initials}</Text>
+                        </View>
+                      );
+                    })()}
+                    
+                    <View style={styles.messageContainer}>
+                      {/* Sender name(s) above bubble */}
+                      {isGroupChat && (
+                        <Text style={styles.senderName}>{typingText.replace(' is typing...', '').replace(' are typing...', '')}</Text>
+                      )}
+                      
+                      {/* Typing dots in grey bubble */}
+                      <View style={styles.typingBubble}>
+                        <View style={styles.typingDotsContainer}>
+                          <View style={[styles.typingDot, styles.typingDot1]} />
+                          <View style={[styles.typingDot, styles.typingDot2]} />
+                          <View style={[styles.typingDot, styles.typingDot3]} />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              )}
             </>
           )}
           ListFooterComponent={() => (
             <>
-              {/* Typing Indicator - styled like regular messages with avatar */}
-              {typingUsers.length > 0 && (
+              {/* Typing Indicator - appears at BOTTOM for normal lists (few messages) */}
+              {!useInvertedList && typingUsers.length > 0 && (
                 <View style={styles.messageRow}>
                   <View style={styles.otherMessageWrapper}>
                     {/* Avatar - show first typing user's initials */}
@@ -2133,12 +2196,12 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* TEMPORARILY DISABLED: Thread Summary Modal while indexes build */}
-      {/* <ThreadSummaryModal
+      {/* Thread Summary Modal */}
+      <ThreadSummaryModal
         visible={summaryModalVisible}
         conversationId={conversationId}
         onClose={() => setSummaryModalVisible(false)}
-      /> */}
+      />
 
       {/* Message Action Sheet */}
       <MessageActionSheet

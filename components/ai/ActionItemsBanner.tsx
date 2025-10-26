@@ -21,6 +21,7 @@ export default function ActionItemsBanner({
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     const unsubscribe = aiService
@@ -57,7 +58,7 @@ export default function ActionItemsBanner({
     );
   }
 
-  if (actionItems.length === 0) return null;
+  if (actionItems.length === 0 || dismissed) return null;
 
   return (
     <View style={styles.container}>
@@ -68,19 +69,28 @@ export default function ActionItemsBanner({
             {actionItems.length} Action Item{actionItems.length > 1 ? 's' : ''}
           </Text>
         </View>
-        <TouchableOpacity onPress={onViewAll} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-          <Text style={styles.viewAll}>View All</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={onViewAll} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+            <Text style={styles.viewAll}>View All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => setDismissed(true)} 
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            style={styles.dismissButton}
+          >
+            <Ionicons name="close" size={18} color="#999" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.itemsList}>
         {actionItems.map((item) => (
-          <View key={item.messageId} style={styles.item}>
+          <View key={item.id} style={styles.item}>
             <TouchableOpacity
               style={styles.checkbox}
-              onPress={() => handleComplete(item.messageId)}
-              disabled={completing === item.messageId}>
-              {completing === item.messageId ? (
+              onPress={() => handleComplete(item.id)}
+              disabled={completing === item.id}>
+              {completing === item.id ? (
                 <ActivityIndicator size="small" color="#007AFF" />
               ) : (
                 <Ionicons name="ellipse-outline" size={18} color="#007AFF" />
@@ -129,10 +139,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   viewAll: {
     fontSize: 12,
     color: '#007AFF',
     fontWeight: '600',
+  },
+  dismissButton: {
+    padding: 4,
   },
   itemsList: {
     gap: 6,

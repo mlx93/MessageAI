@@ -54,7 +54,10 @@ export const subscribeToMessages = (
         localId: data.localId,
         readBy: data.readBy || [],
         deliveredTo: data.deliveredTo || [],
-        deletedBy: data.deletedBy || []
+        deletedBy: data.deletedBy || [],
+        priority: data.priority,
+        priorityConfidence: data.priorityConfidence,
+        priorityReason: data.priorityReason
       } as Message;
     });
     callback(messages);
@@ -91,7 +94,10 @@ export const subscribeToMessagesPaginated = (
         localId: data.localId,
         readBy: data.readBy || [],
         deliveredTo: data.deliveredTo || [],
-        deletedBy: data.deletedBy || []
+        deletedBy: data.deletedBy || [],
+        priority: data.priority,
+        priorityConfidence: data.priorityConfidence,
+        priorityReason: data.priorityReason
       } as Message;
     });
     
@@ -148,7 +154,10 @@ export const loadOlderMessages = async (
           localId: data.localId,
           readBy: data.readBy || [],
           deliveredTo: data.deliveredTo || [],
-          deletedBy: data.deletedBy || []
+          deletedBy: data.deletedBy || [],
+          priority: data.priority,
+          priorityConfidence: data.priorityConfidence,
+          priorityReason: data.priorityReason
         } as Message;
       });
     

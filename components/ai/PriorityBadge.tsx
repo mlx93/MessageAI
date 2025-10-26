@@ -46,19 +46,19 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
     borderWidth: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    marginLeft: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    alignSelf: 'flex-start',
   },
   icon: {
-    fontSize: 10,
-    marginRight: 2,
+    fontSize: 12,
+    marginRight: 3,
   },
   label: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
   confidence: {

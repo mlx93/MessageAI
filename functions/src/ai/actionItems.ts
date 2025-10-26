@@ -179,7 +179,77 @@ An action item must have:
 2. A clear deliverable or outcome
 3. An actionable task (not just discussion/decision)
 
-DO extract (examples):
+=== FEW-SHOT EXAMPLES (LEARN FROM THESE) ===
+
+EXAMPLE 1 - First-person commitment with "I can":
+[23] Hadi Raad: I can handle the MongoDB setup
+→ Extract: {
+  task: "Handle the MongoDB setup",
+  assignee: "SENDER",
+  messageId: "23",
+  confidence: 0.95
+}
+
+EXAMPLE 2 - First-person commitment with "I'll":
+[29] Hadi Raad: I'll get MongoDB ready today
+→ Extract: {
+  task: "Get MongoDB ready today",
+  assignee: "SENDER",
+  messageId: "29",
+  confidence: 0.95
+}
+⚠️ NOTE: This is semantically IDENTICAL to Example 1 above!
+If you already extracted "Handle MongoDB setup" from message [23],
+DO NOT extract this one - they are duplicates.
+
+EXAMPLE 3 - Direct assignment:
+[25] Dan Greenlee: Myles, can you have benchmarks ready by Wednesday?
+→ Extract: {
+  task: "Have benchmarks ready by Wednesday",
+  assignee: "Myles",
+  messageId: "25",
+  confidence: 0.98
+}
+
+EXAMPLE 4 - First-person with "I'll":
+[107] Hadi Raad: I'll have final mockups by Friday EOD
+→ Extract: {
+  task: "Have final mockups by Friday EOD",
+  assignee: "SENDER",
+  messageId: "107",
+  confidence: 0.98
+}
+
+EXAMPLE 5 - First-person with "I can":
+[21] Myles Lewis: I can run benchmarks this week
+→ Extract: {
+  task: "Run benchmarks this week",
+  assignee: "SENDER",
+  messageId: "21",
+  confidence: 0.95
+}
+
+EXAMPLE 6 - Two-part assignment:
+[27] Myles Lewis: I'll handle PostgreSQL and MySQL. Hadi, you take MongoDB?
+→ Extract TWO items:
+Item 1: {
+  task: "Handle PostgreSQL and MySQL",
+  assignee: "SENDER",
+  messageId: "27",
+  confidence: 0.95
+}
+Item 2: {
+  task: "Take MongoDB",
+  assignee: "Hadi",
+  messageId: "27",
+  confidence: 0.90
+}
+
+EXAMPLE 7 - DON'T extract acknowledgments:
+[120] Myles Lewis: Will do. Thanks for the quick turnaround!
+→ Extract: NOTHING ❌ (acknowledgment only, no specific task)
+
+=== WHAT TO EXTRACT (Good Examples) ===
 - "I'll have the benchmarks ready by Friday" ✅ (clear commitment)
 - "Can you update the Postgres docs?" ✅ (specific request)
 - "@Dan please restart the Redis service" ✅ (direct assignment)
@@ -187,7 +257,7 @@ DO extract (examples):
 - "I can handle the MongoDB setup" ✅ (first-person commitment)
 - "Let me take care of the deployment" ✅ (first-person ownership)
 
-DON'T extract (examples):
+=== WHAT NOT TO EXTRACT (Bad Examples) ===
 - "We should probably meet sometime" ❌ (too vague, no commitment)
 - "Let me know if you're available" ❌ (not an action, just inquiry)
 - "What do you think about the new design?" ❌ (question, not task)
@@ -195,6 +265,7 @@ DON'T extract (examples):
 - "Maybe we could try that approach" ❌ (hypothetical discussion)
 - "Great work!", "Thanks!", "Awesome!" ❌ (casual conversation, no task)
 - "You did an awesome job!" ❌ (praise, not a task assignment)
+- "Will do" or "Sounds good!" ❌ (acknowledgment, no specific task)
 
 Messages:
 ${messagesForPrompt}
@@ -212,8 +283,12 @@ For each action item:
 - assignee: Person assigned - CRITICAL RULES BELOW
 - deadline: Any mentioned deadline (or null)
 - context: Brief context from conversation (focus on WHAT, not WHO)
-- messageId: The message ID this came from (use the [index] from the
-  messages above)
+- messageId: ⚠️ CRITICAL - The [index] number from the messages above
+  * MUST match the EXACT message containing this action item
+  * Example: If action is from "[23] Hadi: I can handle MongoDB"
+    → messageId MUST be "23" (not any other number!)
+  * Each action item usually has its OWN unique messageId
+  * DO NOT use the same messageId for multiple different action items
 - confidence: 0-1 score of how confident this is a real action item
 
 CRITICAL TASK EXTRACTION RULES (Anti-Hallucination):
@@ -233,6 +308,19 @@ CRITICAL TASK EXTRACTION RULES (Anti-Hallucination):
   * "Sounds good!" → NO TASK (agreement, no commitment)
   * "See you tomorrow!" → NO TASK (casual conversation)
 
+CRITICAL DEDUPLICATION RULE:
+- Before extracting an action item, check if you've already extracted a 
+  semantically similar task
+- Examples of DUPLICATES (only extract ONE):
+  * "I can handle the MongoDB setup" vs "I'll get MongoDB ready today"
+    → These are the SAME task! Only extract the one with more detail/deadline
+  * "Run benchmarks this week" vs "Have benchmarks ready by Wednesday"
+    → Extract BOTH (different: one has specific deadline, different scope)
+- If two tasks are >70% semantically similar, only extract the better one:
+  * Prefer: Task with specific deadline over vague timing
+  * Prefer: Task with more specific details
+  * Prefer: Direct assignment over implied commitment
+
 Confidence scoring rules:
 - Set confidence to 0.95+ ONLY if both assignment AND task are crystal clear
 - Set confidence to 0.85-0.94 if task is clear but assignee is ` +
@@ -245,14 +333,17 @@ ASSIGNEE EXTRACTION RULES (CRITICAL - READ CAREFULLY):
 
 1. FIRST-PERSON COMMITMENTS - Return "SENDER" as assignee:
    * When message is "[5] John Smith: I can handle the MongoDB setup"
-     → task = "Handle the MongoDB setup", assignee = "SENDER"
+     → task = "Handle the MongoDB setup", assignee = "SENDER",
+        messageId = "5"
    * When message is "[2] Sarah Lee: I'll take care of the deployment"
-     → task = "Take care of the deployment", assignee = "SENDER"
+     → task = "Take care of the deployment", assignee = "SENDER",
+        messageId = "2"
    * When message is "[8] Dan G: Let me do the testing"
-     → task = "Do the testing", assignee = "SENDER"
+     → task = "Do the testing", assignee = "SENDER", messageId = "8"
    * Pattern: ANY form of "I/I'll/I can/I will/Let me [do task]"
      → assignee = "SENDER" (we'll resolve this to the actual sender)
      → Remove the pronoun from the task description
+     → messageId = the [index] of THIS message
 
 2. DIRECT NAME ASSIGNMENTS - Extract the person mentioned:
    * When message is "[3] Hadi R: Dan, you take the frontend work"
@@ -278,6 +369,7 @@ ASSIGNEE EXTRACTION RULES (CRITICAL - READ CAREFULLY):
 IMPORTANT: 
 - For first-person commitments, ALWAYS return "SENDER" as assignee
 - Write tasks as imperative commands WITHOUT first-person pronouns
+- Ensure messageId matches the EXACT message containing that action item
 
 Context field rules (CRITICAL):
 - Focus on WHAT needs to be done, NOT WHO said it
@@ -421,11 +513,11 @@ Context field rules (CRITICAL):
       "[Batch Deduplication] Checking for duplicates within " +
       "newly extracted items..."
     );
-    // Lower threshold from 0.85 to 0.80 to catch more semantic duplicates
+    // Lower threshold from 0.80 to 0.75 to catch more semantic duplicates
     // This makes deduplication LESS strict (catches more similar items)
     // Example: "Handle MongoDB setup" vs "Get MongoDB ready today"
-    // should deduplicate
-    const SIMILARITY_THRESHOLD = 0.80;
+    // were showing 72.5% similarity - need to go lower to catch them
+    const SIMILARITY_THRESHOLD = 0.75;
     const batchDedupedItems: typeof itemsWithEmbeddings = [];
     const batchDuplicatesSkipped: Array<{
       task: string;
