@@ -73,14 +73,27 @@ export default function ActionItemsScreen() {
           console.log('📋 Action items conversation IDs:', allConvIds);
           
           // Filter to show items from user's conversations
+          // AND filter by assignee (only show items assigned to user OR unassigned)
           const userItems = snapshot.docs.filter((doc: any) => {
             const data = doc.data();
             const isInUserConv = userConversationIds.includes(data.conversationId);
-            console.log(`📋 Item ${doc.id}: conversationId=${data.conversationId}, included=${isInUserConv}`);
-            return isInUserConv;
+            
+            // Check assignment status
+            const assigneeId = data.assigneeId;
+            const isAssignedToUser = assigneeId === userId;
+            const isUnassigned = !assigneeId || assigneeId === null || assigneeId === '';
+            
+            // Show if:
+            // 1. In user's conversation AND assigned to current user
+            // 2. In user's conversation AND unassigned
+            // Hide if assigned to someone else
+            const shouldShow = isInUserConv && (isAssignedToUser || isUnassigned);
+            
+            console.log(`📋 Item ${doc.id}: conversationId=${data.conversationId}, assigneeId=${assigneeId}, isAssignedToUser=${isAssignedToUser}, isUnassigned=${isUnassigned}, shouldShow=${shouldShow}`);
+            return shouldShow;
           });
           
-          console.log(`📋 Filtered to ${userItems.length} items from your conversations`);
+          console.log(`📋 Filtered to ${userItems.length} items (assigned to you or unassigned)`);
           
           const items = userItems.map((doc: any) => {
             const data = doc.data();

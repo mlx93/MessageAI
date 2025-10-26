@@ -294,6 +294,30 @@ Context field rules (CRITICAL):
       `🤖 AI found ${result.object.actionItems.length} potential action items`
     );
 
+    // Log all AI-returned items with their messageIds for debugging
+    console.log("🔍 AI returned these items with messageIds:");
+    result.object.actionItems.forEach((item, i) => {
+      console.log(
+        `  [${i}] Task: "${item.task.slice(0, 40)}..." | ` +
+        `MessageId: ${item.messageId} | ` +
+        `Assignee: ${item.assignee || "none"} | ` +
+        `Confidence: ${(item.confidence * 100).toFixed(0)}%`
+      );
+    });
+
+    // Also log the messages array for reference
+    console.log("📋 Messages array (DESC order, newest first):");
+    messages.slice(0, 5).forEach((msg, i) => {
+      const sender = senderIdToName[msg.sender as string] ||
+        msg.sender?.slice(0, 8);
+      console.log(
+        `  [${i}] "${msg.text?.slice(0, 50)}..." | (${sender})`
+      );
+    });
+    if (messages.length > 5) {
+      console.log(`  ... and ${messages.length - 5} more messages`);
+    }
+
     // Filter by confidence threshold (minimum 85%)
     const MIN_CONFIDENCE = 0.85;
     const qualityItems = result.object.actionItems.filter(
@@ -397,7 +421,11 @@ Context field rules (CRITICAL):
       "[Batch Deduplication] Checking for duplicates within " +
       "newly extracted items..."
     );
-    const SIMILARITY_THRESHOLD = 0.85;
+    // Lower threshold from 0.85 to 0.80 to catch more semantic duplicates
+    // This makes deduplication LESS strict (catches more similar items)
+    // Example: "Handle MongoDB setup" vs "Get MongoDB ready today"
+    // should deduplicate
+    const SIMILARITY_THRESHOLD = 0.80;
     const batchDedupedItems: typeof itemsWithEmbeddings = [];
     const batchDuplicatesSkipped: Array<{
       task: string;
@@ -424,6 +452,14 @@ Context field rules (CRITICAL):
         const similarity = cosineSimilarity(
           currentItem.embedding,
           existingNewItem.embedding
+        );
+
+        // Log ALL comparisons to see similarity scores
+        console.log(
+          "[Batch Dedup] Comparing: " +
+          `"${currentItem.task.slice(0, 30)}..." vs ` +
+          `"${existingNewItem.task.slice(0, 30)}..." = ` +
+          `${(similarity * 100).toFixed(1)}%`
         );
 
         if (similarity >= SIMILARITY_THRESHOLD) {
@@ -644,6 +680,34 @@ Context field rules (CRITICAL):
               }... | ` +
               `Text: "${selectedMessage.text?.slice(0, 40)}..."`
             );
+
+            // Validation: Check if message text contains key words from task
+            // This helps catch if AI returned wrong message index
+            const messageText = (selectedMessage.text || "").toLowerCase();
+            const taskWords = item.task.toLowerCase().split(" ");
+            const matchingWords = taskWords.filter((word) =>
+              word.length > 3 && messageText.includes(word)
+            );
+            const matchPercentage =
+              (matchingWords.length / taskWords.length) * 100;
+
+            if (matchPercentage < 30) {
+              const matchPct = matchPercentage.toFixed(0);
+              console.warn(
+                `⚠️ Low match between task and message (${matchPct}% match):`
+              );
+              console.warn(`   Task: "${item.task}"`);
+              const msgPreview = selectedMessage.text?.slice(0, 100) || "";
+              console.warn(`   Message: "${msgPreview}..."`);
+              console.warn(
+                "   This might indicate AI returned wrong message index"
+              );
+            } else {
+              const matchPct = matchPercentage.toFixed(0);
+              console.log(
+                `✓ Task/message match validated (${matchPct}% word overlap)`
+              );
+            }
           }
         }
       } catch (e) {
